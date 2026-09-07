@@ -28,6 +28,7 @@ import {
 import { saveBlob } from '../engine/desktop.js'
 import {
   wholeClip, slideTo, trimTo, splitAt, closeGaps, clipRange, MIN_CLIP_MS,
+  trackCount, sortByTrack,
 } from '../engine/clips.js'
 import { ensureAudio, setMaster } from '../engine/audio.js'
 import {
@@ -192,6 +193,28 @@ export { defaultBgRemove }
  * proof can already contain duplicates. Loading one without fixing it would
  * carry the "two layers behaving as one" bug straight back in.
  */
+/**
+ * Where a clip dropped at `at` on `track` should actually start.
+ *
+ * Dropping onto a spot another clip already occupies means the two would sit on
+ * top of each other, and one would silently hide the other. Landing after the
+ * clip that is in the way is what was meant — it is how a sequence gets built by
+ * dragging several things onto one row — and it needs no mode, no modifier and
+ * nothing to press.
+ */
+function freeSpotOn(layers, track, at) {
+  let t = Math.max(0, Math.round(at))
+  // Repeat, because being pushed past one clip can land inside the next.
+  for (let guard = 0; guard < 64; guard++) {
+    const hit = layers.find((l) => l.clip && (l.track || 0) === track
+      && t >= clipRange(l, getAsset(l.assetId)).start
+      && t < clipRange(l, getAsset(l.assetId)).end)
+    if (!hit) return t
+    t = Math.round(clipRange(hit, getAsset(hit.assetId)).end)
+  }
+  return t
+}
+
 export function normalizeDoc(doc) {
   const seen = new Set()
   const layers = doc.layers.map((l) => {
@@ -688,6 +711,79 @@ export const useStore = create((set, get) => ({
   // media, here". Everything below is the small set of operations an edit is
   // actually made of: give a layer a clip, slide it, trim an end, cut it in two,
   // and close the gaps afterwards.
+
+  /** How many track rows the document is using. */
+  trackCount: () => trackCount(get().doc.layers),
+
+  /**
+   * Moves a clip to another track.
+   *
+   * The layer array is re-sorted afterwards, because that array *is* stacking
+   * order — keeping a separate track order beside it would be two truths that
+   * can disagree, and the renderer would have to learn about tracks to resolve
+   * them. This way it never does.
+   */
+  setClipTrack: (id, track, { commit = true } = {}) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === id)
+    const next = Math.max(0, Math.round(track))
+    if (!l?.clip || (l.track || 0) === next) return
+    if (commit) s.pushHistory()
+    const layers = sortByTrack(
+      s.doc.layers.map((x) => (x.id === id ? { ...x, track: next } : x)),
+    )
+    set({ dirty: true, doc: { ...s.doc, layers } })
+  },
+
+  /**
+   * Puts media on the timeline as a clip. This is how clips come to exist —
+   * the gesture that creates one is the same gesture that says where it goes,
+   * so there is nothing to press first.
+   */
+  insertClip: (assetId, { track = 0, at = 0, select: sel = true } = {}) => {
+    const asset = getAsset(assetId)
+    if (!asset) return null
+    const s = get()
+    s.pushHistory()
+    const { width, height } = s.doc
+    const fit = Math.min(1, width / asset.width, height / asset.height)
+    const w = asset.width * fit
+    const h = asset.height * fit
+    const layer = {
+      id: nid('l'),
+      type: 'image',
+      name: asset.name,
+      assetId: asset.id,
+      x: (width - w) / 2,
+      y: (height - h) / 2,
+      w,
+      h,
+      rotation: 0,
+      radius: 0,
+      opacity: 1,
+      blend: 'source-over',
+      visible: true,
+      locked: false,
+      flipX: false,
+      flipY: false,
+      speed: 1,
+      timeOffset: 0,
+      track: Math.max(0, Math.round(track)),
+      clip: wholeClip({}, asset, freeSpotOn(s.doc.layers, Math.max(0, Math.round(track)), at)),
+      ...imageFraming(),
+      adjust: defaultAdjust(),
+    }
+    const layers = sortByTrack([...s.doc.layers, layer])
+    set({
+      dirty: true,
+      workspace: 'editor',
+      doc: { ...s.doc, layers, media: [...new Set([...(s.doc.media || []), assetId])] },
+      ...(sel ? { selectedIds: [layer.id] } : null),
+      notice: { kind: 'ok', text: `Added ${asset.name}` },
+    })
+    get().recomputeDuration()
+    return layer.id
+  },
 
   /** Gives a layer a clip covering its whole source, placed at `at`. */
   makeClip: (id, at = null) => {

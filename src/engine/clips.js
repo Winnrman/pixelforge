@@ -173,14 +173,93 @@ export function clipsEnd(layers, assetOf) {
  * what you almost always want is the remainder joined up.
  */
 export function closeGaps(layers, assetOf, startAt = 0) {
-  const clipped = layers.filter((l) => l.clip)
-  const order = [...clipped].sort((a, b) => (a.clip.start || 0) - (b.clip.start || 0))
-  let at = startAt
   const out = new Map()
-  for (const l of order) {
-    const { length } = clipRange(l, assetOf(l))
-    out.set(l.id, { ...l.clip, start: Math.round(at) })
-    at += length
+  // Per track, not across all of them. Clips on different rows are meant to run
+  // at the same time as each other — pulling them into one queue would destroy
+  // the arrangement rather than tidy it.
+  const tracks = new Set(layers.filter((l) => l.clip).map((l) => l.track || 0))
+  for (const t of tracks) {
+    const order = layers
+      .filter((l) => l.clip && (l.track || 0) === t)
+      .sort((a, b) => (a.clip.start || 0) - (b.clip.start || 0))
+    let at = startAt
+    for (const l of order) {
+      const { length } = clipRange(l, assetOf(l))
+      out.set(l.id, { ...l.clip, start: Math.round(at) })
+      at += length
+    }
   }
   return out
+}
+
+// ------------------------------------------------------------------- tracks
+//
+// A track is one integer on a layer, not a collection of its own.
+//
+// The document's layer array already *is* stacking order, and a second ordering
+// living beside it would be two sources of truth that can disagree — the kind of
+// thing that makes an editor need a manual. So moving a clip between tracks
+// re-sorts the array to match, and the renderer never learns that tracks exist.
+//
+// Higher track number means further forward, matching the way a timeline is
+// drawn: the top row is the one in front.
+
+export const trackOf = (l) => (l?.clip ? (l.track || 0) : null)
+
+/** How many tracks the document is using. Always at least one. */
+export function trackCount(layers) {
+  let top = 0
+  for (const l of layers) if (l.clip) top = Math.max(top, l.track || 0)
+  return top + 1
+}
+
+/** The clips on each track, highest track first — the order they are drawn in. */
+export function byTrack(layers) {
+  const n = trackCount(layers)
+  const rows = []
+  for (let t = n - 1; t >= 0; t--) {
+    rows.push({ track: t, clips: layers.filter((l) => l.clip && (l.track || 0) === t) })
+  }
+  return rows
+}
+
+/**
+ * Re-sorts the layer array so array order agrees with track order.
+ *
+ * Only the clips move, and only among the positions clips already occupy.
+ * Everything else — text, shapes, effects — stays exactly where it is, because
+ * a title that sat in front of the footage must not fall behind it because a
+ * clip was dragged to another row.
+ */
+export function sortByTrack(layers) {
+  const slots = []
+  const clips = []
+  layers.forEach((l, i) => {
+    if (!l.clip) return
+    slots.push(i)
+    clips.push(l)
+  })
+  if (clips.length < 2) return layers
+  // Stable within a track, so clips that share one keep the order they had.
+  const sorted = [...clips].sort((a, b) => (a.track || 0) - (b.track || 0))
+  const out = [...layers]
+  slots.forEach((slot, i) => { out[slot] = sorted[i] })
+  return out
+}
+
+/**
+ * Whether two clips on the same track overlap in time.
+ *
+ * Overlap is allowed rather than prevented — refusing a drop, or shoving the
+ * neighbour aside, are both surprises. When it happens the clip later in the
+ * array draws in front, which is the same rule as everywhere else.
+ */
+export function overlapsOnTrack(layers, layer, assetOf) {
+  if (!layer?.clip) return false
+  const mine = clipRange(layer, assetOf(layer))
+  return layers.some((l) => l !== layer && l.clip && (l.track || 0) === (layer.track || 0)
+    && (() => {
+      const r = clipRange(l, assetOf(l))
+      return mine.start < r.end && r.start < mine.end
+    })())
 }

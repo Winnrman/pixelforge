@@ -182,8 +182,9 @@ const ui = await page.evaluate(async () => {
     bars: document.querySelectorAll('.strip.clip').length,
     grips: document.querySelectorAll('.strip .clip-grip').length,
     // The old design drew a featureless bar *and* a filmstrip of the same media
-    // below it — two rows for one object. There must be exactly one row now.
-    rows: document.querySelectorAll('.strip-row').length,
+    // below it — two rows for one object. A clip is one element now.
+    rows: document.querySelectorAll('.track-row:not(.empty)').length,
+    empties: document.querySelectorAll('.track-row.empty').length,
     canvases: document.querySelectorAll('.strip.clip canvas').length,
     tools: [...document.querySelectorAll('.clip-bar-tools button')].map((b) => b.textContent.trim()),
   }
@@ -191,11 +192,17 @@ const ui = await page.evaluate(async () => {
 console.log('timeline ui:', JSON.stringify(ui))
 check('the video tab draws a clip per clip', ui.bars >= 1, `${ui.bars} clips`)
 check('each with two grips to trim by', ui.grips === ui.bars * 2, `${ui.grips} grips`)
-check('one row per clip, not a bar and a strip', ui.rows === ui.bars, `${ui.rows} rows`)
+check('the clips sit on a track', ui.rows >= 1, `${ui.rows} tracks in use`)
+// A new track is made by using it, not by pressing anything.
+check('and there is an empty track to drop into', ui.empties === 1, `${ui.empties} empty`)
 check('and the clip carries its own thumbnails', ui.canvases === ui.bars,
   `${ui.canvases} strips inside clips`)
 check('and the edit buttons are there',
   ui.tools.some((t) => /Cut at playhead/.test(t)) && ui.tools.some((t) => /Close gaps/.test(t)),
+  ui.tools.join(' | '))
+// Creating a clip is a drag from the bin, so the button that used to do it is
+// gone rather than sitting there as a second way to do the same thing.
+check('and no button for making clips', !ui.tools.some((t) => /Make a clip/.test(t)),
   ui.tools.join(' | '))
 await page.screenshot({ path: path.join(OUT, '02-timeline.png') })
 
@@ -203,7 +210,7 @@ await page.screenshot({ path: path.join(OUT, '02-timeline.png') })
 const dragged = await page.evaluate(() => window.__pfState().doc.layers.find((x) => x.clip).clip.start)
 await page.locator('.strip.clip').first().scrollIntoViewIfNeeded()
 const bar = await page.locator('.strip.clip').first().boundingBox()
-const track = await page.locator('.strip-lane').first().boundingBox()
+const track = await page.locator('.track-lane').first().boundingBox()
 // The bar has to reflect the state after the undo, not before it.
 check('the bar is drawn where the clip actually is',
   bar && track && bar.x > track.x + track.width * 0.2,

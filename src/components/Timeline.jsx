@@ -4,6 +4,7 @@ import { getAsset } from '../engine/assets.js'
 import { hasTracks, activeGroups, groupKeyTimes, keyTimeNear } from '../engine/keyframes.js'
 import { stripLayers } from '../engine/filmstrip.js'
 import Filmstrip from './Filmstrip.jsx'
+import { byTrack, trackCount } from '../engine/clips.js'
 
 /**
  * One property's keyframes, as diamonds on a track.
@@ -289,14 +290,20 @@ export default function Timeline() {
   const keyed = layers.filter(hasTracks)
   const strips = stripLayers({ layers })
   const selectedIds = useStore((s) => s.selectedIds)
-  const makeClip = useStore((s) => s.makeClip)
   const splitClips = useStore((s) => s.splitClips)
   const closeClipGaps = useStore((s) => s.closeClipGaps)
   const clipped = layers.filter((l) => l.clip)
-  // Anything with media behind it can become a clip. Layers are not clipped on
-  // import: an overlay on a looping GIF wants to be visible throughout, and that
-  // is what every project made before clips existed assumes.
-  const clippable = layers.filter((l) => !l.clip && l.type === 'image' && getAsset(l.assetId))
+  const insertClip = useStore((s) => s.insertClip)
+  const [dropTrack, setDropTrack] = useState(null)
+  // One row per track, front-most first, plus one empty row above the top so a
+  // new track is made by using it rather than by pressing anything.
+  const rows = [
+    { track: trackCount(layers), clips: [], empty: true },
+    ...byTrack(layers),
+  ]
+  // Animated media that is not a clip still gets its old full-width strip: an
+  // overlay on a looping GIF is not on a track and should not pretend to be.
+  const loose = strips.filter(({ layer }) => !layer.clip)
 
   const volume = useStore((s) => s.volume)
   const muted = useStore((s) => s.muted)
@@ -478,14 +485,6 @@ export default function Timeline() {
           <div className="clip-bar-tools">
             <button
               className="btn ghost"
-              disabled={!clippable.length}
-              onClick={() => clippable.forEach((l) => makeClip(l.id, 0))}
-              title="Turn these layers into clips that can be cut and trimmed"
-            >
-              {clippable.length > 1 ? `Make ${clippable.length} clips` : 'Make a clip'}
-            </button>
-            <button
-              className="btn ghost"
               disabled={!clipped.length}
               onClick={() => splitClips()}
               title="Cut every clip the playhead is inside (Ctrl+K)"
@@ -501,7 +500,46 @@ export default function Timeline() {
               Close gaps
             </button>
           </div>
-          {strips.map(({ layer, asset }) => (
+          {rows.map((row) => (
+            <div
+              className={'track-row' + (row.empty ? ' empty' : '') + (dropTrack === row.track ? ' over' : '')}
+              key={row.track}
+              data-track={row.track}
+              onDragOver={(e) => { e.preventDefault(); setDropTrack(row.track) }}
+              onDragLeave={() => setDropTrack((t) => (t === row.track ? null : t))}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDropTrack(null)
+                const assetId = e.dataTransfer.getData('application/x-pixelforge-asset')
+                if (!assetId) return
+                // Dropped where the pointer is, so the gesture places it.
+                const lane = e.currentTarget.querySelector('.track-lane')
+                const r = lane.getBoundingClientRect()
+                const at = Math.max(0, ((e.clientX - r.left) / r.width) * duration)
+                insertClip(assetId, { track: row.track, at })
+              }}
+            >
+              <span className="track-name">{row.empty ? '' : `V${row.track + 1}`}</span>
+              <div className="track-lane">
+                {row.clips.map((l) => (
+                  <Filmstrip
+                    key={l.id}
+                    layer={l}
+                    asset={getAsset(l.assetId)}
+                    duration={duration}
+                    time={time}
+                    selected={selectedIds.includes(l.id)}
+                    onTrack
+                  />
+                ))}
+                {row.empty && (
+                  <span className="track-hint">Drag media here to add a clip</span>
+                )}
+                <div className="track-playhead" style={{ left: `${pct}%` }} />
+              </div>
+            </div>
+          ))}
+          {loose.map(({ layer, asset }) => (
             <Filmstrip
               key={layer.id}
               layer={layer}

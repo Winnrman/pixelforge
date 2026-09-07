@@ -278,13 +278,45 @@ Drag the body to slide, drag either end to trim, `Ctrl+K` cuts every clip the pl
 inside, and **Close gaps** lays them end to end in their current order. `Ctrl+K` rather than
 a bare `S` because `S` is already the shape tool. Empty lane space still scrubs.
 
-### What is still wrong with it
+### Tracks
 
-Being straight about the parts the merge did not fix. Clip creation is still a **Make a
-clip** button, which is an abstract action with no cause in the world — the honest version
-is dragging from the Media bin onto the timeline, so the gesture that creates a clip is the
-one that says where it goes. And clips still live one per layer, so *when* a clip happens
-and *what it sits in front of* are the same axis. Tracks fix that, and nothing else will.
+A track is **one integer on a layer**. Not a collection, not a second document structure.
+
+The reason is worth stating, because it is the whole design. The layer array already *is*
+stacking order. A track order living beside it would be two answers to "what is in front of
+what", and they can disagree — so the timeline and the layers panel would contradict each
+other, and you would need to know which one wins. Instead, moving a clip between tracks
+**re-sorts the layer array to match**. There is one truth, and the renderer never learns
+that tracks exist: not a line of compositing code changed.
+
+Higher track number means further forward, and the rows are drawn front-most at the top, so
+V3 sits above V2 sits above V1 — the way a timeline is read.
+
+Only the clips are re-sorted, and only among the slots clips already occupy. A title that
+sat in front of the footage stays in front of it when a clip is dragged to another row;
+nothing that is not a clip ever moves.
+
+**Nothing creates a track.** There is always one empty row above the top one. Drop something
+into it and it becomes real, and a new empty row appears above that — the way a spreadsheet
+grows when you type in its last line.
+
+**Nothing creates a clip either.** Dragging from the Media bin onto a track is what makes
+one, because the gesture that creates it is the same gesture that says where it goes. The
+**Make a clip** button is gone; the Video tab is down to two buttons, Cut at playhead and
+Close gaps.
+
+Dropping onto a spot another clip already occupies lands **after** that clip rather than on
+top of it. Two clips in the same place means one silently hides the other, and building a
+sequence by dragging several things onto one row is the common case — so it does the useful
+thing without a mode, a modifier, or anything to press. Sliding a clip on top of another is
+still allowed, because refusing a drag is a worse surprise than an overlap you can see.
+
+Dragging a clip up or down moves it between tracks. Same gesture as sliding it sideways, no
+modifier: the row the pointer is over is the row you meant.
+
+**What a track does not promise:** the depth order of two clips that overlap *on the same
+row*. Clips on one track are arranged in time, not in depth. Move one to another track and
+back and it will not return to where it was in that stack — and it should not pretend to.
 
 ### Room to work
 
@@ -359,9 +391,8 @@ previewing does not reach an exported file.
 
 Being honest about the gap. Clips are the model; these are not built:
 
-- **Tracks.** Clips live on layers, and layer order is stacking order. A proper timeline
-  wants rows that mean "video 1, video 2, audio 1" independent of z-order.
 - **Ripple edits.** Deleting a clip leaves a hole; `Close gaps` is the blunt instrument.
+- **Audio tracks.** Sound follows its clip, but there is no row for it of its own.
 - **A mixer.** Sound plays now, but there is no per-clip gain, fade or waveform.
 - **Transitions.** Two clips can butt together but not dissolve.
 
@@ -1462,11 +1493,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Twenty-eight browser suites (**631 checks**), three Electron suites (**77 checks** — the shell
+Twenty-nine browser suites (**649 checks**), three Electron suites (**77 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **992 checks** in total.
+without a browser at all. **1010 checks** in total.
 
 ```bash
 npm run dev        # in one terminal

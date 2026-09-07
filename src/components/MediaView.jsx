@@ -196,7 +196,19 @@ export default function MediaView() {
           }}
         >
           {items.map((asset, i) => (
-            <div className="media-slot" key={asset.id}>
+            <div
+              className="media-slot"
+              key={asset.id}
+              draggable
+              onDragStart={(e) => {
+                // The payload is the asset id; the timeline turns it into a clip
+                // wherever it lands. Dragging is the whole gesture — there is no
+                // button to press first, because the drop says where it goes.
+                e.dataTransfer.setData('application/x-pixelforge-asset', asset.id)
+                e.dataTransfer.effectAllowed = 'copy'
+              }}
+              title="Drag onto the timeline to add it as a clip"
+            >
               <MediaCard
                 asset={asset}
                 selected={picked.includes(asset.id)}

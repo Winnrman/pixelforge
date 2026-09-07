@@ -24,7 +24,7 @@ const EDGE_PX = 9
  * the clip is playing — the decoder's frame budget belongs to the playhead, and
  * a strip that fills in a moment later costs nothing.
  */
-export default function Filmstrip({ layer, asset, duration, time, selected }) {
+export default function Filmstrip({ layer, asset, duration, time, selected, onTrack = false }) {
   const canvasRef = useRef(null)
   const laneRef = useRef(null)
   const boxRef = useRef(null)
@@ -36,6 +36,7 @@ export default function Filmstrip({ layer, asset, duration, time, selected }) {
   const setPlaying = useStore((s) => s.setPlaying)
   const select = useStore((s) => s.select)
   const slideClip = useStore((s) => s.slideClip)
+  const setClipTrack = useStore((s) => s.setClipTrack)
   const trimClip = useStore((s) => s.trimClip)
 
   const win = stripWindow(layer, asset, duration)
@@ -115,21 +116,26 @@ export default function Filmstrip({ layer, asset, duration, time, selected }) {
     win.from, win.to,
   ])
 
-  const scrub = (e) => {
-    const r = laneRef.current.getBoundingClientRect()
-    setTime(Math.max(0, Math.min(duration, ((e.clientX - r.left) / r.width) * duration)))
-  }
+  /** The lane this clip is measured against — its own when standing alone, the
+   *  track's when it shares one with other clips. */
+  const laneEl = () => (onTrack ? boxRef.current?.closest('.track-lane') : laneRef.current)
 
   /**
-   * Slide or trim, decided at pointerdown and held for the whole gesture.
+   * Slide, trim, or move between tracks. Which one is decided at pointerdown
+   * and held for the whole gesture.
    *
    * Deciding per move instead would let a fast drag that leaves the edge zone
    * silently turn a trim into a slide.
    */
+  const scrub = (e) => {
+    const r = (laneEl() || laneRef.current).getBoundingClientRect()
+    setTime(Math.max(0, Math.min(duration, ((e.clientX - r.left) / r.width) * duration)))
+  }
+
   const grabClip = (e) => {
     if (e.button !== 0 || !win.clipped) return false
     const bar = boxRef.current.getBoundingClientRect()
-    const lane = laneRef.current.getBoundingClientRect()
+    const lane = laneEl().getBoundingClientRect()
     const near = e.clientX - bar.left
     const mode = near <= EDGE_PX ? 'start'
       : near >= bar.width - EDGE_PX ? 'end'
@@ -146,8 +152,20 @@ export default function Filmstrip({ layer, asset, duration, time, selected }) {
     let moved = false
     const move = (ev) => {
       const t = Math.max(0, ((ev.clientX - lane.left) / lane.width) * duration)
-      if (mode === 'move') slideClip(layer.id, t - grabOffset, { commit: !moved })
-      else trimClip(layer.id, mode, t, { commit: !moved })
+      if (mode === 'move') {
+        slideClip(layer.id, t - grabOffset, { commit: !moved })
+        // Dragging up or down moves the clip between tracks. No modifier and no
+        // mode: the row the pointer is over is the row you meant, which is the
+        // whole gesture. Read from the document rather than tracked in state,
+        // so it works however the rows happen to be laid out.
+        if (onTrack) {
+          const row = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.track-row')
+          const to = row ? Number(row.dataset.track) : null
+          if (to != null && Number.isFinite(to)) setClipTrack(layer.id, to, { commit: false })
+        }
+      } else {
+        trimClip(layer.id, mode, t, { commit: !moved })
+      }
       moved = true
     }
     const up = () => {
@@ -167,6 +185,34 @@ export default function Filmstrip({ layer, asset, duration, time, selected }) {
     ? `${(win.from / 1000).toFixed(2)}s to ${(win.to / 1000).toFixed(2)}s — drag to move, ends to trim`
     : 'Drag to scrub'
 
+  const clipEl = (
+    <div
+      className={'strip' + (win.clipped ? ' clip' : '') + (drag ? ' dragging' : '')
+        + (selected ? ' sel' : '')}
+      ref={boxRef}
+      title={label}
+      style={win.clipped
+        ? { left: `${win.left * 100}%`, width: `${win.width * 100}%` }
+        : undefined}
+      onPointerDown={(e) => {
+        if (grabClip(e)) return
+        if (e.button !== 0) return
+        setPlaying(false)
+        select([layer.id])
+        scrub(e)
+      }}
+    >
+      <canvas ref={canvasRef} style={{ width: '100%', height: THUMB_H }} />
+      {win.clipped && <span className="clip-grip start" />}
+      {win.clipped && <span className="clip-grip end" />}
+      {pending > 0 && <span className="strip-pending">{pending} left</span>}
+    </div>
+  )
+
+  // On a track the row supplies the lane, the label and the playhead, because
+  // several clips share them. Alone, this component supplies its own.
+  if (onTrack) return clipEl
+
   return (
     <div className={'strip-row' + (selected ? ' sel' : '')}>
       <span className="strip-name" title={layer.name}>{layer.name}</span>
@@ -183,26 +229,7 @@ export default function Filmstrip({ layer, asset, duration, time, selected }) {
         }}
         onPointerMove={(e) => { if (e.buttons === 1 && !drag) scrub(e) }}
       >
-        <div
-          className={'strip' + (win.clipped ? ' clip' : '') + (drag ? ' dragging' : '')}
-          ref={boxRef}
-          title={label}
-          style={win.clipped
-            ? { left: `${win.left * 100}%`, width: `${win.width * 100}%` }
-            : undefined}
-          onPointerDown={(e) => {
-            if (grabClip(e)) return
-            if (e.button !== 0) return
-            setPlaying(false)
-            select([layer.id])
-            scrub(e)
-          }}
-        >
-          <canvas ref={canvasRef} style={{ width: '100%', height: THUMB_H }} />
-          {win.clipped && <span className="clip-grip start" />}
-          {win.clipped && <span className="clip-grip end" />}
-          {pending > 0 && <span className="strip-pending">{pending} left</span>}
-        </div>
+        {clipEl}
         <div className="strip-playhead" style={{ left: `${pct}%` }} />
       </div>
       <span className="strip-meta">

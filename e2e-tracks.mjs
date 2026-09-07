@@ -1,0 +1,246 @@
+// Tracks.
+//
+// A track is one integer on a layer. The document's layer array already *is*
+// stacking order, so rather than keep a second ordering beside it — two truths
+// that can disagree — moving a clip between tracks re-sorts that array. The
+// renderer never learns tracks exist, which is the whole point: there is one
+// answer to "what is in front of what", and the timeline and the layers panel
+// cannot contradict each other.
+//
+// So the claims worth testing are: a higher track really does draw in front,
+// nothing that is not a clip gets shuffled while that happens, and a track comes
+// into existence by being used rather than by pressing anything.
+import { chromium } from 'playwright-core'
+import { importAndPlace } from './e2e-helpers.mjs'
+import fs from 'fs'
+import path from 'path'
+
+const OUT = 'shots-tracks'
+fs.mkdirSync(OUT, { recursive: true })
+
+const browser = await chromium.launch({
+  executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  headless: true,
+})
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+const errors = []
+page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.text())) errors.push(m.text()) })
+page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message))
+
+const checks = []
+const check = (name, ok, detail = '') => {
+  checks.push([name, ok])
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  — ' + detail : ''))
+}
+
+await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' })
+await page.evaluate(() => indexedDB.deleteDatabase('pixelforge'))
+await page.reload({ waitUntil: 'networkidle' })
+await importAndPlace(page, 'public/test/room.png', { timeout: 20000 })
+await page.evaluate(() => { window.__pfState().setPlaying(false); window.__pfState().setTime(0) })
+await page.waitForTimeout(400)
+
+// Two clips from two different assets, so which one is drawn can be told apart
+// by colour rather than by guessing.
+const built = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  const load = async (url, name) => {
+    const blob = await (await fetch(url)).blob()
+    const f = new File([blob], name, { type: blob.type })
+    const a = await window.__pfAssets.loadImageFile(f)
+    return a.id
+  }
+  const room = await load('/test/room.png', 'room.png')
+  const green = await load('/test/greenscreen.gif', 'greenscreen.gif')
+  const a = window.__pfState().insertClip(room, { track: 0, at: 0 })
+  const b = window.__pfState().insertClip(green, { track: 0, at: 0 })
+  const clips = window.__pfState().doc.layers.filter((l) => l.clip)
+  return {
+    a, b,
+    tracks: window.__pfState().trackCount(),
+    starts: clips.map((l) => l.clip.start),
+  }
+})
+console.log('two clips:', JSON.stringify(built))
+check('two clips inserted without a button', !!built.a && !!built.b)
+// Dropped at the same spot on the same row, the second lands after the first
+// rather than on top of it — otherwise one silently hides the other.
+check('the second lands after the first, not on top of it', built.starts[1] > 0,
+  `starts ${built.starts.join(', ')}`)
+check('both land on the first track', built.tracks === 1, `${built.tracks} tracks`)
+
+/** The colour at the middle of the canvas at time 0 — which clip is in front. */
+const front = () => page.evaluate(() => {
+  const st = window.__pfState()
+  const c = document.createElement('canvas')
+  c.width = st.doc.width
+  c.height = st.doc.height
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  window.__pfRender.renderDocument(ctx, st.doc, 0)
+  const d = ctx.getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data
+  return [d[0], d[1], d[2]]
+})
+
+const order = () => page.evaluate(() => window.__pfState().doc.layers.map(
+  (l) => `${l.name}:${l.clip ? (l.track || 0) : '-'}`))
+
+// Deliberately stack them now: dropping one clip on top of another on the same
+// row is a thing a person will do, and it is the only case where within-track
+// z-order is observable at all.
+await page.evaluate((id) => window.__pfState().slideClip(id, 0), built.b)
+await page.waitForTimeout(150)
+console.log('layer order:', JSON.stringify(await order()))
+const before = await front()
+console.log('front pixel with both overlapping on track 0:', JSON.stringify(before))
+
+// --- a higher track draws in front ------------------------------------------------
+const raised = await page.evaluate((id) => {
+  const st = window.__pfState()
+  st.setClipTrack(id, 1)
+  return {
+    order: window.__pfState().doc.layers.map((l) => `${l.name}:${l.clip ? (l.track || 0) : '-'}`),
+    tracks: window.__pfState().trackCount(),
+  }
+}, built.a)
+console.log('after raising the first clip:', JSON.stringify(raised))
+check('using a second track creates it', raised.tracks === 2, `${raised.tracks} tracks`)
+// The array is the z-order, so the raised clip has to have moved to the end of it.
+check('and the layer array follows the track order',
+  raised.order[raised.order.length - 1].startsWith('room'), raised.order.join(' | '))
+
+const after = await front()
+console.log('front pixel after raising:', JSON.stringify(after))
+check('so what is drawn in front actually changes',
+  before.join() !== after.join(), `${before.join()} -> ${after.join()}`)
+
+// And back again. Note what is *not* claimed: the original within-track order.
+// Clips on one track are arranged in time, not in depth, so which of two
+// overlapping ones is in front is not something a track promises — moving out
+// and back does not restore it, and should not pretend to.
+await page.evaluate((id) => window.__pfState().setClipTrack(id, 0), built.a)
+await page.waitForTimeout(150)
+const backAgain = await page.evaluate(() => ({
+  tracks: window.__pfState().trackCount(),
+  order: window.__pfState().doc.layers.filter((l) => l.clip).map((l) => l.name),
+}))
+console.log('moved back:', JSON.stringify(backAgain))
+check('moving it back collapses the tracks again', backAgain.tracks === 1,
+  `${backAgain.tracks} tracks`)
+// The array is still the z-order, so the front pixel must match whichever clip
+// the array puts last.
+const frontName = backAgain.order[backAgain.order.length - 1]
+const nowFront = await front()
+check('and z-order still follows the layer array',
+  (frontName === 'greenscreen.gif') === (nowFront.join() === before.join()),
+  `${frontName} in front, pixel ${nowFront.join()}`)
+
+// --- layers that are not clips are never shuffled ------------------------------------
+// A title in front of the footage must not fall behind it because a clip moved.
+const withText = await page.evaluate((ids) => {
+  const st = window.__pfState()
+  const { makeTextLayer } = window.__pfStore
+  st.addLayer(makeTextLayer({ text: 'TITLE', size: 40, x: 10, y: 10, color: '#ffffff' }))
+  const posBefore = window.__pfState().doc.layers.findIndex((l) => l.type === 'text')
+  window.__pfState().setClipTrack(ids.a, 1)
+  window.__pfState().setClipTrack(ids.b, 2)
+  const posAfter = window.__pfState().doc.layers.findIndex((l) => l.type === 'text')
+  return {
+    posBefore,
+    posAfter,
+    order: window.__pfState().doc.layers.map((l) => l.type),
+  }
+}, built)
+console.log('text layer position:', JSON.stringify(withText))
+check('a text layer keeps its place while clips move around it',
+  withText.posBefore === withText.posAfter,
+  `index ${withText.posBefore} -> ${withText.posAfter}`)
+
+// --- the timeline shows a row per track, and one to grow into --------------------------
+const ui = await page.evaluate(async () => {
+  const btn = [...document.querySelectorAll('button')].find((b) => /^Video/.test(b.textContent))
+  if (btn) btn.click()
+  await new Promise((r) => setTimeout(r, 500))
+  const rows = [...document.querySelectorAll('.track-row')]
+  return {
+    total: rows.length,
+    empty: rows.filter((r) => r.classList.contains('empty')).length,
+    labels: rows.map((r) => r.querySelector('.track-name').textContent.trim()),
+    clips: rows.map((r) => r.querySelectorAll('.strip.clip').length),
+  }
+})
+console.log('rows:', JSON.stringify(ui))
+check('a row per track', ui.total === 4, `${ui.total} rows for 3 tracks plus one empty`)
+check('exactly one of them empty', ui.empty === 1)
+// Front-most at the top, which is how a timeline is read and how the tracks are
+// numbered: V3 above V2 above V1.
+check('front-most track at the top', ui.labels[1] === 'V3' && ui.labels[3] === 'V1',
+  ui.labels.join(','))
+await page.screenshot({ path: path.join(OUT, '01-tracks.png') })
+
+// --- dragging a clip onto another track moves it ------------------------------------------
+const dragged = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('.track-row')]
+  const from = rows.find((r) => r.querySelector('.strip.clip'))
+  const clip = from.querySelector('.strip.clip').getBoundingClientRect()
+  const target = rows[rows.length - 1].getBoundingClientRect()
+  return {
+    x: clip.x + clip.width / 2,
+    y: clip.y + clip.height / 2,
+    ty: target.y + target.height / 2,
+    id: null,
+  }
+})
+await page.mouse.move(dragged.x, dragged.y)
+await page.mouse.down()
+for (let i = 1; i <= 6; i++) {
+  await page.mouse.move(dragged.x, dragged.y + ((dragged.ty - dragged.y) * i) / 6)
+  await page.waitForTimeout(30)
+}
+await page.mouse.up()
+await page.waitForTimeout(250)
+const moved = await page.evaluate(() => {
+  const l = window.__pfState().doc.layers.filter((x) => x.clip)
+  return l.map((x) => `${x.name}:${x.track || 0}`)
+})
+console.log('after dragging down a row:', JSON.stringify(moved))
+check('dragging a clip onto another row moves it there',
+  moved.some((m) => m.endsWith(':0')), moved.join(' | '))
+
+// --- dropping media on the empty track adds a clip there -------------------------------------
+const dropped = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const top = st.trackCount()
+  const asset = st.doc.media[0]
+  const id = st.insertClip(asset, { track: top, at: 500 })
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  return { track: l.track, start: l.clip.start, tracks: window.__pfState().trackCount() }
+})
+console.log('inserted on the empty track:', JSON.stringify(dropped))
+check('using the empty track brings a new one into being',
+  dropped.tracks === dropped.track + 1, `now ${dropped.tracks} tracks`)
+check('and the clip lands where it was dropped', dropped.start === 500, `${dropped.start}ms`)
+
+// --- closing gaps works per track, not across them ----------------------------------------------
+// Clips on different rows are meant to run at the same time; pulling them into
+// one queue would destroy the arrangement rather than tidy it.
+const gaps = await page.evaluate(() => {
+  const st = window.__pfState()
+  const clips = st.doc.layers.filter((l) => l.clip)
+  clips.forEach((l, i) => st.slideClip(l.id, 2000 + i * 1500))
+  st.closeClipGaps()
+  const after = window.__pfState().doc.layers.filter((l) => l.clip)
+  const starts = {}
+  for (const l of after) {
+    const t = l.track || 0
+    starts[t] = Math.min(starts[t] == null ? Infinity : starts[t], l.clip.start)
+  }
+  return starts
+})
+console.log('first clip on each track after closing gaps:', JSON.stringify(gaps))
+check('every track closes back to zero independently',
+  Object.values(gaps).every((v) => v === 0), JSON.stringify(gaps))
+
+console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
+await browser.close()
+process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)
