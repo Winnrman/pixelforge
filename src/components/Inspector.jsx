@@ -1,4 +1,5 @@
 import { useMemo, useRef } from 'react'
+import { isCropped } from '../engine/shapes.js'
 import { useStore, BLEND_MODES, defaultAdjust } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
 import { defaultBgRemove, analyzeKey } from '../engine/matte.js'
@@ -82,6 +83,7 @@ export default function Inspector() {
   const textBehindSubject = useStore((s) => s.textBehindSubject)
   const toggleSticker = useStore((s) => s.toggleSticker)
   const mountLayers = useStore((s) => s.mountLayers)
+  const trimToCrop = useStore((s) => s.trimToCrop)
   const toggleTrails = useStore((s) => s.toggleTrails)
   const analyzeLoop = useStore((s) => s.analyzeLoop)
   const setLoop = useStore((s) => s.setLoop)
@@ -781,6 +783,23 @@ export default function Inspector() {
                 <Slider value={Math.round((l.cropR ?? 0) * 100)} min={0} max={95}
                   onChange={(v) => set({ cropR: v / 100 })} onCommit={commit} suffix="%" />
               </Row>
+              {(isCropped(l) || (l.zoom ?? 1) !== 1 || l.panX || l.panY) && (
+                <>
+                  <Row label="">
+                    <button className="btn" onClick={() => trimToCrop(base.id)}>
+                      Trim to crop
+                    </button>
+                  </Row>
+                  <p className="hint">
+                    These sliders are a moving window onto the picture, which is why the
+                    layer stays its full size while showing less — they can be keyframed, and
+                    a crop that resized its own layer would drag the subject around as it
+                    animated. <b>Trim to crop</b> makes it permanent instead: the layer
+                    becomes the piece you kept. Still non-destructive, so undo brings the
+                    whole frame back.
+                  </p>
+                </>
+              )}
               <Row label="Zoom" anim={animFor('zoom')}>
                 <Slider value={l.zoom ?? 1} min={0.2} max={8} step={0.01}
                   onChange={(zoom) => set({ zoom })} onCommit={commit} suffix="×" />

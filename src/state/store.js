@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { loadImageFile, getAsset } from '../engine/assets.js'
-import { polygonBounds, polygonToLayer, cropInsets } from '../engine/shapes.js'
+import { polygonBounds, polygonToLayer, cropInsets, isCropped, fromLocal } from '../engine/shapes.js'
 import { isGroup, withDescendants, normalize, resolveGroups } from '../engine/groups.js'
 import { trackLayer, trackTimes, simplifyTrack } from '../engine/tracker.js'
 import { defaultBgRemove } from '../engine/matte.js'
@@ -563,6 +563,93 @@ export const useStore = create((set, get) => ({
       layers.splice(Math.max(0, Math.min(layers.length, index)), 0, item)
       return { doc: { ...s.doc, layers } }
     })
+  },
+
+  /**
+   * Crops the selected image layers to a rectangle, leaving the document alone.
+   *
+   * This is what "crop this picture" means, and until now nothing did it: the
+   * crop tool resized the *document*, and the framing sliders shrank what a
+   * layer sampled without shrinking the layer, so the box stayed its old size
+   * around a smaller picture with no way to make it fit.
+   *
+   * The work itself is `cropLayer` with `reorigin: false` — the same code a
+   * document crop uses on each layer, minus the part that moves everything into
+   * the new document's coordinates.
+   */
+  cropSelectedTo: (rect) => {
+    const s = get()
+    const targets = s.doc.layers.filter(
+      (l) => s.selectedIds.includes(l.id) && l.type === 'image' && !l.locked,
+    )
+    if (!targets.length) return 0
+    s.pushHistory()
+    const ids = new Set(targets.map((l) => l.id))
+    set({
+      dirty: true,
+      doc: {
+        ...s.doc,
+        layers: s.doc.layers.map((l) => (ids.has(l.id) ? cropLayer(l, rect, { reorigin: false }) : l)),
+      },
+    })
+    set({
+      notice: {
+        kind: 'ok',
+        text: targets.length === 1 ? 'Cropped' : `Cropped ${targets.length} layers`,
+      },
+    })
+    return targets.length
+  },
+
+  /**
+   * Turns a layer's framing — crop insets, zoom and pan — into a real crop.
+   *
+   * The insets are a *window* onto the picture, and animatable, which is why
+   * they leave the layer box alone: a keyframed crop that resized its layer
+   * would move the thing being framed. But that also means a layer cropped with
+   * the sliders keeps its full width while showing less of the image, with
+   * nothing to press to make that stick. This is that button.
+   */
+  trimToCrop: (id) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === id)
+    if (!l || l.type !== 'image') return false
+    const framed = isCropped(l) || (l.zoom ?? 1) !== 1 || l.panX || l.panY
+    if (!framed) {
+      set({ notice: { kind: 'warn', text: 'Nothing to trim — this layer is not cropped.' } })
+      return false
+    }
+    // Animated framing is a moving window by design; freezing one frame of it
+    // would silently throw the animation away.
+    const t = l.tracks || {}
+    if (t.cropT?.length || t.cropB?.length || t.cropL?.length || t.cropR?.length
+      || t.zoom?.length || t.panX?.length || t.panY?.length) {
+      set({ notice: { kind: 'warn', text: 'That layer has animated framing — trimming would drop it.' } })
+      return false
+    }
+
+    // The window it currently samples becomes its source; the rectangle it
+    // currently draws into becomes its box.
+    const src = sourceRect(l)
+    const ci = cropInsets(l)
+    const w = l.w * ci.kx
+    const h = l.h * ci.ky
+    // Through fromLocal, so a rotated layer keeps the picture where it was
+    // rather than swinging about a centre that just moved.
+    const mid = fromLocal(l, -l.w / 2 + ci.cl * l.w + w / 2, -l.h / 2 + ci.ct * l.h + h / 2)
+
+    s.pushHistory()
+    get().updateLayer(id, {
+      x: mid.x - w / 2,
+      y: mid.y - h / 2,
+      w,
+      h,
+      src,
+      cropL: 0, cropR: 0, cropT: 0, cropB: 0,
+      zoom: 1, panX: 0, panY: 0,
+    })
+    set({ notice: { kind: 'ok', text: 'Trimmed to the crop' } })
+    return true
   },
 
   applyCrop: (rect) => {

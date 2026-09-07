@@ -614,6 +614,37 @@ gain a border entirely off-canvas, and clicking Polaroid would appear to do noth
 is the moment a size gets chosen, so `placeMounted` fits the finished card to the canvas at
 92% — a little under, because a tilted card clips its own corners otherwise.
 
+## Cropping a picture, versus cropping the canvas
+
+Two different things were called crop, and neither of them cropped a picture.
+
+The **crop tool** resized the *document*. The **Framing → Crop** sliders moved a window over
+the image without moving the layer, so the box kept its full width around a smaller
+picture — "it keeps the same width while showing less" — with nothing to press to make it
+stick. Between them there was no way to crop an image at all, which is the first thing
+anyone tries.
+
+**The crop tool now crops what is selected.** With an image selected the box opens on that
+image and Enter crops it; with nothing selected it opens on the whole canvas and crops that,
+as before. Starting on the thing it will act on is the whole signal — no mode to choose —
+and the tool rail names it: *"Enter to crop room.png"*.
+
+The work was already written. `cropLayer(l, rect, { reorigin: false })` is what a document
+crop does to each layer minus the part that moves everything into the new document's
+coordinates, and it already handled flips and an existing sub-rect. It was simply that no
+gesture reached it.
+
+**Framing keeps its insets, and gains a Trim to crop.** The insets stay a moving window
+because they are *keyframable*: a crop that resized its own layer would drag the subject
+around as it animated, which is the opposite of what a framing move is for. So they are left
+alone, and a button that appears only when a layer is actually cropped bakes them — the
+window becomes the layer's source rect, the drawn rectangle becomes its box, and the insets
+are spent rather than left stacked on top of the new box. It refuses on animated framing,
+because freezing one frame of a moving window throws the move away.
+
+Both stay non-destructive: cropping moves a sub-rect over the asset, it does not make a
+smaller bitmap, so one undo brings the whole frame back.
+
 ## Canvas size
 
 Resizing the canvas is changing the frame, not the picture in it. That is the default
@@ -1606,11 +1637,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty browser suites (**689 checks**), three Electron suites (**77 checks** — the shell
+Thirty-one browser suites (**705 checks**), three Electron suites (**77 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **1067 checks** in total.
+without a browser at all. **1083 checks** in total.
 
 ```bash
 npm run dev        # in one terminal

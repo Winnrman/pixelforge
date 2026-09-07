@@ -54,6 +54,14 @@ export default function ToolRail() {
   const setTool = useStore((s) => s.setTool)
   const o = useStore((s) => s.toolOptions)
   const setToolOptions = useStore((s) => s.setToolOptions)
+  // Named rather than described, so the hint says which picture will be cropped
+  // rather than leaving you to work it out from the selection.
+  const cropTarget = useStore((s) => {
+    const l = s.doc.layers.find(
+      (x) => s.selectedIds.includes(x.id) && x.type === 'image' && !x.locked,
+    )
+    return l ? l.name : null
+  })
 
   const showOverlayOpts = tool === 'effect'
 
@@ -76,6 +84,20 @@ export default function ToolRail() {
           </button>
         ))}
       </div>
+
+      {tool === 'crop' && (
+        <div className="rail-options">
+          <div className="rail-opt-label">Crop</div>
+          <p className="rail-hint">
+            {cropTarget
+              ? <>Drag the box, then <b>Enter</b> to crop <b>{cropTarget}</b>. Nothing is
+                thrown away — undo brings the whole frame back.</>
+              : <>Nothing is selected, so this crops the <b>whole canvas</b>. Select an
+                image first to crop just that.</>}
+          </p>
+          <p className="rail-hint">Escape to leave it alone.</p>
+        </div>
+      )}
 
       {tool === 'lasso' && (
         <div className="rail-options">

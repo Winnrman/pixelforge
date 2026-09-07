@@ -648,8 +648,18 @@ export default function CanvasStage() {
   // ---- crop lifecycle ---------------------------------------------------
   useEffect(() => {
     if (tool === 'crop') {
-      const { doc } = useStore.getState()
-      cropRef.current = { x: 0, y: 0, w: doc.width, h: doc.height }
+      const st = useStore.getState()
+      // With an image selected the crop starts on *that image*, because
+      // cropping a picture is what people come to a crop tool for. With nothing
+      // selected it starts on the whole document, which is the other thing the
+      // tool does. Starting on the thing it will act on is the only signal
+      // needed — no mode to choose, nothing to read.
+      const one = st.doc.layers.find(
+        (l) => st.selectedIds.includes(l.id) && l.type === 'image' && !l.locked,
+      )
+      cropRef.current = one
+        ? { x: one.x, y: one.y, w: Math.abs(one.w), h: Math.abs(one.h) }
+        : { x: 0, y: 0, w: st.doc.width, h: st.doc.height }
     } else {
       cropRef.current = null
     }
@@ -667,7 +677,12 @@ export default function CanvasStage() {
       }
       if (tool === 'crop' && e.type === 'keydown') {
         if (e.key === 'Enter' && cropRef.current) {
-          useStore.getState().applyCrop(cropRef.current)
+          const st = useStore.getState()
+          const onLayer = st.doc.layers.some(
+            (l) => st.selectedIds.includes(l.id) && l.type === 'image' && !l.locked,
+          )
+          if (onLayer) st.cropSelectedTo(cropRef.current)
+          else st.applyCrop(cropRef.current)
           useStore.getState().setTool('move')
         } else if (e.key === 'Escape') {
           useStore.getState().setTool('move')
