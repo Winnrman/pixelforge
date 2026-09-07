@@ -176,6 +176,87 @@ check('trimming an uncropped layer does nothing', refusals.plain === false)
 check('and it will not freeze an animated crop', refusals.animated === false)
 
 await page.screenshot({ path: path.join(OUT, '01-crop.png') })
+// --- and then fitting the canvas to what is left ----------------------------------------
+// The situation this exists for: crop a picture, and the canvas keeps its old
+// size with empty space where the trimmed part used to be. Both the other
+// actions move the *content*; this is the one that moves the frame.
+const fitted = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  const blob = await (await fetch('/test/room.png')).blob()
+  const a = await window.__pfAssets.loadImageFile(new File([blob], 'shot.png', { type: 'image/png' }))
+  st.placeMedia([a.id], { resizeDocToFirst: true })
+  await new Promise((r) => setTimeout(r, 300))
+
+  const l0 = window.__pfState().doc.layers[0]
+  const before = { doc: { ...window.__pfState().doc }, w: l0.w, h: l0.h }
+  // Crop the right half away, exactly as the crop tool would.
+  window.__pfState().select([l0.id])
+  window.__pfState().cropSelectedTo({ x: l0.x, y: l0.y, w: l0.w * 0.5, h: l0.h })
+  const mid = window.__pfState().doc.layers[0]
+  const gap = {
+    docW: window.__pfState().doc.width,
+    layerW: Math.round(mid.w),
+  }
+
+  window.__pfState().fitCanvasToContent()
+  const l1 = window.__pfState().doc.layers[0]
+  const after = window.__pfState().doc
+  return {
+    startedAt: before.doc.width,
+    gap,
+    docW: after.width,
+    docH: after.height,
+    layer: { x: Math.round(l1.x), y: Math.round(l1.y), w: Math.round(l1.w), h: Math.round(l1.h) },
+    src: l1.src ? +l1.src.w.toFixed(2) : null,
+  }
+})
+console.log('crop then fit:', JSON.stringify(fitted))
+// The gap is the complaint: half the canvas is now empty.
+check('cropping leaves the canvas its old size',
+  fitted.gap.docW === fitted.startedAt && fitted.gap.layerW < fitted.gap.docW,
+  `canvas ${fitted.gap.docW}, layer ${fitted.gap.layerW}`)
+check('fitting shrinks the canvas onto the content',
+  fitted.docW === fitted.layer.w, `canvas ${fitted.docW}, layer ${fitted.layer.w}`)
+check('and the content sits at the origin with no empty space',
+  fitted.layer.x === 0 && fitted.layer.y === 0,
+  `${fitted.layer.x},${fitted.layer.y}`)
+check('the height is untouched, because nothing was empty there',
+  fitted.docH === fitted.layer.h, `${fitted.docH} vs ${fitted.layer.h}`)
+// Fitting the frame must not re-crop the picture that is already cropped.
+check('and the picture itself is not trimmed again', Math.abs(fitted.src - 0.5) < 0.02,
+  String(fitted.src))
+
+const idempotent = await page.evaluate(() => {
+  const st = window.__pfState()
+  const before = { w: st.doc.width, h: st.doc.height }
+  const changed = st.fitCanvasToContent()
+  return { changed, before, after: { w: window.__pfState().doc.width, h: window.__pfState().doc.height } }
+})
+console.log('fitting again:', JSON.stringify(idempotent))
+check('fitting an already-fitted canvas does nothing', idempotent.changed === false
+  && idempotent.after.w === idempotent.before.w, JSON.stringify(idempotent.after))
+
+await page.evaluate(() => window.__pfState().undo())
+await page.waitForTimeout(200)
+const undoneFit = await page.evaluate(() => window.__pfState().doc.width)
+check('and one undo puts the canvas back', undoneFit === fitted.startedAt,
+  `${undoneFit} vs ${fitted.startedAt}`)
+
+// The two buttons move opposite things, and are named for which.
+const labels = await page.evaluate(async () => {
+  window.__pfState().select([])
+  await new Promise((r) => setTimeout(r, 300))
+  return [...document.querySelectorAll('.inspector button')]
+    .map((b) => b.textContent.trim())
+    .filter((t) => /canvas|content/i.test(t))
+})
+console.log('canvas buttons:', JSON.stringify(labels))
+check('one button names the canvas as the thing that moves',
+  labels.some((t) => /Shrink canvas to fit content/.test(t)), labels.join(' | '))
+check('and the other names the content', labels.some((t) => /Scale content to fill canvas/.test(t)),
+  labels.join(' | '))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

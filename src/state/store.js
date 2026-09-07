@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { loadImageFile, getAsset } from '../engine/assets.js'
-import { polygonBounds, polygonToLayer, cropInsets, isCropped, fromLocal } from '../engine/shapes.js'
+import {
+  polygonBounds, polygonToLayer, cropInsets, isCropped, fromLocal, layerAABB,
+} from '../engine/shapes.js'
 import { isGroup, withDescendants, normalize, resolveGroups } from '../engine/groups.js'
 import { trackLayer, trackTimes, simplifyTrack } from '../engine/tracker.js'
 import { defaultBgRemove } from '../engine/matte.js'
@@ -711,6 +713,57 @@ export const useStore = create((set, get) => ({
       }))
     }
     set({ doc: { ...s.doc, width: w, height: h, layers } })
+  },
+
+  /**
+   * Shrinks the canvas to what is actually on it.
+   *
+   * The counterpart to `fillCanvas`, and the one you want after cropping a
+   * layer: crop a picture and the canvas keeps its old size with empty space
+   * where the trimmed part used to be. Both existing actions move the *content*
+   * — this is the one that moves the frame.
+   *
+   * It is a document crop to the content's own bounds, so layers keep their
+   * positions relative to each other and to the picture; only the origin moves.
+   */
+  fitCanvasToContent: () => {
+    const s = get()
+    const ls = s.doc.layers.filter((l) => l.visible !== false && l.type !== 'group')
+    if (!ls.length) {
+      set({ notice: { kind: 'warn', text: 'Nothing on the canvas to fit to.' } })
+      return false
+    }
+    // Rotation-aware, or a tilted layer would have its corners cut off by a box
+    // drawn round the untilted rectangle.
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (const l of ls) {
+      const b = layerAABB(resolveLayer(l, s.time))
+      x0 = Math.min(x0, b.x)
+      y0 = Math.min(y0, b.y)
+      x1 = Math.max(x1, b.x + b.w)
+      y1 = Math.max(y1, b.y + b.h)
+    }
+    if (!(x1 - x0 > 1) || !(y1 - y0 > 1)) return false
+
+    const rect = {
+      x: Math.round(x0),
+      y: Math.round(y0),
+      w: Math.round(x1 - x0),
+      h: Math.round(y1 - y0),
+    }
+    if (rect.x === 0 && rect.y === 0
+      && rect.w === s.doc.width && rect.h === s.doc.height) {
+      set({ notice: { kind: 'ok', text: 'The canvas already fits.' } })
+      return false
+    }
+    // `applyCrop` is exactly this: set the size and move everything into the new
+    // origin's coordinates. Nothing is trimmed, because the rect contains it all.
+    get().applyCrop(rect)
+    set({ notice: { kind: 'ok', text: `Canvas fitted to ${rect.w} x ${rect.h}` } })
+    return true
   },
 
   /**

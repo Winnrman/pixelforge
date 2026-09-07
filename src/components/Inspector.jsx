@@ -63,6 +63,7 @@ export default function Inspector() {
   const linkRatio = useStore((s) => s.docLinkRatio)
   const setLinkRatio = useStore((s) => s.setDocLinkRatio)
   const fillCanvas = useStore((s) => s.fillCanvas)
+  const fitCanvasToContent = useStore((s) => s.fitCanvasToContent)
   const recompute = useStore((s) => s.recomputeDuration)
   const setAutoTrack = useStore((s) => s.setAutoTrack)
   const setMask = useStore((s) => s.setMask)
@@ -204,11 +205,24 @@ export default function Inspector() {
               the overflow.
             </p>
             <Row label="">
-              <button className="btn" onClick={fillCanvas}>Crop to fill now</button>
+              <button className="btn" onClick={fitCanvasToContent}>
+                Shrink canvas to fit content
+              </button>
             </Row>
             <p className="hint">
-              Scales the artwork where it currently sits until it covers the canvas, cropping
-              whatever falls outside. Useful without resizing anything.
+              Moves the <b>canvas</b>: it shrinks to whatever is actually on it, so empty
+              space around the artwork goes away. This is the one to reach for after
+              cropping a picture and finding the canvas still its old size.
+            </p>
+            <Row label="">
+              <button className="btn ghost" onClick={fillCanvas}>
+                Scale content to fill canvas
+              </button>
+            </Row>
+            <p className="hint">
+              Moves the <b>content</b>: the artwork is scaled where it sits until it covers
+              the canvas, cropping whatever falls outside. The opposite direction to the
+              button above — which of the two moves is the whole difference between them.
             </p>
             <Row label="Background">
               <Segmented

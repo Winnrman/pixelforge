@@ -764,10 +764,20 @@ sits.
 the document *before* each edit rather than being stored, so a run of edits cannot compound
 rounding error into a slowly drifting shape.
 
-**Crop to fill now** is the one-shot version: it scales the artwork where it currently sits
-until it covers the canvas, and centres it. Unlike the resize modes it works from the content
-bounds, so it is useful without touching the canvas size at all — which is the usual case,
-since the content being too small is not a resize.
+Two one-shot buttons sit under those, and they move opposite things — which is the whole
+difference between them, so they are named for it:
+
+- **Shrink canvas to fit content** moves the *canvas*: it shrinks onto whatever is on it, so
+  empty space goes away. This is the one to reach for after cropping a picture and finding
+  the canvas still its old size with a gap where the trimmed part used to be. It is a
+  document crop to the content's own bounds — rotation-aware, or a tilted layer would have
+  its corners cut off by a box drawn round the untilted rectangle.
+- **Scale content to fill canvas** moves the *content*: the artwork is scaled where it sits
+  until it covers the canvas, cropping the overflow.
+
+The first of those was missing, and its absence was easy to mistake for the second
+misbehaving: reaching for the only button there and watching the artwork scale when what you
+wanted was the frame to close in.
 
 ## Still images can animate too
 
@@ -1728,11 +1738,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-two browser suites (**725 checks**), three Electron suites (**77 checks** — the shell
+Thirty-two browser suites (**734 checks**), three Electron suites (**77 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **1115 checks** in total.
+without a browser at all. **1124 checks** in total.
 
 ```bash
 npm run dev        # in one terminal
