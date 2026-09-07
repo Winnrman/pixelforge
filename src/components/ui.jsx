@@ -1,3 +1,5 @@
+import { useStore } from '../state/store.js'
+import { requestPick } from '../state/picker.js'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -175,6 +177,8 @@ export function Select({ value, onChange, options }) {
 }
 
 export function Color({ value, onChange, onCommit }) {
+  const setTool = useStore((s) => s.setTool)
+  const tool = useStore((s) => s.tool)
   return (
     <span className="color-field">
       <input type="color" value={value} onChange={(e) => onChange(e.target.value)} onBlur={onCommit} />
@@ -185,6 +189,17 @@ export function Color({ value, onChange, onCommit }) {
         onChange={(e) => onChange(e.target.value)}
         onBlur={onCommit}
       />
+      <button
+        type="button"
+        className="pipette"
+        title="Pick this colour from the picture"
+        onClick={() => {
+          // The tool in use is remembered and handed back afterwards: asking for
+          // one colour should not leave you holding a different tool.
+          requestPick((hex) => { onChange(hex); onCommit?.() }, tool)
+          setTool('eyedrop')
+        }}
+      >⦿</button>
     </span>
   )
 }

@@ -1,6 +1,6 @@
 import { useStore } from '../state/store.js'
 import { EFFECTS } from '../engine/effects.js'
-import { Select, Slider, Segmented, Toggle } from './ui.jsx'
+import { Row, Select, Slider, Segmented, Toggle } from './ui.jsx'
 
 const TOOLS = [
   // Bounding box deliberately centred on the 24x24 viewBox (x 5.5-18.5,
@@ -13,6 +13,7 @@ const TOOLS = [
   { id: 'shape', key: 'S', label: 'Shape', icon: 'M3 3 H12 V12 H3 Z M9 9 A6 6 0 1 0 21 9 A6 6 0 1 0 9 9' },
   { id: 'text', key: 'T', label: 'Text', icon: 'M4 4 H20 M12 4 V20 M8 20 H16' },
   { id: 'erase', key: 'E', label: 'Erase — paint away part of a layer', icon: 'M8.5 20 H20 M3.6 16.4 l8-8 a1.5 1.5 0 0 1 2.1 0 l4.9 4.9 a1.5 1.5 0 0 1 0 2.1 l-4.6 4.6 H9.2 l-5.6 -5.6 a1.5 1.5 0 0 1 0 -2.1 Z' },
+  { id: 'eyedrop', key: 'I', label: 'Pick a colour from the picture', icon: 'M18.5 2.6 a2 2 0 0 1 2.9 2.9 l-2.2 2.2 l1 1 l-1.6 1.6 l-1 -1 l-8 8 l-4 1 l1 -4 l8 -8 l-1 -1 l1.6 -1.6 l1 1 z' },
   { id: 'hand', key: 'H', label: 'Pan', icon: 'M6 11 V6 a1.5 1.5 0 0 1 3 0 v5 V4 a1.5 1.5 0 0 1 3 0 v7 V5 a1.5 1.5 0 0 1 3 0 v6 V8 a1.5 1.5 0 0 1 3 0 v7 a6 6 0 0 1 -6 6 h-2 a5 5 0 0 1 -4 -2 l-3 -4 a1.5 1.5 0 0 1 2.5 -2 z' },
 ]
 
@@ -84,6 +85,34 @@ export default function ToolRail() {
           </button>
         ))}
       </div>
+
+      {tool === 'eyedrop' && (
+        <div className="rail-options">
+          <div className="rail-opt-label">Eyedropper</div>
+          <p className="rail-hint">
+            Click anywhere to take that colour. It reads the picture as composited, so what
+            you sample is what you can see — through an overlay, a mask or an adjustment.
+          </p>
+          {o.sampled && (
+            <>
+              <Row label="">
+                <span className="swatch-row">
+                  <span className="swatch" style={{ background: o.sampled }} />
+                  <code>{o.sampled}</code>
+                </span>
+              </Row>
+              <button
+                className="btn ghost"
+                onClick={() => navigator.clipboard?.writeText(o.sampled)}
+              >Copy</button>
+            </>
+          )}
+          <p className="rail-hint">
+            The pipette beside any colour box picks straight into it and hands the tool back
+            when it is done.
+          </p>
+        </div>
+      )}
 
       {tool === 'crop' && (
         <div className="rail-options">

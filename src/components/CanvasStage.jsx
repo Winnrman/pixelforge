@@ -3,6 +3,7 @@ import { useStore, makeEffectLayer, makeShapeLayer, makeTextLayer } from '../sta
 import { uiFlags } from '../state/uiFlags.js'
 import { renderDocument, primeVideo } from '../engine/render.js'
 import { docToLayer } from '../engine/erase.js'
+import { deliverPick, pickRestore, cancelPick } from '../state/picker.js'
 import {
   currentTime as audioTime, play as playAudio, stop as stopAudio, isPlaying as audioPlaying,
 } from '../engine/audio.js'
@@ -702,6 +703,10 @@ export default function CanvasStage() {
           lassoRef.current.points.pop()
         }
       }
+      if (tool === 'eyedrop' && e.type === 'keydown' && e.key === 'Escape') {
+        cancelPick()
+        useStore.getState().setTool('move')
+      }
       if (tool === 'crop' && e.type === 'keydown') {
         if (e.key === 'Enter' && cropRef.current) {
           const st = useStore.getState()
@@ -815,6 +820,29 @@ export default function CanvasStage() {
     const st = useStore.getState()
     const p = toDoc(e)
     e.currentTarget.setPointerCapture(e.pointerId)
+
+    if (st.tool === 'eyedrop') {
+      // Read from the composited document canvas, not from a layer's source:
+      // what you sample should be what you can see, through overlays, masks and
+      // adjustments alike.
+      const dc = docCanvasRef.current
+      const x = Math.round(p.x)
+      const y = Math.round(p.y)
+      if (dc && x >= 0 && y >= 0 && x < dc.width && y < dc.height) {
+        const d = dc.getContext('2d', { willReadFrequently: true })
+          .getImageData(x, y, 1, 1).data
+        const hex = '#' + [d[0], d[1], d[2]]
+          .map((v) => v.toString(16).padStart(2, '0')).join('')
+        st.setToolOptions({ sampled: hex })
+        // Someone asked for this colour, so hand it over and give the tool back.
+        // Nobody asked, so it was the eyedropper being used on its own and the
+        // sample stays in the rail to be copied.
+        const back = pickRestore()
+        if (deliverPick(hex)) st.setTool(back || 'move')
+        else st.setNotice({ kind: 'ok', text: `Picked ${hex}` })
+      }
+      return
+    }
 
     if (st.tool === 'crop') {
       const k = cropHandleAt(p)
