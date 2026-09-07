@@ -1,0 +1,222 @@
+// Audio playback.
+//
+// Until now audio was never touched in the app at all — it was handed to ffmpeg
+// at export and that was the whole story, which is why a video with sound played
+// silently. This decodes it and plays it alongside the picture.
+//
+// Two things shape the design.
+//
+// **Audio is the clock.** The render loop advanced time by the wall-clock delta
+// between animation frames, which is fine when nothing has to agree with it. It
+// is not fine next to sound: a dropped video frame is invisible, a gap or a
+// drift in audio is immediately audible, and a picture that slowly slides out of
+// sync with speech is worse than either. So while sound is playing, document
+// time is *derived* from the audio clock rather than accumulated separately.
+//
+// **The graph is built against any context.** Nothing here assumes speakers, so
+// the same code that plays can be rendered by an OfflineAudioContext and the
+// samples inspected — which is the only way to check that a mute really silences
+// something, or that a trimmed clip really starts where it claims, without
+// listening to it.
+
+import { clipRange, sourceRange } from './clips.js'
+
+let ctx = null
+
+/** The shared output context, created on first use — browsers refuse to make
+ *  one before a user gesture, and most sessions never need it at all. */
+export function audioContext() {
+  if (!ctx) {
+    const C = window.AudioContext || window.webkitAudioContext
+    if (!C) return null
+    ctx = new C()
+  }
+  return ctx
+}
+
+export const audioAvailable = () =>
+  typeof window !== 'undefined' && !!(window.AudioContext || window.webkitAudioContext)
+
+/**
+ * Decodes an asset's sound, once, and hangs it on the asset.
+ *
+ * `decodeAudioData` detaches the buffer it is given, so it gets a copy — the
+ * original bytes are the asset's own and are still needed to save the project.
+ * A file with no audio track throws; that is an answer, not an error.
+ */
+export function ensureAudio(asset, bytes = null) {
+  if (!asset || asset.audio !== undefined) return asset?.audioPending || Promise.resolve(asset?.audio)
+  const c = audioContext()
+  const src = bytes || asset.audioBytes
+  if (!c || !src) { asset.audio = null; return Promise.resolve(null) }
+
+  asset.audioPending = c.decodeAudioData(src.slice(0))
+    .then((buf) => { asset.audio = buf; return buf })
+    .catch(() => { asset.audio = null; return null })
+    .finally(() => { asset.audioPending = null })
+  return asset.audioPending
+}
+
+export const hasAudio = (asset) => !!asset?.audio
+
+/** Layers that would make a sound, with the asset behind each. */
+export function audioLayers(doc, assetOf) {
+  const out = []
+  for (const l of doc.layers || []) {
+    if (l.type !== 'image' || l.visible === false) continue
+    const a = assetOf(l)
+    if (!a?.audio) continue
+    out.push({ layer: l, asset: a })
+  }
+  return out
+}
+
+/**
+ * Where a layer's sound sits, in seconds: when it starts relative to the
+ * document, where in its own audio it starts, and how long it runs.
+ *
+ * A clip plays its piece once. Anything unclipped loops, because that is what
+ * the picture does and the two must agree.
+ */
+export function voiceFor(layer, asset, fromMs) {
+  const speed = Math.abs(layer.speed || 1) || 1
+  const buf = asset.audio
+  if (!buf) return null
+
+  if (!layer.clip) {
+    const total = buf.duration
+    const at = ((fromMs / 1000 - (layer.timeOffset || 0) / 1000) * speed) % total
+    return {
+      delay: 0,
+      offset: ((at % total) + total) % total,
+      duration: null,          // runs until stopped
+      loop: true,
+      rate: speed,
+    }
+  }
+
+  const { start, end } = clipRange(layer, asset)
+  const { in: cin } = sourceRange(layer, asset)
+  if (fromMs >= end) return null
+
+  // Starting before the clip does means waiting, not playing from a negative
+  // offset — which silently plays the wrong part of the sound.
+  const delay = Math.max(0, (start - fromMs) / 1000)
+  const into = Math.max(0, (fromMs - start) / 1000) * speed
+  const offset = cin / 1000 + into
+  const duration = (end - Math.max(start, fromMs)) / 1000 * speed
+  if (duration <= 0) return null
+  return { delay, offset, duration, loop: false, rate: speed }
+}
+
+/**
+ * Builds the playing graph on a context and starts it.
+ *
+ * `when` is the context time to start at, so an offline render can begin at zero
+ * and a live one can be scheduled a hair into the future — starting exactly at
+ * `currentTime` means the first fraction of a second has already passed by the
+ * time the graph is connected, which clicks.
+ */
+export function buildGraph(context, doc, assetOf, {
+  from = 0, when = null, master = 1, muted = false,
+} = {}) {
+  const at = when == null ? context.currentTime + 0.02 : when
+  const voices = []
+  const gain = context.createGain()
+  gain.gain.value = muted ? 0 : Math.max(0, Math.min(1, master))
+  gain.connect(context.destination)
+
+  for (const { layer, asset } of audioLayers(doc, assetOf)) {
+    const v = voiceFor(layer, asset, from)
+    if (!v) continue
+    const g = context.createGain()
+    const vol = layer.muted ? 0 : (layer.volume == null ? 1 : layer.volume)
+    g.gain.value = Math.max(0, Math.min(2, vol))
+    g.connect(gain)
+
+    const src = context.createBufferSource()
+    src.buffer = asset.audio
+    src.playbackRate.value = v.rate
+    if (v.loop) {
+      src.loop = true
+      src.start(at + v.delay, v.offset)
+    } else {
+      src.start(at + v.delay, v.offset, v.duration)
+    }
+    src.connect(g)
+    voices.push({ layerId: layer.id, source: src, gain: g, ...v })
+  }
+  return { master: gain, voices, startedAt: at }
+}
+
+// ---------------------------------------------------------------- the player
+
+let live = null
+
+export const isPlaying = () => !!live
+
+/**
+ * Starts playing the document from `fromMs`.
+ *
+ * Returns false when there is nothing to play, so the caller can fall back to
+ * driving time itself rather than waiting on a clock that will never tick.
+ */
+export async function play(doc, assetOf, fromMs, { master = 1, muted = false } = {}) {
+  stop()
+  const c = audioContext()
+  if (!c) return false
+  // Browsers start the context suspended until a gesture; play *is* the gesture.
+  if (c.state === 'suspended') await c.resume().catch(() => {})
+
+  const needed = audioLayers(doc, assetOf)
+  if (!needed.length) return false
+
+  const graph = buildGraph(c, doc, assetOf, { from: fromMs, master, muted })
+  if (!graph.voices.length) { graph.master.disconnect(); return false }
+
+  live = { graph, fromMs, startedAt: graph.startedAt, ctx: c }
+  return true
+}
+
+export function stop() {
+  if (!live) return
+  for (const v of live.graph.voices) {
+    try { v.source.stop() } catch { /* already ended */ }
+    v.source.disconnect()
+    v.gain.disconnect()
+  }
+  live.graph.master.disconnect()
+  live = null
+}
+
+/**
+ * Document time, in ms, from the audio clock.
+ *
+ * Null when nothing is playing — the caller then keeps its own time, which is
+ * what a project with no sound has always done.
+ */
+export function currentTime() {
+  if (!live) return null
+  const elapsed = live.ctx.currentTime - live.startedAt
+  // Before the scheduled start the clock has not begun; reporting a negative
+  // elapsed would run the playhead backwards for the first few milliseconds.
+  return live.fromMs + Math.max(0, elapsed) * 1000
+}
+
+/** Master volume and mute, applied to whatever is already playing. */
+export function setMaster(master, muted) {
+  if (!live) return
+  const g = live.graph.master.gain
+  const v = muted ? 0 : Math.max(0, Math.min(1, master))
+  // A ramp rather than a jump: an instant gain change on a running signal is a
+  // click, which is more noticeable than the change itself.
+  g.setTargetAtTime(v, live.ctx.currentTime, 0.01)
+}
+
+/** Frees decoded audio when an asset goes away. */
+export function releaseAudio(asset) {
+  if (!asset) return
+  asset.audio = undefined
+  asset.audioPending = null
+  asset.audioBytes = null
+}

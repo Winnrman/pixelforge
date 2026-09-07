@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+
+# Copied out of node_modules by scripts/copy-ort.mjs on every build, so it is
+# reproducible rather than source — and it is 27MB.
+public/ort/
+
+# Test screenshots. Written by the e2e suites on every run; useful to look at,
+# never worth keeping.
+shots/
+shots-*/
+
+# Run logs from launching the app or the dev server
+*.log
+
+# Scratch files. Anything named with a leading underscore is a probe I was not
+# meant to keep.
+_*.mjs
+_*.js
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini

@@ -1,0 +1,135 @@
+{
+  "name": "pixelforge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/copy-ort.mjs && vite",
+    "build": "node scripts/copy-ort.mjs && vite build",
+    "preview": "vite preview",
+    "test": "node e2e.mjs && node e2e-keyframes.mjs && node e2e-crop.mjs && node e2e-video.mjs && node e2e-framing.mjs && node e2e-matte.mjs && node e2e-ai.mjs && node e2e-tracking.mjs && node e2e-snap.mjs && node e2e-identity.mjs && node e2e-lasso.mjs && node e2e-groups.mjs && node e2e-project.mjs && node e2e-subject.mjs && node e2e-loop.mjs && node e2e-batch.mjs && node e2e-filmstrip.mjs && node e2e-media.mjs && node e2e-erase.mjs && node e2e-text.mjs && node e2e-keysel.mjs && node e2e-sticker.mjs && node e2e-backup.mjs && node e2e-canvas.mjs && node e2e-print.mjs && node e2e-videoperf.mjs && node e2e-clips.mjs && node e2e-audio.mjs",
+    "test:basic": "node e2e.mjs",
+    "test:keyframes": "node e2e-keyframes.mjs",
+    "make:testgif": "node scripts/make-test-gif.mjs && node scripts/make-greenscreen-gif.mjs && node scripts/make-room-fixture.mjs && node scripts/make-test-mp4.mjs && node scripts/make-screencast-gif.mjs && node scripts/make-badloop-gif.mjs && node scripts/make-audio-mp4.mjs && node scripts/make-photo-set.mjs && node scripts/make-longgop-mp4.mjs",
+    "test:project": "node e2e-project.mjs",
+    "test:crop": "node e2e-crop.mjs",
+    "test:lasso": "node e2e-lasso.mjs",
+    "test:groups": "node e2e-groups.mjs",
+    "test:framing": "node e2e-framing.mjs",
+    "test:tracking": "node e2e-tracking.mjs",
+    "test:matte": "node e2e-matte.mjs",
+    "test:ai": "node e2e-ai.mjs",
+    "test:snap": "node e2e-snap.mjs",
+    "test:identity": "node e2e-identity.mjs",
+    "test:video": "node e2e-video.mjs",
+    "desktop": "node scripts/desktop-dev.mjs",
+    "desktop:build": "npm run build && electron-builder && node verify-package.mjs",
+    "desktop:run": "npm run build && electron .",
+    "test:retro": "node test-retro.mjs",
+    "test:loop": "node test-loop.mjs",
+    "test:cursor": "node test-cursor.mjs",
+    "test:subject": "node e2e-subject.mjs",
+    "test:loop-e2e": "node e2e-loop.mjs",
+    "test:batch": "node e2e-batch.mjs",
+    "test:desktop": "npm run build && node e2e-desktop.mjs && node e2e-mp4.mjs",
+    "test:units": "node test-retro.mjs && node test-loop.mjs && node test-cursor.mjs && node test-collage.mjs && node test-trace.mjs",
+    "test:mp4": "node e2e-mp4.mjs",
+    "test:filmstrip": "node e2e-filmstrip.mjs",
+    "test:media": "node e2e-media.mjs",
+    "test:collage": "node test-collage.mjs",
+    "test:trace": "node test-trace.mjs",
+    "test:erase": "node e2e-erase.mjs",
+    "test:text": "node e2e-text.mjs",
+    "test:keysel": "node e2e-keysel.mjs",
+    "test:sticker": "node e2e-sticker.mjs",
+    "test:backup": "node e2e-backup.mjs",
+    "test:canvas": "node e2e-canvas.mjs",
+    "test:print": "node e2e-print.mjs",
+    "test:videoperf": "node e2e-videoperf.mjs",
+    "test:clips": "node e2e-clips.mjs",
+    "test:audio": "node e2e-audio.mjs",
+    "bench:video": "node bench-video.mjs",
+    "test:dpi": "node test-dpi.mjs",
+    "verify:package": "node verify-package.mjs",
+    "make:icons": "node scripts/make-icons.mjs"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "gifenc": "^1.0.3",
+    "mp4box": "^2.4.1",
+    "onnxruntime-web": "^1.29.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3",
+    "playwright-core": "^1.63.0",
+    "vite": "^5.4.11"
+  },
+  "build": {
+    "appId": "dev.pixelforge.app",
+    "productName": "PixelForge",
+    "files": [
+      "dist/**/*",
+      "!dist/test",
+      "!dist/test/**/*",
+      "electron/**/*",
+      "package.json",
+      "!node_modules/**",
+      "!build/**"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "PixelForge",
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "publish": null
+  },
+  "description": "A canvas image, GIF and video editor with keyframes, matting and print-ready export.",
+  "author": "PixelForge"
+}
