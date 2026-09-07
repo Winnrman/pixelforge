@@ -150,4 +150,18 @@ export async function tempFile(bytes, ext) {
 }
 
 export const removeFile = (p) => (bridge && p ? bridge.removeFile(p) : Promise.resolve(false))
+
+/**
+ * Tells the shell the renderer can accept a file, and listens for one.
+ *
+ * Double-clicking a `.pfz` passes its path on the command line; the window does
+ * not exist yet when that arrives, so the main process holds it until this says
+ * it is ready. Returns an unsubscribe function, or null off the desktop.
+ */
+export function onOpenPath(fn) {
+  if (!bridge?.onOpenPath) return null
+  const off = bridge.onOpenPath(fn)
+  bridge.ready?.()
+  return off
+}
 export const probeStreams = (p) => (bridge ? bridge.probeStreams(p) : Promise.resolve({ audio: false, video: false }))

@@ -195,6 +195,26 @@ Separately, the document is **autosaved** on a debounce. If the tab is closed or
 next launch offers to recover that session. Autosave holds one session and the browser may
 evict it — a saved project, or an exported `.pfz`, is the durable copy.
 
+### Opening a project from the file manager
+
+Double-clicking a `.pfz` used to launch PixelForge and leave it empty. The shell passes the
+path as a command-line argument and nothing was reading it, so the window opened on a blank
+document while the project sat unopened on disk.
+
+The path is found in `process.argv` at launch, in the `second-instance` event when the app is
+already running, and from `open-file` on macOS, which does not use argv for this at all. A
+single-instance lock means double-clicking a second project hands it to the window already
+open rather than starting a second copy of the app.
+
+It is held until the renderer says it can take it. A path found at launch arrives long before
+there is a window to send it to, and a message posted into a window that is still loading is
+simply lost — so the renderer asks, and the main process answers with whatever it is holding.
+Opening it from there is the same code path as **Open Existing**, so a project opened this way
+is in no way a special case once it is loaded.
+
+The installer registers the association itself now (`fileAssociations` in the build config),
+so this works on a fresh install rather than only where the association was set by hand.
+
 ### Automatic backups
 
 Autosave covers a crash. It does not cover the likelier loss: you export a PNG, move on, and
@@ -1590,7 +1610,7 @@ Thirty browser suites (**689 checks**), three Electron suites (**77 checks** —
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **1065 checks** in total.
+without a browser at all. **1067 checks** in total.
 
 ```bash
 npm run dev        # in one terminal

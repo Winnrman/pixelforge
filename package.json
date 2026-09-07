@@ -11,7 +11,7 @@
     "test": "node e2e.mjs && node e2e-keyframes.mjs && node e2e-crop.mjs && node e2e-video.mjs && node e2e-framing.mjs && node e2e-matte.mjs && node e2e-ai.mjs && node e2e-tracking.mjs && node e2e-snap.mjs && node e2e-identity.mjs && node e2e-lasso.mjs && node e2e-groups.mjs && node e2e-project.mjs && node e2e-subject.mjs && node e2e-loop.mjs && node e2e-batch.mjs && node e2e-filmstrip.mjs && node e2e-media.mjs && node e2e-erase.mjs && node e2e-text.mjs && node e2e-keysel.mjs && node e2e-sticker.mjs && node e2e-backup.mjs && node e2e-canvas.mjs && node e2e-print.mjs && node e2e-videoperf.mjs && node e2e-clips.mjs && node e2e-audio.mjs && node e2e-tracks.mjs && node e2e-mount.mjs",
     "test:basic": "node e2e.mjs",
     "test:keyframes": "node e2e-keyframes.mjs",
-    "make:testgif": "node scripts/make-test-gif.mjs && node scripts/make-greenscreen-gif.mjs && node scripts/make-room-fixture.mjs && node scripts/make-test-mp4.mjs && node scripts/make-screencast-gif.mjs && node scripts/make-badloop-gif.mjs && node scripts/make-audio-mp4.mjs && node scripts/make-photo-set.mjs && node scripts/make-longgop-mp4.mjs && node scripts/make-beeps-mp4.mjs",
+    "make:testgif": "node scripts/make-test-gif.mjs && node scripts/make-greenscreen-gif.mjs && node scripts/make-room-fixture.mjs && node scripts/make-test-mp4.mjs && node scripts/make-screencast-gif.mjs && node scripts/make-badloop-gif.mjs && node scripts/make-audio-mp4.mjs && node scripts/make-photo-set.mjs && node scripts/make-longgop-mp4.mjs && node scripts/make-beeps-mp4.mjs && node scripts/make-test-pfz.mjs",
     "test:project": "node e2e-project.mjs",
     "test:crop": "node e2e-crop.mjs",
     "test:lasso": "node e2e-lasso.mjs",
@@ -130,7 +130,16 @@
     "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"
     },
-    "publish": null
+    "publish": null,
+    "fileAssociations": [
+      {
+        "ext": "pfz",
+        "name": "PixelForge Project",
+        "description": "PixelForge project",
+        "role": "Editor",
+        "icon": "build/icon.ico"
+      }
+    ]
   },
   "description": "A canvas image, GIF and video editor with keyframes, matting and print-ready export.",
   "author": "PixelForge"

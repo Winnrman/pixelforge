@@ -62,6 +62,14 @@ contextBridge.exposeInMainWorld('pixelforge', {
 
   tempFile: (bytes, ext) => call('pf:tempFile', { bytes, ext }),
   removeFile: (p) => call('pf:removeFile', p),
+  // The renderer says when it can accept one, then listens. Without the
+  // handshake a file passed at launch is sent into a window still loading.
+  ready: () => call('pf:ready'),
+  onOpenPath: (fn) => {
+    const h = (_e, p) => fn(p)
+    ipcRenderer.on('pf:openPath', h)
+    return () => ipcRenderer.off('pf:openPath', h)
+  },
   backup: {
     dir: () => call('pf:backupDir'),
     write: (bytes, name, reason) => call('pf:backupWrite', { bytes, name, reason }),

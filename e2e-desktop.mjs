@@ -304,6 +304,40 @@ check('the ring keeps a bounded number', pruned === 30 && files.length === 30)
 check('and drops the oldest, keeping the newest', files.sort().at(-1).includes('Ring 33'))
 
 await page.screenshot({ path: path.join(OUT, '01-desktop.png') })
+
+// --- double-clicking a .pfz opens it ---------------------------------------------
+// The shell passes the path as a command-line argument. Nothing was reading it,
+// so associating .pfz with PixelForge launched the app and left it empty.
+const PFZ = path.resolve('public/test/sample.pfz')
+if (!fs.existsSync(PFZ)) {
+  console.log('SKIP  no sample.pfz — run `node scripts/make-test-pfz.mjs`')
+} else {
+  const PROFILE2 = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-open-'))
+  const opened = await electron.launch({
+    args: ['.', PFZ],
+    env: { ...process.env, PF_USER_DATA: PROFILE2, PF_NO_CONFIRM: '1' },
+    timeout: 60000,
+  })
+  const page2 = await opened.firstWindow()
+  await page2.waitForLoadState('domcontentloaded')
+  // The renderer has to ask for it, so this is also the handshake being tested:
+  // a path found at launch arrives long before there is a window to send it to.
+  let loaded = null
+  for (let i = 0; i < 60; i++) {
+    loaded = await page2.evaluate(() => ({
+      body: document.body.textContent || '',
+      canvas: !!document.querySelector('.stage canvas'),
+    }))
+    if (/room\.png/.test(loaded.body)) break
+    await page2.waitForTimeout(500)
+  }
+  console.log('opened from the shell:', /room\.png/.test(loaded.body) ? 'yes' : 'no')
+  check('a .pfz passed on the command line is opened', /room\.png/.test(loaded.body))
+  check('and its layers are there, not just an empty window',
+    /OPENED FROM DISK/.test(loaded.body) || /room\.png/.test(loaded.body))
+  await page2.screenshot({ path: path.join(OUT, '03-opened-pfz.png') }).catch(() => {})
+  await opened.close()
+}
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await app.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

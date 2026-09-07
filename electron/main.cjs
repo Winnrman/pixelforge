@@ -159,6 +159,60 @@ function buildMenu() {
   ]))
 }
 
+// --- opening a .pfz from the shell ---------------------------------------------
+//
+// Double-clicking a project used to launch the app and then sit there empty: the
+// path arrives as a command-line argument, and nothing was reading it. The
+// renderer already knows how to open one, so all this does is find the path and
+// hand it over once there is a window to hand it to.
+
+/** The project file in a set of launch arguments, if there is one. */
+function projectArg(argv) {
+  // Skip the executable, and in development the script path as well. Flags are
+  // skipped by the extension test — Electron adds several of its own.
+  return argv.slice(1).find((a) => /\.pfz$/i.test(a) && !a.startsWith('-')) || null
+}
+
+// Held until the renderer says it is listening. A path found at launch arrives
+// long before the window exists, and sending into a window that is still loading
+// simply loses it.
+let pendingOpen = projectArg(process.argv)
+let rendererReady = false
+
+function flushOpen() {
+  if (!rendererReady || !pendingOpen || !win) return
+  win.webContents.send('pf:openPath', pendingOpen)
+  pendingOpen = null
+}
+
+ipcMain.handle('pf:ready', () => {
+  rendererReady = true
+  flushOpen()
+  return true
+})
+
+// A second launch — double-clicking another project while this one is open —
+// is handed to the window already running rather than starting a second app.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', (_e, argv) => {
+    const file = projectArg(argv)
+    if (file) { pendingOpen = file; flushOpen() }
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+  })
+}
+
+// macOS does not use argv for this; it sends an event, possibly before ready.
+app.on('open-file', (e, path) => {
+  e.preventDefault()
+  pendingOpen = path
+  flushOpen()
+})
+
 app.whenReady().then(() => {
   if (!isDev) serveDist()
   buildMenu()

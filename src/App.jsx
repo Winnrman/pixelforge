@@ -4,7 +4,7 @@ import { uiFlags } from './state/uiFlags.js'
 import {
   autosaveAvailable, readSnapshot, restoreSnapshot, saveSnapshot, clearSnapshot,
 } from './engine/autosave.js'
-import { isDesktop, windowControls } from './engine/desktop.js'
+import { isDesktop, windowControls, onOpenPath, readPath } from './engine/desktop.js'
 import TopBar from './components/TopBar.jsx'
 import ToolRail from './components/ToolRail.jsx'
 import CanvasStage from './components/CanvasStage.jsx'
@@ -167,6 +167,32 @@ export default function App() {
     const t = setTimeout(() => setNotice(null), 5000)
     return () => clearTimeout(t)
   }, [notice, setNotice])
+
+  // A project double-clicked in the file manager. The path arrives from the
+  // shell; opening it is the same code path as Open Existing, so a file opened
+  // this way is in no way a special case once it is loaded.
+  useEffect(() => {
+    // The unsubscribe is wrapped rather than returned straight out: off the
+    // desktop there is no bridge and `onOpenPath` answers null, and an effect
+    // that returns a non-function has that value called as its cleanup — which
+    // takes the whole app down with "destroy is not a function".
+    const off = onOpenPath(async (path) => {
+      const st = useStore.getState()
+      if (st.dirty && !confirm('You have unsaved changes. Discard them and open this project?')) {
+        return
+      }
+      try {
+        // `openProject` manages its own busy state and clears it in a finally.
+        await st.openProject(await readPath(path))
+      } catch (err) {
+        console.error('[pixelforge] could not open', path, err)
+        useStore.getState().setNotice({
+          kind: 'warn', text: 'Could not open that project: ' + err.message,
+        })
+      }
+    })
+    return () => off?.()
+  }, [])
 
   // ---- keyboard ----------------------------------------------------------
   useEffect(() => {
