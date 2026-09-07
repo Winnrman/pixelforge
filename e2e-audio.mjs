@@ -112,7 +112,10 @@ check('the volume control scales the signal', ratio > 0.35 && ratio < 0.65,
 const clipped = await page.evaluate(() => {
   const st = window.__pfState()
   const l = st.doc.layers[0]
-  st.makeClip(l.id, 500)
+  // Video arrives already clipped, so this places the clip rather than creating
+  // one — `makeClip` would see the clip that is already there and do nothing.
+  if (l.clip) st.slideClip(l.id, 500)
+  else st.makeClip(l.id, 500)
   const after = window.__pfState().doc.layers.find((x) => x.id === l.id)
   return { clip: after.clip, layers: window.__pfState().doc.layers }
 })

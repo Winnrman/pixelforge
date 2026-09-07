@@ -182,7 +182,8 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
 
   const pct = duration ? Math.min(100, (time / duration) * 100) : 0
   const label = win.clipped
-    ? `${(win.from / 1000).toFixed(2)}s to ${(win.to / 1000).toFixed(2)}s — drag to move, ends to trim`
+    ? `${layer.name} — ${(win.from / 1000).toFixed(2)}s to ${(win.to / 1000).toFixed(2)}s`
+      + ' · drag to move, ends to trim, up or down to change track'
     : 'Drag to scrub'
 
   const clipEl = (
@@ -203,6 +204,9 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
       }}
     >
       <canvas ref={canvasRef} style={{ width: '100%', height: THUMB_H }} />
+      {/* On a track the row's label names the track, not the clip, so without
+          this there is nothing on screen saying which file a clip is. */}
+      {win.clipped && <span className="clip-title">{layer.name}</span>}
       {win.clipped && <span className="clip-grip start" />}
       {win.clipped && <span className="clip-grip end" />}
       {pending > 0 && <span className="strip-pending">{pending} left</span>}

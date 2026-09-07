@@ -174,11 +174,20 @@ await page.waitForSelector('.strip canvas', { timeout: 15000 })
 await waitForStrip(10)
 const decodeMs = Date.now() - vidStart
 
-const vidMeta = await page.evaluate(() => document.querySelector('.strip-meta')?.textContent)
+// A video arrives as a clip on a track now, so the row's meta column is the
+// track's, not the file's — the clip carries its own name over its thumbnails.
+const vidMeta = await page.evaluate(() => ({
+  meta: document.querySelector('.strip-meta')?.textContent || '',
+  title: document.querySelector('.clip-title')?.textContent || '',
+  tip: document.querySelector('.strip.clip')?.getAttribute('title') || '',
+}))
 const vid = await stripColumns(10)
 console.log('video strip in', decodeMs + 'ms ·', JSON.stringify(vid.cols))
 check('a video layer gets a strip too', !!vid && vid.cols.length === 10)
-check('labelled as MP4', /MP4/.test(vidMeta || ''), vidMeta)
+check('and the clip says which file it is', /\.mp4/i.test(vidMeta.title),
+  JSON.stringify(vidMeta))
+check('with its span and what a drag does, in the tooltip',
+  /drag to move/.test(vidMeta.tip) && /s to /.test(vidMeta.tip), vidMeta.tip)
 check('every video slot was decoded', vid.cols.every((c) => c[3] > 200),
   `alphas ${vid.cols.map((c) => c[3]).join(',')}`)
 const vlum = vid.cols.map((c) => Math.round(0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]))
@@ -214,8 +223,19 @@ const cacheState = await page.evaluate(() => {
   const s = window.__pfState()
   const a = window.__pfAssets.getAsset(s.doc.layers[0].assetId)
   const F = window.__pfFilmstrip
-  const shown = F.stripTimes(s.doc.layers[0], a, 800, s.duration)
+  // The same window *and* the same width the component drew with. Thumbnails are
+  // cached against the exact millisecond they were sampled at, so a different
+  // element width means a different number of slots, different sample times,
+  // and every lookup misses — which would look like a broken cache rather than
+  // a mismeasured test.
+  const l = s.doc.layers[0]
+  const el = [...document.querySelectorAll('.strip')]
+    .find((x) => x.querySelector('canvas'))
+  const width = el ? Math.floor(el.getBoundingClientRect().width) : 800
+  const shown = F.stripTimes(l, a, width, s.duration, F.THUMB_H,
+    F.stripWindow(l, a, s.duration))
   return {
+    width,
     slots: shown.length,
     cached: shown.filter((sl) => !!F.cachedThumb(a, sl.assetT)).length,
     // A time no slot asked for must miss, or "cached" would be meaningless.

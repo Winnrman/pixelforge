@@ -289,8 +289,21 @@ other, and you would need to know which one wins. Instead, moving a clip between
 **re-sorts the layer array to match**. There is one truth, and the renderer never learns
 that tracks exist: not a line of compositing code changed.
 
-Higher track number means further forward, and the rows are drawn front-most at the top, so
-V3 sits above V2 sits above V1 — the way a timeline is read.
+Higher track number means further forward, and the rows are drawn front-most at the top —
+the way a timeline is read. They are labelled **Track 1, Track 2** and not V1, V2: the
+shorthand has to be learned, and the first person to see it read "V1" as *volume* and went
+looking for a waveform.
+
+**An imported video arrives as a clip on the first track.** A 164-second MP4 is footage, not
+an overlay, and arriving as something that loops forever and cannot be cut is not a sensible
+place to start editing it — which is exactly what happened: a long video landed as an
+unclipped strip *below* an empty track, outside the structure meant to hold it. A GIF still
+arrives unclipped, because in this app a GIF usually is an overlay. Anything unclipped is
+now labelled as not being on a track, rather than sitting there looking like a track that
+lost its name.
+
+Each clip carries its own file name over its thumbnails. The row label names the *track*, so
+without it there was nothing on screen saying which file a clip was.
 
 Only the clips are re-sorted, and only among the slots clips already occupy. A title that
 sat in front of the footage stays in front of it when a clip is dragged to another row;
@@ -1493,11 +1506,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Twenty-nine browser suites (**649 checks**), three Electron suites (**77 checks** — the shell
+Twenty-nine browser suites (**655 checks**), three Electron suites (**77 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **1010 checks** in total.
+without a browser at all. **1016 checks** in total.
 
 ```bash
 npm run dev        # in one terminal

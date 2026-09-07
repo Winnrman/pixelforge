@@ -297,9 +297,12 @@ export default function Timeline() {
   const [dropTrack, setDropTrack] = useState(null)
   // One row per track, front-most first, plus one empty row above the top so a
   // new track is made by using it rather than by pressing anything.
+  const used = byTrack(layers)
   const rows = [
-    { track: trackCount(layers), clips: [], empty: true },
-    ...byTrack(layers),
+    { track: clipped.length ? trackCount(layers) : 0, clips: [], empty: true },
+    // With nothing on the timeline at all, one empty row is the invitation.
+    // Two — a drop row and an empty track under it — is just a confusing gap.
+    ...(clipped.length ? used : []),
   ]
   // Animated media that is not a clip still gets its old full-width strip: an
   // overlay on a looping GIF is not on a track and should not pretend to be.
@@ -519,7 +522,9 @@ export default function Timeline() {
                 insertClip(assetId, { track: row.track, at })
               }}
             >
-              <span className="track-name">{row.empty ? '' : `V${row.track + 1}`}</span>
+              <span className="track-name">
+                {row.empty ? '' : `Track ${row.track + 1}`}
+              </span>
               <div className="track-lane">
                 {row.clips.map((l) => (
                   <Filmstrip
@@ -539,6 +544,12 @@ export default function Timeline() {
               </div>
             </div>
           ))}
+          {loose.length > 0 && (
+            <p className="tl-note">
+              Not on a track — these play for the whole project and loop.
+              Drag one onto a track to cut it.
+            </p>
+          )}
           {loose.map(({ layer, asset }) => (
             <Filmstrip
               key={layer.id}

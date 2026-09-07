@@ -2446,6 +2446,13 @@ export const useStore = create((set, get) => ({
         flipY: false,
         speed: 1,
         timeOffset: 0,
+        // Video lands as a clip on the first track. A 164-second MP4 is footage,
+        // not an overlay: arriving as something that loops forever and cannot be
+        // cut is not a sensible starting point for editing it. A GIF still
+        // arrives unclipped, because in this app a GIF usually *is* an overlay.
+        ...(asset.isVideo
+          ? { track: 0, clip: wholeClip({}, asset, freeSpotOn(get().doc.layers, 0, 0)) }
+          : null),
         ...imageFraming(),
         adjust: defaultAdjust(),
       }

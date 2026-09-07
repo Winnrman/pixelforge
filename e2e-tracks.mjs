@@ -174,8 +174,9 @@ check('a row per track', ui.total === 4, `${ui.total} rows for 3 tracks plus one
 check('exactly one of them empty', ui.empty === 1)
 // Front-most at the top, which is how a timeline is read and how the tracks are
 // numbered: V3 above V2 above V1.
-check('front-most track at the top', ui.labels[1] === 'V3' && ui.labels[3] === 'V1',
-  ui.labels.join(','))
+// Plain words, not NLE shorthand. "V1" has to be learned, and reads as volume.
+check('front-most track at the top, named in plain words',
+  ui.labels[1] === 'Track 3' && ui.labels[3] === 'Track 1', ui.labels.join(','))
 await page.screenshot({ path: path.join(OUT, '01-tracks.png') })
 
 // --- dragging a clip onto another track moves it ------------------------------------------
@@ -240,6 +241,55 @@ const gaps = await page.evaluate(() => {
 console.log('first clip on each track after closing gaps:', JSON.stringify(gaps))
 check('every track closes back to zero independently',
   Object.values(gaps).every((v) => v === 0), JSON.stringify(gaps))
+
+// --- importing a video puts it on a track, ready to cut -------------------------------
+// The failure this prevents: drop in a long MP4 and get a layer that loops for
+// the whole project and cannot be cut, sitting below an empty track.
+const imported = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  const blob = await (await fetch('/test/withaudio.mp4')).blob()
+  const f = new File([blob], 'withaudio.mp4', { type: 'video/mp4' })
+  const a = await window.__pfAssets.loadImageFile(f)
+  window.__pfState().placeMedia([a.id], { resizeDocToFirst: true })
+  await new Promise((r) => setTimeout(r, 400))
+  const l = window.__pfState().doc.layers.find((x) => x.assetId === a.id)
+  return {
+    clipped: !!l.clip,
+    track: l.track,
+    length: l.clip ? Math.round(l.clip.out - l.clip.in) : 0,
+    assetMs: Math.round(a.duration),
+  }
+})
+console.log('imported video:', JSON.stringify(imported))
+check('an imported video arrives as a clip', imported.clipped)
+check('on the first track', imported.track === 0, String(imported.track))
+check('covering the whole file', Math.abs(imported.length - imported.assetMs) < 60,
+  `${imported.length}ms of ${imported.assetMs}ms`)
+
+// And being a clip is what makes it cuttable at all.
+const cuttable = await page.evaluate(() => {
+  const st = window.__pfState()
+  const n = st.splitClips(Math.round(st.duration / 2))
+  return { n, clips: window.__pfState().doc.layers.filter((l) => l.clip).length }
+})
+console.log('cutting the import:', JSON.stringify(cuttable))
+check('so it can be cut straight away', cuttable.n === 1 && cuttable.clips === 2,
+  `${cuttable.clips} clips`)
+
+// A GIF still arrives unclipped: in this app a GIF is usually an overlay, and
+// an overlay wants to be visible throughout.
+const gif = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  const blob = await (await fetch('/test/motion.gif')).blob()
+  const f = new File([blob], 'motion.gif', { type: 'image/gif' })
+  const a = await window.__pfAssets.loadImageFile(f)
+  window.__pfState().placeMedia([a.id], { resizeDocToFirst: true })
+  await new Promise((r) => setTimeout(r, 300))
+  return !!window.__pfState().doc.layers.find((x) => x.assetId === a.id)?.clip
+})
+check('while a GIF still arrives as a looping overlay', gif === false)
 
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
