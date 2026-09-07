@@ -1628,6 +1628,17 @@ reading it off the swatch afterwards is a step too late. The block is pulled fro
 composited document canvas, the same surface and the same rounding a click samples, so what
 the loupe shows and what lands in the swatch cannot disagree.
 
+It shows nine pixels across rather than the fifteen it started with. At fifteen each cell was
+eight screen pixels, which is not enough to pick the outlined one out at a glance — and a
+neighbourhood you cannot read is not worth the width it costs. Nine on a wider glass is about
+eighteen pixels a cell, and the centre box reads immediately.
+
+The first version drew nine white lines straight out across the picture. `save()` and
+`restore()` carry the transform and the styles but **not** the current path, so the rim stroke
+after the clip was restored was stroking whatever path had been built last — the grid — rather
+than the circle that opened the clip. Laying the arc down again fixed it. Worth writing down
+because it looks like a clipping bug and is not one.
+
 ### Selecting by colour
 
 The AI lasso finds *subjects*, which is exactly why it is no help with a flat background, a
@@ -1717,6 +1728,24 @@ two, because it is a union rather than a case for two.
 A plain pixelate is not a window and still pixelates what it covers, including inside
 someone's window: asking for a region to be pixelated is not ambiguous, and the layer that
 should give way is the one whose whole definition is "everywhere else".
+
+### Actions you could not reach
+
+The lasso's action bar is anchored under the outline, which is fine until the outline reaches
+the bottom of the picture — and a full-height image puts it there every time. The buttons then
+sat below the stage, half cut off by the window. It now flips above the outline when there is
+no room beneath, slides along rather than hanging off either side, and centres itself when the
+bar is wider than the stage, which is the only thing left to do at that point.
+
+The position is measured after layout and written straight to the node rather than into state:
+the correction depends on the size of the thing being positioned, and feeding a measurement
+back into a render that changes the measurement is how a loop starts.
+
+Finding this turned up a second thing. `panX`/`panY` is the document's **top-left** in stage
+coordinates, so a document point on screen is `pan + doc * zoom`. Two tests had written that
+mapping around the canvas centre instead, which double-counts the pan — and passed anyway,
+because their fixtures were split left from right at full height, so an error in y could not
+change the answer. Both now use the mapping the stage actually uses.
 
 ## Two ways to put text behind
 
@@ -1862,11 +1891,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-six browser suites (**797 checks**), two Electron suites (**70 checks** — the shell
+Thirty-six browser suites (**803 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and eight DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1187
+for the parts that are pure maths and deserve testing without a browser at all. **1193
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

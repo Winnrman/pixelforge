@@ -254,13 +254,10 @@ const loupe = await page.evaluate(async () => {
   const canvas = document.querySelector('.stage canvas')
   const r = canvas.getBoundingClientRect()
   const v = st.view
-  const cx = r.left + r.width / 2
-  const cy = r.top + r.height / 2
+  // panX/panY is the document's top-left in stage coordinates, so a document
+  // point is pan + doc * zoom. Nothing about the canvas centre comes into it.
   return {
-    p: {
-      x: cx + (150 - st.doc.width / 2) * v.zoom + v.panX,
-      y: cy + (100 - st.doc.height / 2) * v.zoom + v.panY,
-    },
+    p: { x: r.left + v.panX + 150 * v.zoom, y: r.top + v.panY + 100 * v.zoom },
   }
 })
 
@@ -286,12 +283,13 @@ const magnified = await page.evaluate(() => {
   const st = window.__pfState()
   const v = st.view
   const r = canvas.getBoundingClientRect()
-  const sx = r.width / 2 + (150 - st.doc.width / 2) * v.zoom + v.panX
-  const sy = r.height / 2 + (100 - st.doc.height / 2) * v.zoom + v.panY
-  // Where the glass sits: up and to the right of the cursor by gap = 18 + R.
-  const lx = Math.round((sx + 80) * dpr)
-  const ly = Math.round((sy - 80) * dpr)
-  const w = Math.round(80 * dpr)
+  const sx = v.panX + 150 * v.zoom
+  const sy = v.panY + 100 * v.zoom
+  // Where the glass sits: up and to the right of the cursor by 18 + the radius.
+  const R = 80
+  const lx = Math.round((sx + 18 + R) * dpr)
+  const ly = Math.round((sy - 18 - R) * dpr)
+  const w = Math.round(R * 1.7 * dpr)
   const d = c.getContext('2d', { willReadFrequently: true })
     .getImageData(lx - w / 2, ly, w, 1).data
   const runs = []
@@ -302,15 +300,111 @@ const magnified = await page.evaluate(() => {
   return { runs: runs.filter((n) => n > 1), dpr }
 })
 console.log('run lengths across the glass:', JSON.stringify(magnified))
-// The stripes are 4 document pixels wide. One document pixel is about 8 screen
-// pixels through the glass, so a stripe there is far wider than on the canvas.
-check('and what it draws is magnified', magnified.runs.some((n) => n >= 8),
+// The stripes are 4 document pixels wide, and are drawn at 4 screen pixels on
+// the canvas itself. Through the glass one document pixel is about 18 screen
+// pixels, so the same stripe is several times wider — which is the whole point:
+// at eight pixels a cell you cannot see which one is outlined.
+check('and what it draws is magnified', magnified.runs.some((n) => n >= 24),
   JSON.stringify(magnified.runs.slice(0, 10)))
 
 await page.evaluate(() => window.__pfState().setTool('move'))
 await page.waitForTimeout(300)
 const afterTool = await stageShot()
 check('and it goes away with the tool', Buffer.compare(after, afterTool) !== 0)
+
+// ---------------------------------------------------------------------------
+// The lasso actions stay on screen
+// ---------------------------------------------------------------------------
+// A tall picture fitted to the stage puts the bottom of the image at the bottom
+// of the stage, so an outline down there anchored its actions below the window
+// and half of them could not be clicked.
+await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  await new Promise((r) => setTimeout(r, 200))
+  const c = document.createElement('canvas')
+  c.width = 900
+  c.height = 1350
+  const x = c.getContext('2d')
+  x.fillStyle = '#8a5a3b'
+  x.fillRect(0, 0, 900, 1350)
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'))
+  const a = await window.__pfAssets.loadImageFile(
+    new File([blob], 'tall.png', { type: 'image/png' }))
+  window.__pfState().placeMedia([a.id], { resizeDocToFirst: true })
+  await new Promise((r) => setTimeout(r, 500))
+  window.__pfState().setPlaying(false)
+  window.__pfState().fitView?.()
+  await new Promise((r) => setTimeout(r, 300))
+})
+
+/** Where the bar ended up, against the stage it has to stay inside. */
+const barBox = () => page.evaluate(() => {
+  const bar = document.querySelector('.lasso-bar')
+  const stage = document.querySelector('.stage')
+  if (!bar || !stage) return null
+  const b = bar.getBoundingClientRect()
+  const s = stage.getBoundingClientRect()
+  return {
+    bar: { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(b.right) },
+    stage: { top: Math.round(s.top), bottom: Math.round(s.bottom), left: Math.round(s.left), right: Math.round(s.right) },
+  }
+})
+
+const atBottom = await page.evaluate(() => {
+  const st = window.__pfState()
+  const h = st.doc.height
+  const w = st.doc.width
+  st.setLasso({
+    points: [[w * 0.3, h - 120], [w * 0.7, h - 120], [w * 0.7, h - 10], [w * 0.3, h - 10]],
+    closed: true,
+  })
+  return true
+})
+await page.waitForTimeout(300)
+const low = await barBox()
+console.log('outline at the bottom:', JSON.stringify(low))
+check('the actions appear for an outline at the bottom edge', !!low)
+check('and stay inside the stage', low && low.bar.bottom <= low.stage.bottom,
+  low ? `bar bottom ${low.bar.bottom}, stage bottom ${low.stage.bottom}` : '')
+check('rather than hanging below it',
+  low && low.bar.top >= low.stage.top, low ? `bar top ${low.bar.top}` : '')
+await page.screenshot({ path: path.join(OUT, '03-bar-bottom.png') })
+
+// And along the sides, where the same anchoring runs it off the edge.
+const atEdge = await page.evaluate(() => {
+  const st = window.__pfState()
+  st.setLasso({ points: [[0, 40], [80, 40], [80, 160], [0, 160]], closed: true })
+  return true
+})
+await page.waitForTimeout(300)
+const side = await barBox()
+console.log('outline at the left edge:', JSON.stringify(side))
+check('an outline against the left edge keeps its actions on screen',
+  side && side.bar.left >= side.stage.left,
+  side ? `bar left ${side.bar.left}, stage left ${side.stage.left}` : '')
+check('and does not push them off the right either',
+  side && side.bar.right <= side.stage.right,
+  side ? `bar right ${side.bar.right}, stage right ${side.stage.right}` : '')
+
+// An outline with room beneath it still gets its actions beneath it.
+const roomy = await page.evaluate(() => {
+  const st = window.__pfState()
+  st.setLasso({ points: [[300, 100], [600, 100], [600, 300], [300, 300]], closed: true })
+  return true
+})
+await page.waitForTimeout(300)
+const mid = await page.evaluate(() => {
+  const bar = document.querySelector('.lasso-bar').getBoundingClientRect()
+  const canvas = document.querySelector('.stage canvas').getBoundingClientRect()
+  const v = window.__pfState().view
+  // Where the bottom of the outline lands on screen.
+  const y = canvas.top + v.panY + 300 * v.zoom
+  return { barTop: Math.round(bar.top), outlineBottom: Math.round(y) }
+})
+console.log('an outline with room below it:', JSON.stringify(mid))
+check('an outline with room below still gets its actions below it',
+  mid.barTop > mid.outlineBottom, JSON.stringify(mid))
 
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()

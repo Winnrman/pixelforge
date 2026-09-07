@@ -61,13 +61,12 @@ const sampleAt = async (docX, docY) => {
     const canvas = document.querySelector('.stage canvas')
     const r = canvas.getBoundingClientRect()
     const v = st.view
-    // The same mapping the stage uses to turn a document point into a screen one.
-    const cx = r.left + r.width / 2
-    const cy = r.top + r.height / 2
-    return [
-      cx + (dx - st.doc.width / 2) * v.zoom + v.panX,
-      cy + (dy - st.doc.height / 2) * v.zoom + v.panY,
-    ]
+    // The same mapping the stage uses: panX/panY is the document's top-left in
+    // stage coordinates, so a document point is pan + doc * zoom. This used to
+    // be written around the canvas centre, which double-counted the pan — and
+    // passed anyway, because these fixture colours are split left from right at
+    // full height, so an error in y could not change the answer.
+    return [r.left + v.panX + dx * v.zoom, r.top + v.panY + dy * v.zoom]
   }, [docX, docY])
   await page.mouse.click(pt[0], pt[1])
   await page.waitForTimeout(200)

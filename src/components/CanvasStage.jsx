@@ -20,8 +20,15 @@ const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
 // The eyedropper's loupe: how big the glass is on screen, and how many document
 // pixels across it shows. Odd, so there is a true centre pixel to outline.
-const LOUPE_R = 62
-const LOUPE_N = 15
+//
+// Nine across a wider glass rather than fifteen across a narrow one: at fifteen
+// each pixel was eight screen pixels, which is too small to pick out the
+// outlined one at a glance — the point of the loupe is seeing *which* pixel you
+// are on, and a neighbourhood you cannot read is not worth the width. Nine at
+// this radius is about eighteen screen pixels each, and the centre box reads
+// immediately.
+const LOUPE_R = 80
+const LOUPE_N = 9
 
 // Transform handles belong to the move tool. While a drawing tool is armed a
 // press must start a new shape, even on top of a selected layer's handle —
@@ -479,6 +486,12 @@ export default function CanvasStage() {
     ctx.strokeRect(bx - 0.5, by - 0.5, cell + 1, cell + 1)
     ctx.restore()
 
+    // The rim. The arc has to be laid down again rather than stroked from the
+    // path that opened the clip: save/restore carries the transform and the
+    // styles but not the current path, so what is left here is the *grid*, and
+    // stroking that drew nine white lines straight out across the picture.
+    ctx.beginPath()
+    ctx.arc(lx, ly, LOUPE_R, 0, Math.PI * 2)
     ctx.lineWidth = 3
     ctx.strokeStyle = 'rgba(0,0,0,0.5)'
     ctx.stroke()

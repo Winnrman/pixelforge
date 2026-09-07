@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react'
 import { useStore } from '../state/store.js'
 import { polygonBounds } from '../engine/shapes.js'
 
@@ -28,11 +29,51 @@ export default function LassoBar() {
     return null
   })
 
+  const barRef = useRef(null)
+
+  // Keep the bar on screen.
+  //
+  // It is anchored under the outline, which is fine until the outline reaches
+  // the bottom of the picture — then the actions sit below the stage, half cut
+  // off by the window, and a full-height image puts them there every time. So it
+  // flips above the outline when there is no room beneath, and slides along
+  // rather than hanging off either side. Measured after layout, because the bar
+  // is as wide as its longest button label and that is not a number to hardcode.
+  //
+  // Written straight to the node rather than into state: the value depends on
+  // the size of the thing being positioned, and feeding a measurement back into
+  // a render that changes the measurement is how a loop starts.
+  useLayoutEffect(() => {
+    const el = barRef.current
+    if (!el) return
+    const stage = el.parentElement?.querySelector('.stage')
+    if (!stage) return
+    const M = 10
+    const bw = el.offsetWidth
+    const bh = el.offsetHeight
+    const sw = stage.clientWidth
+    const sh = stage.clientHeight + stage.offsetTop
+    const under = Number(el.dataset.under)
+    const over = Number(el.dataset.over)
+
+    let t = under
+    if (t + bh + M > sh) t = over - bh >= M ? over - bh : Math.max(M, sh - bh - M)
+    el.style.top = `${t}px`
+
+    // A bar wider than the stage cannot be fitted, only centred.
+    const half = bw / 2
+    const x = Number(el.dataset.cx)
+    el.style.left = bw + M * 2 > sw
+      ? `${sw / 2}px`
+      : `${Math.min(Math.max(x, half + M), sw - half - M)}px`
+  })
+
   if (!lasso?.points?.length) return null
 
   const b = polygonBounds(lasso.points)
   const left = view.panX + (b.x + b.w / 2) * view.zoom
   const top = view.panY + (b.y + b.h) * view.zoom + 12
+  const above = view.panY + b.y * view.zoom - 12
 
   const run = (mode) => {
     const res = applyLasso(mode)
@@ -59,7 +100,14 @@ export default function LassoBar() {
   }
 
   return (
-    <div className="lasso-bar" style={{ left, top }}>
+    <div
+      className="lasso-bar"
+      ref={barRef}
+      style={{ left, top }}
+      data-cx={left}
+      data-under={top}
+      data-over={above}
+    >
       <span className="lasso-target" title="Lasso actions apply to this layer">
         {target ? target.name : 'no layer selected'}
       </span>
