@@ -33,7 +33,7 @@
     "test:loop-e2e": "node e2e-loop.mjs",
     "test:batch": "node e2e-batch.mjs",
     "test:desktop": "npm run build && node e2e-desktop.mjs && node e2e-mp4.mjs",
-    "test:units": "node test-retro.mjs && node test-loop.mjs && node test-cursor.mjs && node test-collage.mjs && node test-trace.mjs",
+    "test:units": "node test-retro.mjs && node test-loop.mjs && node test-cursor.mjs && node test-collage.mjs && node test-trace.mjs && node test-dpi.mjs && node test-clips.mjs && node test-edges.mjs",
     "test:mp4": "node e2e-mp4.mjs",
     "test:filmstrip": "node e2e-filmstrip.mjs",
     "test:media": "node e2e-media.mjs",

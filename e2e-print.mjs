@@ -76,13 +76,46 @@ check('and it is still a readable PNG', printed.h > 0 && printed.bytes > 1000,
   `${printed.w}x${printed.h}, ${printed.bytes} bytes`)
 
 // --- the resolution does not change the pixels, only the claim -------------------------
-// 300 and 600 at the same pixel count must differ by the chunk alone; if the
-// stamp were altering image data, the sizes would drift apart.
+// Two real exports at 300 and 600 must come out the same size in pixels and each
+// read back its own resolution.
 const a = await shoot({ scale, dpi: 300 })
 const b = await shoot({ scale, dpi: 600 })
-check('two resolutions at one pixel size differ only in the claim',
-  a.bytes === b.bytes && a.w === b.w && a.dpi === 300 && b.dpi === 600,
-  `${a.bytes} vs ${b.bytes}`)
+check('two resolutions give the same picture at different claims',
+  a.w === b.w && a.h === b.h && a.dpi === 300 && b.dpi === 600,
+  `${a.w}x${a.h} at ${a.dpi} and ${b.dpi}`)
+
+// That the *bytes* are untouched is asserted on one export stamped twice, not on
+// two exports compared to each other. Chrome's rasterisation of a several-times
+// upscale is not bit-reproducible — five exports of the same document at the
+// same resolution were measured at 1535199, 1535199, 1535195, 1535195, 1535195,
+// so comparing two encodes would have been testing the browser's canvas, not
+// this. Stamping one array twice isolates the claim exactly.
+const stamped = await page.evaluate(async ([sc]) => {
+  const st = window.__pfState()
+  const { blob } = await window.__pfExport.exportPNG(st.doc, st.time, {
+    scale: sc, filename: 'print-test.png', silent: true,
+  })
+  const raw = new Uint8Array(await blob.arrayBuffer())
+  const at300 = window.__pfDpi.withDPI(raw, 300)
+  const at600 = window.__pfDpi.withDPI(raw, 600)
+  // Everything but the pHYs payload has to be identical, byte for byte.
+  let differ = 0
+  for (let i = 0; i < Math.min(at300.length, at600.length); i++) {
+    if (at300[i] !== at600[i]) differ++
+  }
+  return {
+    same: at300.length === at600.length,
+    grew: at300.length - raw.length,
+    differ,
+    read: [window.__pfDpi.readDPI(at300), window.__pfDpi.readDPI(at600)],
+  }
+}, [scale])
+console.log('one export stamped twice:', JSON.stringify(stamped))
+check('stamping a resolution leaves the image data alone',
+  stamped.same && stamped.differ <= 12, `${stamped.differ} bytes differ`)
+check('and costs one chunk', stamped.grew === 21, `${stamped.grew} bytes`)
+check('and each stamp reads back its own resolution',
+  stamped.read[0] === 300 && stamped.read[1] === 600, JSON.stringify(stamped.read))
 
 // --- the dialog offers it -------------------------------------------------------------
 await page.keyboard.press('Escape')

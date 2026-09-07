@@ -1809,11 +1809,20 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-two browser suites (**734 checks**), three Electron suites (**77 checks** — the shell
-itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
+Thirty-five browser suites (**778 checks**), two Electron suites (**70 checks** — the shell
+itself and MP4 export, which can only run where ffmpeg exists), and eight DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
-`test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **1124 checks** in total.
+`test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs` —
+for the parts that are pure maths and deserve testing without a browser at all. **1168
+checks** in total.
+
+One check had to be rewritten rather than kept: the DPI suite asserted that the same
+document exported at 300 and at 600 came out the same number of bytes, on the reasoning that
+only the chunk should differ. It does only differ by the chunk — but five exports of one
+document at one resolution measure 1535199, 1535199, 1535195, 1535195, 1535195, because
+Chrome's rasterisation of a five-times upscale is not bit-reproducible. The check was
+testing the browser's canvas. It now stamps *one* export twice and compares those, which is
+the claim it was always trying to make.
 
 ```bash
 npm run dev        # in one terminal
