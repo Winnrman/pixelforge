@@ -76,6 +76,7 @@ export default function MediaView() {
   const layers = useStore((s) => s.doc.layers)
   const addImages = useStore((s) => s.addImages)
   const placeMedia = useStore((s) => s.placeMedia)
+  const placeMounted = useStore((s) => s.placeMounted)
   const removeMedia = useStore((s) => s.removeMedia)
   const setWorkspace = useStore((s) => s.setWorkspace)
   const [picked, setPicked] = useState([])
@@ -148,6 +149,14 @@ export default function MediaView() {
             : 'Arrange these into a grid of tilted photo mounts'}
           onClick={() => setCollaging(true)}
         >Collage{picked.length > 1 ? ` (${picked.length})` : ''}…</button>
+        <button
+          className="btn ghost"
+          disabled={!picked.length}
+          title={picked.length
+            ? 'Add these to the canvas as photo mounts — white border, soft shadow, slight tilt'
+            : 'Pick something first'}
+          onClick={() => placeMounted(picked, 'polaroid')}
+        >Polaroid{picked.length > 1 ? ` (${picked.length})` : ''}</button>
         <button
           className="btn ghost"
           disabled={!picked.length}

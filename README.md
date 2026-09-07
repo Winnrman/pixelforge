@@ -574,6 +574,26 @@ is the kind of thing most viewers ignore silently and the print shop does not.
 Other formats carry no such field. GIF has no concept of physical size, and the panel
 says so rather than implying the setting does something.
 
+## Photo mounts
+
+The collage prints tilted cards with a white border and a soft shadow. That is a property of
+a *layer*, not of the collage — `frame: { insets, color, shadow, radius }` — so putting one
+around a single image is the same code. **Media → Polaroid** places the picked images already
+mounted and tilted; the Inspector's **Mount** control switches any layer between None, an
+even Border, and a Polaroid afterwards, and adjusts the border, card colour and shadow.
+
+The rule that makes it feel right: **the card grows around the picture, the picture does not
+shrink inside the card.** Nothing about a photo should change because something was put
+around it. So mounting reads where the picture currently sits, and resizes and repositions
+the layer box so the picture stays exactly where it was, at exactly the size it was —
+including when switching between mounts, which would otherwise shave a little off the photo
+each time.
+
+Placing is the exception, and deliberately so. A photo that already filled the frame would
+gain a border entirely off-canvas, and clicking Polaroid would appear to do nothing. Placing
+is the moment a size gets chosen, so `placeMounted` fits the finished card to the canvas at
+92% — a little under, because a tilted card clips its own corners otherwise.
+
 ## Canvas size
 
 Resizing the canvas is changing the frame, not the picture in it. That is the default
@@ -1566,11 +1586,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Twenty-nine browser suites (**672 checks**), three Electron suites (**77 checks** — the shell
+Thirty browser suites (**689 checks**), three Electron suites (**77 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **1048 checks** in total.
+without a browser at all. **1065 checks** in total.
 
 ```bash
 npm run dev        # in one terminal

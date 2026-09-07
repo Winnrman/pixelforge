@@ -45,6 +45,11 @@ const PRESETS = {
   Dream: { blur: 1.5, brightness: 110, saturate: 120, contrast: 92 },
 }
 
+/** Which mount a layer is wearing. A Polaroid is the one with a deep chin. */
+const mountStyle = (l) => (l.frame?.on
+  ? (l.frame.insets?.b > (l.frame.insets?.t || 0) * 1.5 ? 'polaroid' : 'border')
+  : 'none')
+
 export default function Inspector() {
   const doc = useStore((s) => s.doc)
   const selectedIds = useStore((s) => s.selectedIds)
@@ -76,6 +81,7 @@ export default function Inspector() {
   const setTrackOpts = useStore((s) => s.setTrackOpts)
   const textBehindSubject = useStore((s) => s.textBehindSubject)
   const toggleSticker = useStore((s) => s.toggleSticker)
+  const mountLayers = useStore((s) => s.mountLayers)
   const toggleTrails = useStore((s) => s.toggleTrails)
   const analyzeLoop = useStore((s) => s.analyzeLoop)
   const setLoop = useStore((s) => s.setLoop)
@@ -966,6 +972,47 @@ export default function Inspector() {
               </p>
               {!l.bgRemove?.on && !(l.mask?.points?.length >= 3) && (
                 <p className="hint">Nothing is cut out yet — remove the background, or lasso the subject and Mask.</p>
+              )}
+              <Row label="Mount">
+                <Segmented
+                  value={mountStyle(l)}
+                  onChange={(style) => mountLayers([base.id], style, {
+                    border: l.frame?.insets?.l || 0.05,
+                    color: l.frame?.color,
+                    shadow: l.frame?.shadow,
+                  })}
+                  options={[
+                    { value: 'none', label: 'None' },
+                    { value: 'border', label: 'Border' },
+                    { value: 'polaroid', label: 'Polaroid' },
+                  ]}
+                />
+              </Row>
+              {l.frame?.on && (
+                <>
+                  <Row label="Border">
+                    <Slider
+                      value={Math.round((l.frame.insets?.l || 0.05) * 100)}
+                      min={1} max={20} suffix="%"
+                      onChange={(v) => mountLayers([base.id], mountStyle(l), {
+                        border: v / 100, color: l.frame.color, shadow: l.frame.shadow,
+                      })}
+                    />
+                  </Row>
+                  <Row label="Card colour">
+                    <Color value={l.frame.color || '#ffffff'}
+                      onChange={(color) => { set({ frame: { ...l.frame, color } }); commit() }} />
+                  </Row>
+                  <Row label="Shadow">
+                    <Slider value={l.frame.shadow ?? 14} min={0} max={40} suffix="px"
+                      onChange={(shadow) => set({ frame: { ...l.frame, shadow } })}
+                      onCommit={commit} />
+                  </Row>
+                  <p className="hint">
+                    The card grows around the picture rather than the picture shrinking inside
+                    it, so framing something never changes the photo you framed.
+                  </p>
+                </>
               )}
               <Row label="Sticker">
                 <Toggle

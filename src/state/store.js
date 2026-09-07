@@ -11,7 +11,7 @@ import {
   defaultSticker, defaultTrails, subjectFrame, alphaBounds, unionBounds,
 } from '../engine/subject.js'
 import { suggestLoop } from '../engine/loop.js'
-import { layoutCollage, defaultCollage } from '../engine/collage.js'
+import { cardInsets, layoutCollage, defaultCollage } from '../engine/collage.js'
 import { defaultBrush, newStroke, docToLayer } from '../engine/erase.js'
 import { cursorPath, smoothPath, autoZoomTracks } from '../engine/cursor.js'
 import { exactFrame } from '../engine/video.js'
@@ -703,6 +703,95 @@ export const useStore = create((set, get) => ({
     }
     if (jobs.length) await Promise.all(jobs)
     return get().hasSound()
+  },
+
+  // ---- photo mounts -------------------------------------------------------
+
+  /**
+   * Puts a photo mount around layers — the same card the collage prints, on its
+   * own.
+   *
+   * The box grows rather than the picture shrinking. A mount drawn inside the
+   * existing box would make the photo smaller the moment you framed it, which is
+   * the opposite of what a frame is for: nothing about the picture should change
+   * because something was put around it.
+   */
+  mountLayers: (ids, style = 'polaroid', opts = {}) => {
+    const s = get()
+    const targets = s.doc.layers.filter((l) => ids.includes(l.id) && l.type === 'image')
+    if (!targets.length) return 0
+    s.pushHistory()
+    const border = opts.border ?? 0.05
+
+    for (const l of targets) {
+      if (style === 'none') {
+        get().updateLayer(l.id, { frame: null })
+        continue
+      }
+      const ins = cardInsets(style, border)
+      // What the picture currently occupies, so it can occupy exactly that after.
+      const prev = l.frame?.on ? (l.frame.insets || { l: 0, r: 0, t: 0, b: 0 }) : { l: 0, r: 0, t: 0, b: 0 }
+      const picW = l.w * (1 - prev.l - prev.r)
+      const picH = l.h * (1 - prev.t - prev.b)
+      const picX = l.x + l.w * prev.l
+      const picY = l.y + l.h * prev.t
+      const w = picW / Math.max(0.05, 1 - ins.l - ins.r)
+      const h = picH / Math.max(0.05, 1 - ins.t - ins.b)
+
+      get().updateLayer(l.id, {
+        x: picX - w * ins.l,
+        y: picY - h * ins.t,
+        w,
+        h,
+        frame: {
+          on: true,
+          insets: ins,
+          color: opts.color || '#ffffff',
+          shadow: opts.shadow ?? 14,
+          shadowY: opts.shadowY ?? 6,
+          shadowColor: opts.shadowColor || 'rgba(0,0,0,0.45)',
+          radius: opts.radius ?? 2,
+        },
+        ...(opts.tilt ? { rotation: (Math.random() * 2 - 1) * opts.tilt } : null),
+      })
+    }
+    set({ notice: { kind: 'ok', text: targets.length === 1 ? 'Mounted' : `Mounted ${targets.length}` } })
+    return targets.length
+  },
+
+  /**
+   * Places media on the canvas already mounted. One gesture, not two.
+   *
+   * The card is then fitted to the canvas. `mountLayers` deliberately never
+   * changes the photo, which is right when framing something already placed —
+   * but a photo that filled the frame would gain a border entirely off-screen,
+   * and clicking Polaroid would appear to do nothing at all. Placing is the
+   * moment to choose a size, so this is where it is chosen.
+   */
+  placeMounted: (assetIds, style = 'polaroid', opts = {}) => {
+    const made = get().placeMedia(assetIds, { resizeDocToFirst: false })
+    if (!made?.length) return []
+    get().mountLayers(made, style, { tilt: 4, ...opts })
+
+    const s = get()
+    const { width, height } = s.doc
+    // A little under the frame, so a tilted card does not clip its own corners.
+    const room = 0.92
+    set({
+      doc: {
+        ...s.doc,
+        layers: s.doc.layers.map((l) => {
+          if (!made.includes(l.id)) return l
+          const k = Math.min(1, (width * room) / l.w, (height * room) / l.h)
+          if (k >= 1) return l
+          const w = l.w * k
+          const h = l.h * k
+          // About its own centre, so a card placed off to one side stays there.
+          return { ...l, w, h, x: l.x + (l.w - w) / 2, y: l.y + (l.h - h) / 2 }
+        }),
+      },
+    })
+    return made
   },
 
   // ---- clips ------------------------------------------------------------
