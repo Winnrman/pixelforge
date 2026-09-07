@@ -19,7 +19,7 @@ import OpenDialog from './components/OpenDialog.jsx'
 
 const TOOL_KEYS = {
   v: 'move', c: 'crop', p: 'effect', l: 'lasso', s: 'shape', t: 'text', h: 'hand', e: 'erase',
-  i: 'eyedrop',
+  i: 'eyedrop', w: 'wand',
 }
 
 export default function App() {

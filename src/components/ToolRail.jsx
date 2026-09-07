@@ -13,6 +13,7 @@ const TOOLS = [
   { id: 'shape', key: 'S', label: 'Shape', icon: 'M3 3 H12 V12 H3 Z M9 9 A6 6 0 1 0 21 9 A6 6 0 1 0 9 9' },
   { id: 'text', key: 'T', label: 'Text', icon: 'M4 4 H20 M12 4 V20 M8 20 H16' },
   { id: 'erase', key: 'E', label: 'Erase — paint away part of a layer', icon: 'M8.5 20 H20 M3.6 16.4 l8-8 a1.5 1.5 0 0 1 2.1 0 l4.9 4.9 a1.5 1.5 0 0 1 0 2.1 l-4.6 4.6 H9.2 l-5.6 -5.6 a1.5 1.5 0 0 1 0 -2.1 Z' },
+  { id: 'wand', key: 'W', label: 'Select by colour', icon: 'M4 20 L14 10 M12.5 8.5 l3 3 M17 3 l1 2.2 l2.2 1 l-2.2 1 l-1 2.2 l-1 -2.2 l-2.2 -1 l2.2 -1 z M6 4 l0.6 1.4 l1.4 0.6 l-1.4 0.6 l-0.6 1.4 l-0.6 -1.4 l-1.4 -0.6 l1.4 -0.6 z' },
   { id: 'eyedrop', key: 'I', label: 'Pick a colour from the picture', icon: 'M18.5 2.6 a2 2 0 0 1 2.9 2.9 l-2.2 2.2 l1 1 l-1.6 1.6 l-1 -1 l-8 8 l-4 1 l1 -4 l8 -8 l-1 -1 l1.6 -1.6 l1 1 z' },
   { id: 'hand', key: 'H', label: 'Pan', icon: 'M6 11 V6 a1.5 1.5 0 0 1 3 0 v5 V4 a1.5 1.5 0 0 1 3 0 v7 V5 a1.5 1.5 0 0 1 3 0 v6 V8 a1.5 1.5 0 0 1 3 0 v7 a6 6 0 0 1 -6 6 h-2 a5 5 0 0 1 -4 -2 l-3 -4 a1.5 1.5 0 0 1 2.5 -2 z' },
 ]
@@ -85,6 +86,33 @@ export default function ToolRail() {
           </button>
         ))}
       </div>
+
+      {tool === 'wand' && (
+        <div className="rail-options">
+          <div className="rail-opt-label">Select by colour</div>
+          <Row label="Tolerance">
+            <Slider
+              value={Math.round((o.wandTolerance ?? 0.18) * 100)}
+              min={1} max={60} suffix="%"
+              onChange={(v) => setToolOptions({ wandTolerance: v / 100 })}
+            />
+          </Row>
+          <p className="rail-hint">
+            Click a colour and everything like it, spreading out from where you clicked, is
+            selected. What comes back is an ordinary lasso — drag its points to adjust,
+            then Copy, Cut, Mask, Erase or Pixelate as usual.
+          </p>
+          <p className="rail-hint">
+            For flat colour: a background, a logo, a sky, a panel of a screenshot. The AI
+            lasso looks for <i>subjects</i>, so this is the one for everything that is not one.
+          </p>
+          <p className="rail-hint">
+            A lasso is a single outline, so selecting a background that wraps around
+            something takes that something with it. To cut a subject out, select the
+            subject.
+          </p>
+        </div>
+      )}
 
       {tool === 'eyedrop' && (
         <div className="rail-options">

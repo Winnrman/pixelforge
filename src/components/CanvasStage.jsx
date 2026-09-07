@@ -821,6 +821,11 @@ export default function CanvasStage() {
     const p = toDoc(e)
     e.currentTarget.setPointerCapture(e.pointerId)
 
+    if (st.tool === 'wand') {
+      st.wandSelectAt(p.x, p.y)
+      return
+    }
+
     if (st.tool === 'eyedrop') {
       // Read from the composited document canvas, not from a layer's source:
       // what you sample should be what you can see, through overlays, masks and

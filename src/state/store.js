@@ -22,6 +22,7 @@ import {
 } from '../engine/aiMatte.js'
 import { maskToPolygon } from '../engine/trace.js'
 import { buildEdgeMap, edgeMapFor, snapToEdges, livewire } from '../engine/edges.js'
+import { colorMask, coverage } from '../engine/wand.js'
 import {
   packProject, unpackProject, isProjectFile, thumbnailBytes, PROJECT_EXT,
 } from '../engine/project.js'
@@ -1810,6 +1811,74 @@ export const useStore = create((set, get) => ({
    * only chooses *which* piece of that foreground to take. Clicking a lamp in
    * the background will not select the lamp.
    */
+  /**
+   * Selects everything that looks like the colour clicked.
+   *
+   * The plain question the AI selection cannot answer: it finds subjects, so a
+   * flat background, a logo or a panel of a screenshot is outside what it is
+   * for. What comes back is an ordinary lasso, so every action that follows one
+   * works on it unchanged.
+   */
+  wandSelectAt: (docX, docY, opts = {}) => {
+    const s = get()
+    let layer = null
+    for (let i = s.doc.layers.length - 1; i >= 0; i--) {
+      const l = s.doc.layers[i]
+      if (l.type !== 'image' || l.visible === false || l.locked) continue
+      const resolved = resolveLayer(l, s.time)
+      if (docToAsset(resolved, docX, docY)) { layer = resolved; break }
+    }
+    if (!layer) {
+      set({ notice: { kind: 'warn', text: 'Click on an image layer to select from it.' } })
+      return null
+    }
+    const bitmap = sourceFor(layer, s.time)
+    if (!bitmap) {
+      set({ notice: { kind: 'warn', text: 'That layer has no frame decoded yet.' } })
+      return null
+    }
+
+    const hit = docToAsset(layer, docX, docY)
+    const tolerance = opts.tolerance ?? s.toolOptions.wandTolerance ?? 0.18
+    const built = colorMask(bitmap, hit.x, hit.y, { tolerance })
+    if (!built) return null
+
+    // Always the region the click is inside. A lasso is one polygon, so a
+    // selection scattered across the picture has no way to come back — offering
+    // that choice would promise something the result cannot hold.
+    const traced = maskToPolygon(built.mask, built.w, built.h, {
+      x: built.seed.x,
+      y: built.seed.y,
+      threshold: 0.5,
+      low: 0.5,
+    })
+    if (!traced) {
+      set({
+        notice: {
+          kind: 'warn',
+          text: 'Nothing matched there. Raise the tolerance, or click a flatter area.',
+        },
+      })
+      return null
+    }
+
+    const points = traced.points.map(([x, y]) => {
+      const d = assetToDoc(layer, x, y)
+      return [d.x, d.y]
+    })
+    const pct = Math.round(coverage(built.mask) * 100)
+    set({
+      lasso: { points },
+      selectedIds: [layer.id],
+      notice: {
+        kind: 'ok',
+        text: `Selected ${pct}% of the picture with ${points.length} points — `
+          + 'drag any of them to adjust, then pick an action.',
+      },
+    })
+    return points
+  },
+
   aiSelectAt: async (docX, docY) => {
     const s = get()
     // Topmost visible image layer under the pointer, which is what the user
