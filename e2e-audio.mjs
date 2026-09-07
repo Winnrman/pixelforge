@@ -192,6 +192,105 @@ check('and the document time follows the audio clock',
   `document ${transport.docTime}ms against audio ${transport.clock}ms`)
 check('pausing stops it', transport.stopped === true)
 
+// --- the waveform ---------------------------------------------------------------------
+// Drawing sound is for finding a moment by eye, so what matters is that the
+// picture has shape: loud where the sound is loud, and not a flat line.
+const peaks = await page.evaluate(async () => {
+  const st = window.__pfState()
+  await st.loadSound()
+  const a = window.__pfAssets.getAsset(st.doc.layers[0].assetId)
+  const W = window.__pfWave
+  const all = W.peaksFor(a)
+  const cols = W.columnsFor(a, 0, a.audio.duration * 1000, 200)
+  let loud = 0
+  let quiet = 1
+  for (const v of cols) { if (v > loud) loud = v; if (v < quiet) quiet = v }
+  return {
+    buckets: all.length,
+    cols: cols.length,
+    loud: +loud.toFixed(3),
+    quiet: +quiet.toFixed(3),
+    cached: W.hasPeaks(a),
+  }
+})
+console.log('peaks:', JSON.stringify(peaks))
+check('a soundtrack reduces to a summary', peaks.buckets > 1000, `${peaks.buckets} buckets`)
+check('and resamples to whatever width is asked for', peaks.cols === 200)
+check('the picture has real amplitude in it', peaks.loud > 0.05, `loudest ${peaks.loud}`)
+// Peaks, not averages: averaging a loud symmetric waveform tends to zero, which
+// would draw silence over the loudest passage.
+check('measured as peaks, so loud passages read as loud', peaks.loud > peaks.quiet,
+  `${peaks.quiet} to ${peaks.loud}`)
+check('and the summary is kept rather than recomputed', peaks.cached)
+
+// A span with no sound in it says so, instead of drawing a flat line that reads
+// as silence when it might mean "not decoded yet".
+const beyond = await page.evaluate(() => {
+  const st = window.__pfState()
+  const a = window.__pfAssets.getAsset(st.doc.layers[0].assetId)
+  return window.__pfWave.columnsFor(a, 1e7, 1.1e7, 50)
+})
+check('a span with nothing in it draws nothing', beyond === null, String(beyond))
+
+// --- the picture matches where the sound actually is ------------------------------------
+// The real claim. `beeps.mp4` is 400ms of tone then 600ms of silence, over and
+// over — so the columns must be tall in the first four tenths of each second and
+// flat in the rest. A waveform that is merely *present* proves nothing; one that
+// lines up with the file proves it is reading the right samples.
+const shape = await page.evaluate(async () => {
+  const blob = await (await fetch('/test/beeps.mp4')).blob()
+  const a = await window.__pfAssets.loadImageFile(
+    new File([blob], 'beeps.mp4', { type: 'video/mp4' }))
+  await window.__pfAudio.ensureAudio(a)
+  // Ten columns per second, so each column is one tenth: four loud, six silent.
+  const cols = [...window.__pfWave.columnsFor(a, 0, 4000, 40)]
+  const loudIdx = []
+  const quietIdx = []
+  cols.forEach((v, i) => {
+    const tenth = i % 10
+    // The column spanning 400-500ms straddles the moment the tone stops, and a
+    // column reports the loudest thing in it — so it is legitimately loud and
+    // says nothing either way. Judging it would be testing the rounding.
+    if (tenth < 4) loudIdx.push(v)
+    else if (tenth > 4) quietIdx.push(v)
+  })
+  return {
+    cols: cols.map((v) => +v.toFixed(2)),
+    loudMin: +Math.min(...loudIdx).toFixed(2),
+    quietMax: +Math.max(...quietIdx).toFixed(2),
+  }
+})
+console.log('beeps:', JSON.stringify(shape.cols))
+check('the tone shows up where the tone is', shape.loudMin > 0.5,
+  `quietest loud column ${shape.loudMin}`)
+check('and the gaps read as silent', shape.quietMax < 0.05,
+  `loudest silent column ${shape.quietMax}`)
+
+// And it reaches the canvas: the clip is drawn with pictures on top and sound
+// along the bottom, in one row.
+const drawn = await page.evaluate(async () => {
+  const btn = [...document.querySelectorAll('button')].find((b) => /^Video/.test(b.textContent))
+  if (btn) btn.click()
+  await new Promise((r) => setTimeout(r, 1200))
+  const c = document.querySelector('.strip canvas')
+  if (!c) return null
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  const d = ctx.getImageData(0, 0, c.width, c.height).data
+  // The waveform is drawn on a dark scrim along the bottom, in pale blue.
+  let wave = 0
+  const from = Math.floor(c.height * 0.7)
+  for (let y = from; y < c.height; y++) {
+    for (let x = 0; x < c.width; x++) {
+      const i = (y * c.width + x) * 4
+      if (d[i + 2] > 170 && d[i + 2] > d[i] + 40) wave++
+    }
+  }
+  return { wave, w: c.width, h: c.height }
+})
+console.log('waveform pixels on the clip:', JSON.stringify(drawn))
+check('the waveform is drawn on the clip', drawn && drawn.wave > 100,
+  `${drawn?.wave} pale pixels along the bottom`)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

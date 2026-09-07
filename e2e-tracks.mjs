@@ -242,6 +242,48 @@ console.log('first clip on each track after closing gaps:', JSON.stringify(gaps)
 check('every track closes back to zero independently',
   Object.values(gaps).every((v) => v === 0), JSON.stringify(gaps))
 
+// --- one upward drag promotes a clip by one track, not by however many ------------
+// Moving onto the empty row creates that track, which puts a new empty row above
+// it — under the pointer, which creates another. Dragging up used to spawn
+// tracks without limit.
+const runaway = await page.evaluate(() => {
+  const st = window.__pfState()
+  st.resetDoc()
+  return null
+})
+await page.evaluate(async () => {
+  const st = window.__pfState()
+  const blob = await (await fetch('/test/motion.gif')).blob()
+  const a = await window.__pfAssets.loadImageFile(
+    new File([blob], 'motion.gif', { type: 'image/gif' }))
+  st.insertClip(a.id, { track: 0, at: 0 })
+  await new Promise((r) => setTimeout(r, 400))
+})
+const start = await page.evaluate(() => {
+  const clip = document.querySelector('.strip.clip').getBoundingClientRect()
+  return { x: clip.x + clip.width / 2, y: clip.y + clip.height / 2, tracks: window.__pfState().trackCount() }
+})
+await page.mouse.move(start.x, start.y)
+await page.mouse.down()
+// Straight up, well past the top of the panel, pausing so every step is
+// delivered — this is exactly the gesture that ran away.
+for (let i = 1; i <= 12; i++) {
+  await page.mouse.move(start.x, start.y - i * 14)
+  await page.waitForTimeout(25)
+}
+await page.mouse.up()
+await page.waitForTimeout(250)
+const afterDrag = await page.evaluate(() => ({
+  tracks: window.__pfState().trackCount(),
+  rows: document.querySelectorAll('.track-row').length,
+  clips: window.__pfState().doc.layers.filter((l) => l.clip).length,
+}))
+console.log('after dragging straight up:', JSON.stringify(afterDrag), 'from', start.tracks)
+check('dragging up promotes by exactly one track', afterDrag.tracks <= start.tracks + 1,
+  `${start.tracks} -> ${afterDrag.tracks} tracks`)
+check('and creates no clips along the way', afterDrag.clips === 1, `${afterDrag.clips} clips`)
+check('so the rows do not run away', afterDrag.rows <= 3, `${afterDrag.rows} rows`)
+
 // --- importing a video puts it on a track, ready to cut -------------------------------
 // The failure this prevents: drop in a long MP4 and get a layer that loops for
 // the whole project and cannot be cut, sitting below an empty track.

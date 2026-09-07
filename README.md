@@ -393,12 +393,49 @@ graph would prove nothing about the one that plays. Loudness is measured per 100
 | clip starting at 500ms | 5 silent bins, then 0.089 |
 | clip trimmed to 400ms | 4 loud bins, then silence |
 
+### The waveform
+
+Drawn along the bottom of the clip, over the thumbnails rather than in a lane of its own —
+the clip is one object, and a separate row would put its picture and its sound in two places
+that have to be kept lined up by eye.
+
+The file is reduced once to 4096 buckets and every later draw resamples that summary. A
+164-second clip has millions of samples and maybe nine hundred pixels to show them in;
+summarising per pixel on every redraw would re-read the whole buffer each time the panel is
+dragged.
+
+**Peaks, not averages.** The average of a loud symmetric waveform tends to zero, so
+averaging draws silence over the loudest passage — the one thing the picture exists to show.
+
+Two things that had to be got right, both found by looking at the result rather than by
+reasoning about it:
+
+- **Samples per bucket, not a fixed stride.** Stepping every 8th sample sounds harmless
+  until the bucket is short: a 440Hz tone in a 43-sample bucket gives five readings inside
+  half a cycle, and the peak comes back as a tenth of the real amplitude.
+- **Out of range is silence, not the nearest bucket.** Clamping the index smears the last
+  moment of the file across everything past the end, drawing a steady tone over a span with
+  no sound in it at all.
+
+**Quiet files are scaled up**, capped at 8x. Plenty of real footage is quiet — phone audio, a
+distant mic — and at true scale it draws as a flat line, which is exactly the material whose
+shape you most need to see. The cap matters: without one, a file containing only room tone
+is amplified into a dense band that looks like continuous speech.
+
+Decoding is normally deferred to the first press of play, but a waveform is wanted before
+that, so a clip on screen asks for its own soundtrack.
+
+The fixture is deliberately shaped rather than a constant tone: `beeps.mp4` is 400ms on,
+600ms off, four times over. A constant tone looks like a solid block whether the peaks are
+right, wrong, or smeared from a neighbouring bucket. Alternating makes it testable — the
+loud columns come back at 0.69 and above, the silent ones at exactly 0.
+
 ### What is not built
 
-Playback only. There is no mixer: no per-clip gain or fades, no waveform display, no
-multiple tracks summed with automation. Master volume and mute are the whole of it. And
-export still muxes the original audio through ffmpeg untouched, so the volume you set for
-previewing does not reach an exported file.
+There is still no mixer: no per-clip gain, no fades, no separate audio track, nothing summed
+with automation. Master volume and mute are the whole of it, and export still muxes the
+original audio through ffmpeg untouched, so the volume set for previewing does not reach an
+exported file.
 
 ### What is still missing for this to be an editor
 
@@ -406,7 +443,7 @@ Being honest about the gap. Clips are the model; these are not built:
 
 - **Ripple edits.** Deleting a clip leaves a hole; `Close gaps` is the blunt instrument.
 - **Audio tracks.** Sound follows its clip, but there is no row for it of its own.
-- **A mixer.** Sound plays now, but there is no per-clip gain, fade or waveform.
+- **A mixer.** Sound plays and is drawn, but there is no per-clip gain or fade.
 - **Transitions.** Two clips can butt together but not dissolve.
 
 ## Why long videos used to stutter
@@ -1506,11 +1543,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Twenty-nine browser suites (**655 checks**), three Electron suites (**77 checks** — the shell
+Twenty-nine browser suites (**667 checks**), three Electron suites (**77 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **1016 checks** in total.
+without a browser at all. **1028 checks** in total.
 
 ```bash
 npm run dev        # in one terminal

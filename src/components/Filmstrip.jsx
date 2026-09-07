@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { THUMB_H, cachedThumb, thumbAt, stripTimes, stripWindow } from '../engine/filmstrip.js'
+import { trackCount, assetTimeFor } from '../engine/clips.js'
+import { columnsFor, hasPeaks } from '../engine/waveform.js'
+import { ensureAudio } from '../engine/audio.js'
 
 /** How close to an edge counts as grabbing it rather than the clip body. */
 const EDGE_PX = 9
@@ -31,6 +34,8 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
   const [width, setWidth] = useState(0)
   const [pending, setPending] = useState(0)
   const [drag, setDrag] = useState(null)
+  // Bumped when a soundtrack finishes decoding, to redraw with its waveform.
+  const [sound, setSound] = useState(0)
   const playing = useStore((s) => s.playing)
   const setTime = useStore((s) => s.setTime)
   const setPlaying = useStore((s) => s.setPlaying)
@@ -40,6 +45,17 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
   const trimClip = useStore((s) => s.trimClip)
 
   const win = stripWindow(layer, asset, duration)
+
+  // Decoding is normally deferred to the first press of play, but a waveform is
+  // wanted before that — it is how you find the moment to cut on. Asked for once
+  // per asset; `ensureAudio` is idempotent and answers instantly when it is
+  // already done or when the file has no sound at all.
+  useEffect(() => {
+    if (!asset?.isVideo || asset.audio !== undefined) return
+    let live = true
+    ensureAudio(asset).then(() => { if (live) setSound((n) => n + 1) })
+    return () => { live = false }
+  }, [asset])
 
   useEffect(() => {
     const box = boxRef.current
@@ -77,6 +93,36 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
       ctx.restore()
     }
 
+    // Drawn over the thumbnails rather than in a row of its own: the clip is one
+    // object, and a separate lane would put its picture and its sound in two
+    // places that have to be kept lined up by eye.
+    const drawWave = () => {
+      // The clip's own span in source time, not the thumbnail sample centres —
+      // those sit half a slot inside each end, which shifts the whole picture.
+      const cols = columnsFor(
+        asset,
+        assetTimeFor(layer, win.from, asset),
+        assetTimeFor(layer, win.to, asset),
+        Math.max(1, Math.round(width)),
+      )
+      if (!cols) return
+      const h = 16
+      const base = THUMB_H - 1
+      ctx.save()
+      // A solid-enough scrim: footage is often bright and busy, and a pale wave
+      // over a test pattern or a snowy landscape is invisible without one.
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.62)'
+      ctx.fillRect(0, THUMB_H - h - 2, width, h + 2)
+      ctx.fillStyle = 'rgba(120, 226, 255, 1)'
+      for (let x = 0; x < cols.length; x++) {
+        // A floor of one pixel, so a quiet passage reads as quiet rather than as
+        // a gap where the file stopped.
+        const v = Math.max(1, cols[x] * h)
+        ctx.fillRect(x, base - v, 1, v)
+      }
+      ctx.restore()
+    }
+
     const missing = []
     for (const slot of slots) {
       const hit = cachedThumb(asset, slot.assetT)
@@ -87,6 +133,7 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
     // A GIF's frames are already decoded, so filling in is instant and there is
     // no reason to wait for playback to stop.
     if (!missing.length || (playing && asset.isVideo)) {
+      drawWave()
       setPending(missing.length)
       return undefined
     }
@@ -107,6 +154,8 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
         if (thumb) draw(slot, thumb)
         setPending(--left)
       }
+      // After the pictures, so it is not painted over by the last of them.
+      if (!cancelled) drawWave()
     })()
     return () => { cancelled = true }
   }, [
@@ -114,6 +163,8 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
     // Re-slice when the clip moves or is trimmed: the thumbnails are what the
     // clip plays, so they have to follow it.
     win.from, win.to,
+    // And redraw once the soundtrack has been decoded.
+    sound,
   ])
 
   /** The lane this clip is measured against — its own when standing alone, the
@@ -149,6 +200,14 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
     const grabOffset = (near / lane.width) * duration
     setDrag(mode)
 
+    // The highest track this drag may reach, fixed now rather than recomputed as
+    // it goes. Moving onto the empty row creates that track, which puts a *new*
+    // empty row above it — under the pointer, which then creates another. One
+    // upward drag could spawn tracks without limit. Capturing the ceiling at the
+    // start means a drag can promote a clip by exactly one track, however far
+    // the pointer travels.
+    const ceiling = trackCount(useStore.getState().doc.layers)
+
     let moved = false
     const move = (ev) => {
       const t = Math.max(0, ((ev.clientX - lane.left) / lane.width) * duration)
@@ -161,7 +220,9 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
         if (onTrack) {
           const row = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.track-row')
           const to = row ? Number(row.dataset.track) : null
-          if (to != null && Number.isFinite(to)) setClipTrack(layer.id, to, { commit: false })
+          if (to != null && Number.isFinite(to)) {
+            setClipTrack(layer.id, Math.min(to, ceiling), { commit: false })
+          }
         }
       } else {
         trimClip(layer.id, mode, t, { commit: !moved })
