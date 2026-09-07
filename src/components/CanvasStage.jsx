@@ -18,6 +18,11 @@ import { snapRect, unionBox, SNAP_TOLERANCE } from '../engine/snap.js'
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
+// The eyedropper's loupe: how big the glass is on screen, and how many document
+// pixels across it shows. Odd, so there is a true centre pixel to outline.
+const LOUPE_R = 62
+const LOUPE_N = 15
+
 // Transform handles belong to the move tool. While a drawing tool is armed a
 // press must start a new shape, even on top of a selected layer's handle —
 // otherwise picking the pixelate tool and dragging silently resizes whatever
@@ -122,6 +127,7 @@ export default function CanvasStage() {
   // Exposed so the snapping test can read the guides mid-drag.
   if (import.meta.env.DEV) window.__pfSnapGuides = () => guidesRef.current
   const cursorRef = useRef(null)
+  const loupeRef = useRef(null)
 
   if (!docCanvasRef.current) docCanvasRef.current = document.createElement('canvas')
 
@@ -378,10 +384,143 @@ export default function CanvasStage() {
     ctx.restore()
   }
 
+  /**
+   * The eyedropper's loupe.
+   *
+   * Sampling is per-pixel but the cursor is not: at anything under a 4x zoom a
+   * single document pixel is smaller than the crosshair sitting on top of it, so
+   * picking the exact pixel you mean is guesswork — you find out what you got
+   * only after you have got it. The loupe shows the neighbourhood magnified with
+   * the pixel that would be taken outlined in the middle, which turns the pick
+   * from a guess into a read.
+   *
+   * The block is pulled straight from the composited document canvas, the same
+   * surface and the same rounding a click samples, so what the loupe shows and
+   * what lands in the swatch cannot disagree.
+   */
+  function drawLoupe(ctx, st, v) {
+    const p = cursorRef.current
+    const dc = docCanvasRef.current
+    if (!p || !dc) return
+    const cx = Math.round(p[0])
+    const cy = Math.round(p[1])
+    const half = (LOUPE_N - 1) / 2
+
+    let block
+    try {
+      block = dc.getContext('2d', { willReadFrequently: true })
+        .getImageData(cx - half, cy - half, LOUPE_N, LOUPE_N)
+    } catch { return }
+
+    // Out of bounds reads back transparent, which is the truth — there is
+    // nothing there to pick — so the loupe stays up and shows the edge of the
+    // picture rather than blinking out at the border.
+    const inside = cx >= 0 && cy >= 0 && cx < dc.width && cy < dc.height
+    const at = (half * LOUPE_N + half) * 4
+    const hex = '#' + [block.data[at], block.data[at + 1], block.data[at + 2]]
+      .map((n) => n.toString(16).padStart(2, '0')).join('')
+
+    let sc = loupeRef.current
+    if (!sc) {
+      sc = document.createElement('canvas')
+      sc.width = LOUPE_N
+      sc.height = LOUPE_N
+      loupeRef.current = sc
+    }
+    sc.getContext('2d').putImageData(block, 0, 0)
+
+    const x = v.panX + p[0] * v.zoom
+    const y = v.panY + p[1] * v.zoom
+    const css = canvasRef.current?._css || { w: 0, h: 0 }
+    // Up and to the right, flipping at the edges rather than sliding off them.
+    const gap = 18 + LOUPE_R
+    let lx = x + gap
+    let ly = y - gap
+    if (lx + LOUPE_R + 8 > css.w) lx = x - gap
+    if (ly - LOUPE_R - 8 < 0) ly = y + gap
+    if (ly + LOUPE_R + 30 > css.h) ly = y - gap
+
+    const cell = (LOUPE_R * 2) / LOUPE_N
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(lx, ly, LOUPE_R, 0, Math.PI * 2)
+    ctx.save()
+    ctx.clip()
+    ctx.fillStyle = getChecker(ctx)
+    ctx.fillRect(lx - LOUPE_R, ly - LOUPE_R, LOUPE_R * 2, LOUPE_R * 2)
+    // Nearest-neighbour, because a smoothed magnifier would invent colours that
+    // are not in the picture and cannot be picked.
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(sc, lx - LOUPE_R, ly - LOUPE_R, LOUPE_R * 2, LOUPE_R * 2)
+
+    // A grid, so the pixels read as pixels rather than as a blurry patch.
+    ctx.strokeStyle = 'rgba(0,0,0,0.16)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    for (let i = 1; i < LOUPE_N; i++) {
+      const o = Math.round(i * cell) + 0.5
+      ctx.moveTo(lx - LOUPE_R + o, ly - LOUPE_R)
+      ctx.lineTo(lx - LOUPE_R + o, ly + LOUPE_R)
+      ctx.moveTo(lx - LOUPE_R, ly - LOUPE_R + o)
+      ctx.lineTo(lx + LOUPE_R, ly - LOUPE_R + o)
+    }
+    ctx.stroke()
+
+    // The pixel that would be taken. Dark under light, like the brush ring, so
+    // it stays visible whatever colour it is sitting on.
+    const bx = lx - LOUPE_R + half * cell
+    const by = ly - LOUPE_R + half * cell
+    ctx.lineWidth = 3
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)'
+    ctx.strokeRect(bx - 0.5, by - 0.5, cell + 1, cell + 1)
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = '#fff'
+    ctx.strokeRect(bx - 0.5, by - 0.5, cell + 1, cell + 1)
+    ctx.restore()
+
+    ctx.lineWidth = 3
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'
+    ctx.stroke()
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+    ctx.stroke()
+
+    // The hex, on a pill under the glass — the number is the thing being chosen,
+    // and reading it off the swatch afterwards is a step too late.
+    if (inside) {
+      const label = hex.toUpperCase()
+      ctx.font = '600 12px ui-monospace, SFMono-Regular, Menlo, monospace'
+      const tw = ctx.measureText(label).width
+      const pw = tw + 34
+      const px0 = lx - pw / 2
+      const py0 = ly + LOUPE_R + 6
+      ctx.fillStyle = 'rgba(12,12,14,0.86)'
+      ctx.beginPath()
+      ctx.roundRect(px0, py0, pw, 22, 11)
+      ctx.fill()
+      ctx.fillStyle = hex
+      ctx.beginPath()
+      ctx.roundRect(px0 + 5, py0 + 5, 12, 12, 3)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+      ctx.lineWidth = 1
+      ctx.stroke()
+      ctx.fillStyle = '#fff'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(label, px0 + 23, py0 + 12)
+    }
+    ctx.restore()
+  }
+
   function drawOverlay(ctx, st, v) {
     const { doc, selectedIds, tool } = st
     if (tool === 'erase') {
       drawBrush(ctx, st, v)
+      return
+    }
+    if (tool === 'eyedrop') {
+      drawLoupe(ctx, st, v)
       return
     }
     const sel = doc.layers
@@ -1032,7 +1171,7 @@ export default function CanvasStage() {
     const p = toDoc(e)
 
     const activeTool = useStore.getState().tool
-    if (activeTool === 'lasso' || activeTool === 'erase') cursorRef.current = [p.x, p.y]
+    if (activeTool === 'lasso' || activeTool === 'erase' || activeTool === 'eyedrop') cursorRef.current = [p.x, p.y]
 
     if (d?.mode === 'erase') {
       const st = useStore.getState()
@@ -1363,7 +1502,8 @@ export default function CanvasStage() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onPointerLeave={() => {
-          if (useStore.getState().tool === 'erase') cursorRef.current = null
+          const t = useStore.getState().tool
+          if (t === 'erase' || t === 'eyedrop') cursorRef.current = null
         }}
         onDoubleClick={onDoubleClick}
         onContextMenu={(e) => {

@@ -1060,6 +1060,22 @@ function drawTrails(ctx, raw, l, time, groupAlpha) {
   }
 }
 
+/**
+ * The other effect layers standing at this time — what an inverted effect has
+ * to keep its hands off. Resolved at `time`, because a shape that is being
+ * keyframed across the frame protects where it is now, not where it started.
+ */
+function otherEffects(doc, self, time, groups) {
+  const out = []
+  for (const raw of doc.layers) {
+    if (raw.id === self.id || raw.type !== 'effect') continue
+    if (groups && !groups.visible.get(raw.id)) continue
+    if (!onScreen(raw, time)) continue
+    out.push(resolveLayer(raw, time))
+  }
+  return out
+}
+
 export function renderDocument(ctx, doc, time) {
   const { width, height } = doc
   // The covered-glyph memo is per render. Nested renders (the coverage probe
@@ -1133,7 +1149,9 @@ function renderDocumentInner(ctx, doc, time) {
     if (l.type === 'effect') {
       // Effect layers read the canvas beneath them, so they cannot be drawn
       // into a detached scratch surface; their shape already does the masking.
-      applyEffectLayer(ctx, ctx.canvas, l)
+      // An inverted one is handed the other effect layers on screen so it can
+      // leave their territory alone — see applyEffectLayer.
+      applyEffectLayer(ctx, ctx.canvas, l, l.invert ? otherEffects(doc, l, time, groups) : [])
     } else if (l.freeze?.on && l.type === 'image' && hasMask(l)) {
       // Cinemagraph: the whole layer is painted at one frozen instant, then the
       // masked region alone is repainted live on top. Two ordinary draws — the

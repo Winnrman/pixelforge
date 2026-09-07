@@ -28,6 +28,22 @@ export const newStroke = (brush, first) => ({
 })
 
 /**
+ * A closed region rather than a brush line — what a lasso hands over.
+ *
+ * It lives in the same list as brush strokes on purpose. A lasso erase used to
+ * be written as the layer's *mask*, inverted, and a layer has exactly one mask:
+ * erasing a second region silently put the first one back. As a stroke it
+ * accumulates like every other stroke, undoes one at a time, can be restored,
+ * scales with the layer, and is already understood by the sticker cut and the
+ * "Erased" panel — none of which had to learn a new shape.
+ */
+export const newRegion = (points, mode = 'erase') => ({
+  kind: 'region',
+  mode,
+  pts: points,
+})
+
+/**
  * Paints the stroke set onto `ctx` in white, in document coordinates.
  *
  * The caller decides what that means: `destination-out` erases, and the same
@@ -42,9 +58,38 @@ export function paintStrokes(ctx, l, strokes, { restore = false, map = null, sca
   const cos = Math.cos(a)
   const sin = Math.sin(a)
 
+  // Layer fractions to wherever the caller is drawing: document points by
+  // default, or asset pixels when a sticker bakes its own cutout.
+  const project = map || ((pt) => {
+    const lx = (pt[0] - 0.5) * l.w
+    const ly = (pt[1] - 0.5) * l.h
+    return { x: c.x + lx * cos - ly * sin, y: c.y + lx * sin + ly * cos }
+  })
+
   for (const st of strokes) {
     if (!st.pts?.length) continue
     if ((st.mode === 'restore') !== restore) continue
+
+    // A region is a filled outline with no width to it — a lasso does not have
+    // a brush size, and giving it one would spread the cut past the line the
+    // user drew.
+    if (st.kind === 'region') {
+      if (st.pts.length < 3) continue
+      ctx.save()
+      ctx.filter = 'none'
+      ctx.fillStyle = '#fff'
+      ctx.beginPath()
+      const q0 = project(st.pts[0])
+      ctx.moveTo(q0.x, q0.y)
+      for (let i = 1; i < st.pts.length; i++) {
+        const q = project(st.pts[i])
+        ctx.lineTo(q.x, q.y)
+      }
+      ctx.closePath()
+      ctx.fill()
+      ctx.restore()
+      continue
+    }
 
     // `scale` converts the doc-space brush width into whatever space `map`
     // lands in — asset pixels, when a sticker bakes its own cutout.
@@ -60,11 +105,7 @@ export function paintStrokes(ctx, l, strokes, { restore = false, map = null, sca
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
 
-    const at = map || ((pt) => {
-      const lx = (pt[0] - 0.5) * l.w
-      const ly = (pt[1] - 0.5) * l.h
-      return { x: c.x + lx * cos - ly * sin, y: c.y + lx * sin + ly * cos }
-    })
+    const at = project
 
     if (st.pts.length === 1) {
       // A tap is a dot, not nothing.

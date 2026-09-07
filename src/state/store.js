@@ -14,7 +14,7 @@ import {
 } from '../engine/subject.js'
 import { suggestLoop } from '../engine/loop.js'
 import { cardInsets, layoutCollage, defaultCollage } from '../engine/collage.js'
-import { defaultBrush, newStroke, docToLayer } from '../engine/erase.js'
+import { defaultBrush, newStroke, newRegion, docToLayer } from '../engine/erase.js'
 import { cursorPath, smoothPath, autoZoomTracks } from '../engine/cursor.js'
 import { exactFrame } from '../engine/video.js'
 import {
@@ -2282,18 +2282,34 @@ export const useStore = create((set, get) => ({
 
     s.pushHistory()
 
-    if (mode === 'mask' || mode === 'erase') {
+    // Erasing adds to what is already gone. It used to be written as the
+    // layer's mask, inverted — but a layer has one mask, so erasing a second
+    // region put the first one back. As an erase stroke it accumulates, undoes
+    // one region at a time, and shows up in the "Erased" panel beside anything
+    // painted with the brush.
+    if (mode === 'erase') {
       s.updateLayer(target.id, {
-        mask: { points: polygonToLayer(pts, target), invert: mode === 'erase', feather: 0 },
+        erase: {
+          ...(target.erase || {}),
+          strokes: [...(target.erase?.strokes || []), newRegion(polygonToLayer(pts, target))],
+        },
+      })
+      set({ lasso: null })
+      // The box stays: what remains is everything *except* the outline, and is
+      // still the size of the original.
+      return { ok: true, text: 'Erased the selection' }
+    }
+
+    if (mode === 'mask') {
+      s.updateLayer(target.id, {
+        mask: { points: polygonToLayer(pts, target), invert: false, feather: 0 },
       })
       set({ lasso: null })
       // Masking shrinks the box to what is left. A layer that still measures
       // the whole photo after cutting one person out of it puts the handles,
-      // the rotation pivot and the snapping nowhere near the thing you can
-      // see. Erase keeps the box, because what remains is everything *except*
-      // the outline and is still the size of the original.
-      if (mode === 'mask' && opts.trim !== false) get().trimToSubject(target.id, { quiet: true })
-      return { ok: true, text: mode === 'mask' ? 'Masked and trimmed to the selection' : 'Erased the selection' }
+      // the rotation pivot and the snapping nowhere near the thing you can see.
+      if (opts.trim !== false) get().trimToSubject(target.id, { quiet: true })
+      return { ok: true, text: 'Masked and trimmed to the selection' }
     }
 
     if (mode === 'copy' || mode === 'cut') {
@@ -2310,9 +2326,15 @@ export const useStore = create((set, get) => ({
       const layers = [...s.doc.layers]
       const at = layers.findIndex((l) => l.id === target.id)
       if (mode === 'cut') {
+        // The hole the piece left behind is an erase region for the same reason
+        // the Erase action is one: cutting a second piece out of a layer must
+        // not fill in the first hole.
         layers[at] = {
           ...target,
-          mask: { points: polygonToLayer(pts, target), invert: true, feather: 0 },
+          erase: {
+            ...(target.erase || {}),
+            strokes: [...(target.erase?.strokes || []), newRegion(polygonToLayer(pts, target))],
+          },
         }
       }
       layers.splice(at + 1, 0, piece)

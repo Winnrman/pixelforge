@@ -122,7 +122,13 @@ const afterCut = await page.evaluate(() => {
   const s = window.__pfState()
   return {
     count: s.doc.layers.length,
-    original: { mask: !!s.doc.layers[0].mask, invert: s.doc.layers[0].mask?.invert },
+    // The hole the piece left behind is an erase region, not an inverted mask:
+    // a layer has one mask, so cutting a second piece would have filled in the
+    // first hole. Strokes accumulate.
+    original: {
+      regions: (s.doc.layers[0].erase?.strokes || []).filter((x) => x.kind === 'region').length,
+      mask: !!s.doc.layers[0].mask,
+    },
     piece: {
       mask: !!s.doc.layers[1].mask,
       invert: s.doc.layers[1].mask?.invert,
@@ -134,7 +140,8 @@ const afterCut = await page.evaluate(() => {
 console.log('after cut:', JSON.stringify(afterCut))
 check('cut adds one new layer', afterCut.count === beforeCut + 1)
 check('the original keeps everything outside the outline',
-  afterCut.original.mask && afterCut.original.invert === true)
+  afterCut.original.regions === 1 && !afterCut.original.mask,
+  JSON.stringify(afterCut.original))
 check('the cut-out keeps only what was inside',
   afterCut.piece.mask && afterCut.piece.invert === false)
 check('the cut-out layer box hugs the outline',

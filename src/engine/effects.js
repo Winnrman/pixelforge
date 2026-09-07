@@ -67,7 +67,7 @@ function noiseInto(fc, bw, bh, amount) {
  * `target`. The effect reads the pixels *behind* the shape, transforms them,
  * masks them to the shape (with optional feathering) and draws them back.
  */
-export function applyEffectLayer(ctx, target, l) {
+export function applyEffectLayer(ctx, target, l, yieldTo = []) {
   const feather = Math.max(0, l.feather || 0)
   const blurR = Math.max(0, l.blurRadius || 0)
   const usesBlur = l.effect === 'blur' || l.effect === 'pixelblur'
@@ -175,6 +175,33 @@ export function applyEffectLayer(ctx, target, l) {
     mc.fill()
   }
   mc.restore()
+
+  // An inverted effect means "treat everything except this shape", so it is the
+  // layer that claims the whole canvas — and two of them claim it twice. Adding
+  // a second one to protect a second face used to re-cover the first, and the
+  // only way out was to draw one outline around both, which is not a shape
+  // anybody wants to draw. So the "everything else" layer yields: it leaves
+  // alone the territory every other effect layer has claimed, whether that is a
+  // window another inverted layer is holding open or a region a plain effect is
+  // already treating. Effects stack by union rather than by overwriting, and
+  // protecting one more thing is one more shape rather than a redraw.
+  if (l.invert && yieldTo.length) {
+    mc.save()
+    mc.globalCompositeOperation = 'destination-out'
+    if (feather > 0) mc.filter = `blur(${feather}px)`
+    mc.translate(-bx, -by)
+    mc.fillStyle = '#fff'
+    // Either way it is the other layer's shape that is spared: for a plain
+    // effect that shape is the region it treats, and for an inverted one it is
+    // the window it is holding open. What is left over is covered by both, and
+    // pixelating an already-pixelated area on the same grid changes nothing.
+    for (const o of yieldTo) {
+      mc.beginPath()
+      addShapePath(mc, o)
+      mc.fill()
+    }
+    mc.restore()
+  }
 
   fc.globalCompositeOperation = 'destination-in'
   fc.drawImage(mk, 0, 0)

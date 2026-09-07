@@ -1617,6 +1617,17 @@ does not fire into the next colour sampled.
 The pending callback lives beside the store rather than in it. The store is serialised into
 projects and autosaves, and a function is the one thing that cannot survive that trip.
 
+**The loupe came second, and should have come first.** Sampling was per-pixel from the
+start, but the *cursor* is not: below about a 4x zoom a document pixel is smaller than the
+crosshair sitting on top of it, so picking the pixel you actually mean is guesswork and you
+find out what you got only after you have got it. The glass shows fifteen document pixels
+across with the one that would be taken outlined in the middle, drawn nearest-neighbour —
+a smoothed magnifier would invent colours that are not in the picture and cannot be picked
+— with the hex on a pill underneath, because the number is the thing being chosen and
+reading it off the swatch afterwards is a step too late. The block is pulled from the
+composited document canvas, the same surface and the same rounding a click samples, so what
+the loupe shows and what lands in the swatch cannot disagree.
+
 ### Selecting by colour
 
 The AI lasso finds *subjects*, which is exactly why it is no help with a flat background, a
@@ -1664,6 +1675,48 @@ the picture and painted nothing at all, which reads identically to "the tool is 
 up". The test said the stroke was recorded, the offset was right, undo worked, and the mark
 was still there; two probes were needed to place the fault inside `paintClone` rather than
 anywhere in the four layers of wiring around it.
+
+## Two things that could only be done once
+
+Two features, built years apart in the same afternoon's worth of code, had the same shape of
+bug: each stored *the* thing where it needed to store *a list of* things. Both were found by
+using the app rather than by a test, which is the honest summary of how they got in.
+
+### Erasing a second region put the first one back
+
+The lasso's Erase wrote the layer's **mask**, inverted — keep everything except this outline.
+That is a perfectly good description of erasing one region, and a layer has exactly one mask,
+so erasing a second region silently filled in the first. The same flaw sat behind Cut, where
+the hole the piece left was written the same way: cut two pieces out of a photo and the first
+hole healed over while its cut-out layer still floated above it.
+
+Erase regions are now **strokes**, in the same list the eraser brush already paints into.
+Nothing had to learn a new shape: they accumulate, undo one region at a time, can be painted
+back with a restore stroke, scale and rotate with the layer, save into the project, get baked
+by the sticker cutout, and show up in the "Erased" panel beside anything drawn with the brush.
+A region carries no width — a lasso does not have a brush size, and giving it one would spread
+the cut past the line that was drawn.
+
+The mask is still what **Mask** uses, and that is right: keeping only what is inside an
+outline genuinely is one shape, and it is the operation that trims the layer box down to what
+is left.
+
+### The second "pixelate everything except this" covered the first
+
+An inverted effect layer means *treat everything except this shape*, so it claims the whole
+canvas — and two of them claim it twice. Adding a second one to keep a second face clear
+re-covered the first, and the only way to keep two things visible was to draw a single
+outline that wrapped around both, which is not a shape anybody wants to draw with a mouse.
+
+So the "everything else" layer now yields: an inverted effect leaves alone the territory
+every other effect layer on screen has claimed — a window another inverted layer is holding
+open, or a region a plain effect is already treating. Effects stack by union, and protecting
+one more thing is one more shape rather than a redraw. Three windows work the same way as
+two, because it is a union rather than a case for two.
+
+A plain pixelate is not a window and still pixelates what it covers, including inside
+someone's window: asking for a region to be pixelated is not ambiguous, and the layer that
+should give way is the one whose whole definition is "everywhere else".
 
 ## Two ways to put text behind
 
@@ -1809,11 +1862,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-five browser suites (**778 checks**), two Electron suites (**70 checks** — the shell
+Thirty-six browser suites (**797 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and eight DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1168
+for the parts that are pure maths and deserve testing without a browser at all. **1187
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same
