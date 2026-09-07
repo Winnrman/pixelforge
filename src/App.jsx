@@ -38,6 +38,7 @@ export default function App() {
   const [recovery, setRecovery] = useState(null)
   const autosaveTimer = useRef(null)
   const addImages = useStore((s) => s.addImages)
+  const setWorkspace = useStore((s) => s.setWorkspace)
   const busy = useStore((s) => s.busy)
   const notice = useStore((s) => s.notice)
   const setNotice = useStore((s) => s.setNotice)
@@ -87,15 +88,20 @@ export default function App() {
       const t = e.dataTransfer?.types
       return t ? Array.from(t).includes('Files') : false
     }
+    // Media is added in the Media tab and nowhere else. The editor used to take
+    // a drop too, but importing has always put files in the bin and switched you
+    // there — so the editor's version was a longer route to the same place while
+    // looking like a shortcut.
+    const inBin = () => useStore.getState().workspace === 'media'
     const over = (e) => {
-      if (!carriesFiles(e)) return
+      if (!carriesFiles(e) || !inBin()) return
       e.preventDefault()
       setDragOver(true)
     }
     const leave = (e) => { if (e.relatedTarget === null) setDragOver(false) }
     const drop = (e) => {
       setDragOver(false)
-      if (!carriesFiles(e)) return
+      if (!carriesFiles(e) || !inBin()) return
       e.preventDefault()
       const files = e.dataTransfer?.files
       if (files?.length) addImages(files)
@@ -334,11 +340,9 @@ export default function App() {
               className={'hero' + (tool === 'move' ? ' clickable' : '')}
               role="button"
               tabIndex={0}
-              title="Click to choose files"
-              onClick={() => document.querySelector('.pf-media-input')?.click()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') document.querySelector('.pf-media-input')?.click()
-              }}
+              title="Open your media"
+              onClick={() => setWorkspace('media')}
+              onKeyDown={(e) => { if (e.key === 'Enter') setWorkspace('media') }}
             >
               <div className="hero-card">
                 <div className="hero-icon">
@@ -350,7 +354,7 @@ export default function App() {
                     <circle cx="22" cy="21" r="4" fill="currentColor" />
                   </svg>
                 </div>
-                <h1>Drop an image, GIF or video to start</h1>
+                <h1>Nothing on the canvas yet</h1>
                 <p>
                   GIFs and MP4s are decoded frame by frame, so pixelate and blur overlays
                   track the motion underneath them.
@@ -363,7 +367,10 @@ export default function App() {
                 {/* Each hint is one unbreakable unit — otherwise the label wraps away
                     from the key it belongs to, and "Space" ends a line with "play/pause"
                     orphaned onto the next. */}
-                <p className="media-cue">Click anywhere to choose files</p>
+                <p className="media-cue">
+                  Images, GIFs and video live in <b>Media</b>. Click here or press
+                  <kbd>M</kbd> to open it, then send what you want to the canvas.
+                </p>
                 <p className="keys">
                   <span><kbd>V</kbd> move</span>
                   <span><kbd>P</kbd> pixel overlay</span>
@@ -435,7 +442,7 @@ export default function App() {
       )}
 
       {busy && <div className="busy">{busy}</div>}
-      {dragOver && <div className="drop-veil"><span>Drop to add layers</span></div>}
+      {dragOver && <div className="drop-veil"><span>Drop to add to your media</span></div>}
       <LayerContextMenu />
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
       {opening && <OpenDialog onClose={() => setOpening(false)} />}

@@ -400,20 +400,33 @@ console.log('layer-reorder drag:', JSON.stringify(veil))
 check('dragging a layer does not raise the import veil', veil.during === false)
 check('and nothing is left dimmed afterwards', veil.after === false)
 
-// A drag that really does carry files still shows it.
+// A drag that really does carry files shows it — but only in the Media tab,
+// which is now the one place media is added. In the editor it is as inert as a
+// layer being reordered.
 const fileVeil = await page.evaluate(async () => {
-  const dt = new DataTransfer()
-  dt.items.add(new File(['x'], 'a.png', { type: 'image/png' }))
-  window.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }))
+  const fire = async () => {
+    const dt = new DataTransfer()
+    dt.items.add(new File(['x'], 'a.png', { type: 'image/png' }))
+    window.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }))
+    await new Promise((r) => setTimeout(r, 200))
+    const during = !!document.querySelector('.app.dragging')
+    window.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }))
+    await new Promise((r) => setTimeout(r, 200))
+    return { during, after: !!document.querySelector('.app.dragging') }
+  }
+  window.__pfState().setWorkspace('editor')
   await new Promise((r) => setTimeout(r, 200))
-  const during = !!document.querySelector('.app.dragging')
-  window.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }))
-  await new Promise((r) => setTimeout(r, 200))
-  return { during, after: !!document.querySelector('.app.dragging') }
+  const editor = await fire()
+  window.__pfState().setWorkspace('media')
+  await new Promise((r) => setTimeout(r, 250))
+  const bin = await fire()
+  window.__pfState().setWorkspace('editor')
+  return { editor, bin }
 })
 console.log('file drag:', JSON.stringify(fileVeil))
-check('a drag carrying files still shows the import veil', fileVeil.during === true)
-check('and it clears when the drag ends', fileVeil.after === false)
+check('a file drag over the editor raises nothing', fileVeil.editor.during === false)
+check('the same drag over the media bin does', fileVeil.bin.during === true)
+check('and it clears when the drag ends', fileVeil.bin.after === false)
 
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()

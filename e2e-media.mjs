@@ -634,6 +634,63 @@ check('a card can be moved and straightened like any layer',
   editable.moved === 40 && editable.straightened, JSON.stringify(editable))
 check('and the other eleven are untouched', editable.count === 11)
 
+// --- media is added in one place, and only there -------------------------------------
+// The editor used to take a drop as well, but importing has always put files in
+// the bin and switched you there — so the editor's version was a longer route
+// to the same place, wearing the clothes of a shortcut.
+const oneDoor = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  st.setWorkspace('editor')
+  await new Promise((r) => setTimeout(r, 300))
+
+  const fire = (type) => {
+    const dt = new DataTransfer()
+    dt.items.add(new File([new Uint8Array([1, 2, 3])], 'x.png', { type: 'image/png' }))
+    const ev = new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true })
+    window.dispatchEvent(ev)
+    return ev.defaultPrevented
+  }
+  const editorTakesIt = fire('dragover')
+  const editorVeil = !!document.querySelector('.drop-veil')
+
+  window.__pfState().setWorkspace('media')
+  await new Promise((r) => setTimeout(r, 300))
+  const binTakesIt = fire('dragover')
+  await new Promise((r) => setTimeout(r, 100))
+  const binVeil = !!document.querySelector('.drop-veil')
+  return { editorTakesIt, editorVeil, binTakesIt, binVeil }
+})
+console.log('who accepts a drop:', JSON.stringify(oneDoor))
+check('the editor does not accept dropped media', oneDoor.editorTakesIt === false)
+check('and shows no invitation to', oneDoor.editorVeil === false)
+check('the media bin does accept it', oneDoor.binTakesIt === true)
+check('and says so', oneDoor.binVeil === true)
+
+// The empty canvas points at the bin instead of pretending to be one.
+const hero = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  st.setWorkspace('editor')
+  st.setTool('move')
+  await new Promise((r) => setTimeout(r, 350))
+  const el = document.querySelector('.hero')
+  const text = el?.textContent || ''
+  el?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  return {
+    text,
+    title: el?.getAttribute('title') || '',
+    went: window.__pfState().workspace,
+  }
+})
+console.log('empty canvas:', JSON.stringify({ title: hero.title, went: hero.went }))
+check('the empty canvas no longer offers to take files',
+  !/drop an image/i.test(hero.text) && !/choose files/i.test(hero.text),
+  hero.text.slice(0, 60))
+check('it points at Media instead', /Media/.test(hero.text), hero.text.slice(0, 90))
+check('and clicking it goes there', hero.went === 'media', hero.went)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

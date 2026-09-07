@@ -614,6 +614,26 @@ gain a border entirely off-canvas, and clicking Polaroid would appear to do noth
 is the moment a size gets chosen, so `placeMounted` fits the finished card to the canvas at
 92% — a little under, because a tilted card clips its own corners otherwise.
 
+## One door for media
+
+Media is added in the **Media** tab and nowhere else.
+
+The editor used to take a drop too, and its empty canvas said *"Drop an image, GIF or video
+to start"*. But importing has always put files in the bin and switched you there, so the
+editor's version was a longer route to the same place wearing the clothes of a shortcut: drop
+on the canvas, land in Media, click back to the canvas.
+
+So the canvas no longer offers to take files, and a file dragged over the editor raises
+nothing at all. It points at the bin instead, and clicking it goes there. The flow is the one
+it always really was:
+
+```
+Media -> add -> send to the canvas
+```
+
+Pasting still works anywhere, because a paste is a deliberate act rather than a piece of
+signposting that can mislead.
+
 ## Finding an edge
 
 Two things needed the same missing piece, and neither had it: a magnetic lasso needs the
@@ -1708,11 +1728,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-two browser suites (**717 checks**), three Electron suites (**77 checks** — the shell
+Thirty-two browser suites (**725 checks**), three Electron suites (**77 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **1107 checks** in total.
+without a browser at all. **1115 checks** in total.
 
 ```bash
 npm run dev        # in one terminal
