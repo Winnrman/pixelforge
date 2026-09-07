@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
 import { hasTracks, activeGroups, groupKeyTimes, keyTimeNear } from '../engine/keyframes.js'
 import { stripLayers } from '../engine/filmstrip.js'
 import Filmstrip from './Filmstrip.jsx'
-import { clipRange } from '../engine/clips.js'
 
 /**
  * One property's keyframes, as diamonds on a track.
@@ -144,88 +143,42 @@ function KeyLane({ layer, group, duration, time }) {
   )
 }
 
-/** How close to an edge counts as grabbing it rather than the clip body. */
-const EDGE_PX = 9
-
-/**
- * One clip on the timeline: a bar you can slide, and whose ends you can drag.
- *
- * The whole gesture is decided at pointerdown — body or which edge — and held
- * for the duration of the drag. Deciding per move instead would let a fast drag
- * that leaves the edge zone silently turn a trim into a slide.
- */
-function ClipBar({ layer, asset, duration, selected }) {
-  const slideClip = useStore((s) => s.slideClip)
-  const trimClip = useStore((s) => s.trimClip)
-  const select = useStore((s) => s.select)
-  const setPlaying = useStore((s) => s.setPlaying)
-  const trackRef = useRef(null)
-  const [drag, setDrag] = useState(null)
-
-  const range = clipRange(layer, asset)
-  const left = duration ? (range.start / duration) * 100 : 0
-  const width = duration ? Math.max(0.4, (range.length / duration) * 100) : 0
-
-  const begin = (e) => {
-    if (e.button !== 0) return
-    e.stopPropagation()
-    e.preventDefault()
-    setPlaying(false)
-    select([layer.id])
-
-    const bar = e.currentTarget.getBoundingClientRect()
-    // The *track*, not the row: the row includes the name column, and measuring
-    // that puts every computed time out by its width.
-    const row = trackRef.current.getBoundingClientRect()
-    const near = e.clientX - bar.left
-    const mode = near <= EDGE_PX ? 'start'
-      : near >= bar.width - EDGE_PX ? 'end'
-        : 'move'
-    // For a slide, remember where in the bar it was grabbed — otherwise the clip
-    // jumps so its start lands under the cursor on the first move.
-    const grabOffset = (near / row.width) * duration
-    setDrag(mode)
-
-    const timeAt = (ev) =>
-      Math.max(0, ((ev.clientX - row.left) / row.width) * duration)
-
-    let moved = false
-    const move = (ev) => {
-      const t = timeAt(ev)
-      if (mode === 'move') slideClip(layer.id, t - grabOffset, { commit: !moved })
-      else trimClip(layer.id, mode, t, { commit: !moved })
-      moved = true
-    }
-    const up = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      setDrag(null)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-  }
-
-  return (
-    <div className="clip-row">
-      <span className="clip-name">{layer.name}</span>
-      <div className="clip-track" ref={trackRef}>
-        <div
-          className={'clip' + (selected ? ' sel' : '') + (drag ? ' dragging' : '')}
-          style={{ left: left + '%', width: width + '%' }}
-          onPointerDown={begin}
-          title={`${(range.start / 1000).toFixed(2)}s to ${(range.end / 1000).toFixed(2)}s`}
-        >
-          <span className="clip-grip start" />
-          <span className="clip-label">{(range.length / 1000).toFixed(2)}s</span>
-          <span className="clip-grip end" />
-        </div>
-      </div>
-    </div>
-  )
-}
+/** How tall the timeline opens at, as a fraction of the editor column. Editing
+ *  is what the panel is for, so it gets the room; the canvas is a preview of the
+ *  thing being edited, not the thing itself. */
+const DEFAULT_SHARE = 0.52
+const MIN_H = 120
 
 export default function Timeline() {
   const [tab, setTab] = useState('keys')
+  // Remembered across sessions, because how much room you want depends on what
+  // you are doing and it is annoying to set twice.
+  const [height, setHeight] = useState(() => {
+    const saved = Number(localStorage.getItem('pf-timeline-h'))
+    return Number.isFinite(saved) && saved >= MIN_H ? saved : 0
+  })
+  const heightRef = useRef(height)
+  heightRef.current = height
+  const rootRef = useRef(null)
+  const obsRef = useRef(null)
+  // The column's height, measured rather than read off a ref during render.
+  //
+  // A callback ref rather than a mount effect, because this component returns
+  // null until the document has something worth showing — so on mount there is
+  // no node, an effect with an empty dependency list finds nothing, and it never
+  // runs again once content does arrive.
+  const [colH, setColH] = useState(0)
+  const attachRoot = useCallback((node) => {
+    rootRef.current = node
+    obsRef.current?.disconnect()
+    obsRef.current = null
+    const parent = node?.parentElement
+    if (!parent) return
+    const ro = new ResizeObserver(([e]) => setColH(Math.round(e.contentRect.height)))
+    ro.observe(parent)
+    obsRef.current = ro
+    setColH(Math.round(parent.getBoundingClientRect().height))
+  }, [])
   const duration = useStore((s) => s.duration)
   const time = useStore((s) => s.time)
   const playing = useStore((s) => s.playing)
@@ -371,8 +324,48 @@ export default function Timeline() {
     setTime(Math.max(0, Math.min(duration, t)))
   }
 
+  // Only the editing panes are worth giving height to. With neither open the
+  // timeline is just the transport bar and should stay out of the way.
+  const expandable = (tab === 'keys' && keyed.length > 0)
+    || (tab === 'video' && strips.length > 0)
+  // A dragged height wins; otherwise a share of the column. Undefined until the
+  // column has been measured, so the panel opens at its natural size rather
+  // than flashing a guessed one.
+  const shown = expandable && (height || colH)
+    ? Math.max(MIN_H, Math.min(height || Math.round(colH * DEFAULT_SHARE), colH - 140))
+    : undefined
+
+  const startResize = (e) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const parent = rootRef.current.parentElement
+    const box = parent.getBoundingClientRect()
+    const move = (ev) => {
+      // Leave room for the canvas: a timeline that can swallow the whole
+      // viewport is a timeline you cannot drag back.
+      const next = Math.max(MIN_H, Math.min(box.height - 140, box.bottom - ev.clientY))
+      setHeight(next)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+      try { localStorage.setItem('pf-timeline-h', String(heightRef.current)) } catch { /* private mode */ }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+  }
+
   return (
-    <div className="timeline">
+    <div
+      className={'timeline' + (expandable ? ' tall' : '')}
+      ref={attachRoot}
+      style={shown ? { height: shown } : undefined}
+    >
+      {expandable && (
+        <div className="tl-split" title="Drag to resize" onPointerDown={startResize} />
+      )}
       <div
         className="tl-main"
         onPointerDown={(e) => {
@@ -508,15 +501,6 @@ export default function Timeline() {
               Close gaps
             </button>
           </div>
-          {clipped.map((l) => (
-            <ClipBar
-              key={'clip-' + l.id}
-              layer={l}
-              asset={getAsset(l.assetId)}
-              duration={duration}
-              selected={selectedIds.includes(l.id)}
-            />
-          ))}
           {strips.map(({ layer, asset }) => (
             <Filmstrip
               key={layer.id}
@@ -524,6 +508,7 @@ export default function Timeline() {
               asset={asset}
               duration={duration}
               time={time}
+              selected={selectedIds.includes(layer.id)}
             />
           ))}
         </div>

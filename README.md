@@ -261,9 +261,45 @@ Three details that are not obvious until something is wrong:
 Splitting is refused within 40ms of either end. A cut at the very edge produces a
 zero-length piece, which is a way of losing footage while appearing to have worked.
 
-On the **Video** tab each clip is a bar: drag the body to slide it, drag either end to trim,
-`Ctrl+K` cuts every clip the playhead is inside, and **Close gaps** lays them end to end in
-their current order. `Ctrl+K` rather than a bare `S` because `S` is already the shape tool.
+### The clip is the filmstrip
+
+The first version of this drew a featureless blue bar you could drag, and a filmstrip of the
+same media in the row below it. Two representations of one object, and the bar was the one
+you could grab — so trimming was blind. It showed a duration and no pictures, which is the
+same complaint as an eraser with no brush ring: you could not see what you were trimming
+*to*.
+
+So the strip and the bar are one thing now. A clip is a run of thumbnails sitting on a lane
+that spans the document, and the thumbnails cover only what the clip plays. Trim the head
+and they re-slice — measured on a 1.44s clip, the first thumbnail moves from 780ms to
+1168ms into the source, and the strip covers 248ms of it instead of 600ms.
+
+Drag the body to slide, drag either end to trim, `Ctrl+K` cuts every clip the playhead is
+inside, and **Close gaps** lays them end to end in their current order. `Ctrl+K` rather than
+a bare `S` because `S` is already the shape tool. Empty lane space still scrubs.
+
+### What is still wrong with it
+
+Being straight about the parts the merge did not fix. Clip creation is still a **Make a
+clip** button, which is an abstract action with no cause in the world — the honest version
+is dragging from the Media bin onto the timeline, so the gesture that creates a clip is the
+one that says where it goes. And clips still live one per layer, so *when* a clip happens
+and *what it sits in front of* are the same axis. Tracks fix that, and nothing else will.
+
+### Room to work
+
+The timeline was capped at `40%` and sized by its content, so a single clip row was a
+sliver at the bottom of the screen. Editing is what the panel is for; the canvas is a
+preview of the thing being edited, not the thing itself. With an editing pane open it now
+opens at **52% of the editor column** and its top edge drags, remembered in `localStorage`.
+The canvas shrinks to fit rather than being covered — it already refits on resize, so this
+needed nothing new.
+
+One thing that was quietly broken while building it: the column height was read off a ref
+during render, which only works if something happens to re-render after the ref attaches.
+It does not on first load, because the timeline returns nothing until the document has
+something worth showing — so a mount effect finds no node and never runs again. It is a
+callback ref now, which fires when the node actually appears.
 
 Building this exposed an older bug it had been quietly living with: **undo and redo restored
 the document but never recomputed the timeline length**. Nothing showed it while a
@@ -1426,11 +1462,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Twenty-eight browser suites (**622 checks**), three Electron suites (**77 checks** — the shell
+Twenty-eight browser suites (**631 checks**), three Electron suites (**77 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **983 checks** in total.
+without a browser at all. **992 checks** in total.
 
 ```bash
 npm run dev        # in one terminal

@@ -166,7 +166,22 @@ button:disabled { opacity: 0.35; cursor: default; }
   border-top: 1px solid var(--line);
   background: var(--panel);
   max-height: 40%;
+  position: relative;
 }
+/* With an editing pane open the panel is sized explicitly and the pane inside
+   it scrolls, so the cap has to go — otherwise the height set by dragging is
+   silently clamped back to 40%. */
+.timeline.tall { max-height: 82%; min-height: 120px; }
+.timeline.tall .lanes,
+.timeline.tall .strips { flex: 1; min-height: 0; }
+
+/* The grab strip along the top edge. Wider than it looks, because a 1px border
+   is a target you have to aim at. */
+.tl-split {
+  position: absolute; top: -3px; left: 0; right: 0; height: 7px;
+  cursor: ns-resize; z-index: 3;
+}
+.tl-split:hover { background: var(--accent, #4ea1ff); opacity: 0.5; }
 .tl-main {
   display: flex;
   align-items: center;
@@ -849,9 +864,22 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   font-variant-numeric: tabular-nums;
 }
 
-.strip {
+/* The lane is the whole document's width; the clip sits somewhere within it.
+   Scrubbing happens on the lane, dragging on the clip. */
+.strip-lane {
   position: relative;
   flex: 1;
+  min-width: 0;
+  height: 44px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.022);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  cursor: ew-resize;
+}
+
+.strip {
+  position: absolute;
+  inset: 0;
   min-width: 0;
   height: 44px;
   border-radius: 5px;
@@ -865,6 +893,28 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   box-shadow: inset 0 0 0 1px var(--line-soft);
 }
 .strip canvas { display: block; }
+/* A clip is a bounded thing on the lane, so it gets an edge and a grab cursor;
+   an unclipped strip spans the lane and keeps the scrub cursor. */
+.strip.clip {
+  inset: 2px auto 2px 0;
+  height: auto;
+  cursor: grab;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.strip.clip canvas { height: 100%; }
+.strip.clip.dragging { cursor: grabbing; }
+.strip-row.sel .strip.clip {
+  box-shadow: inset 0 0 0 2px var(--accent, #4ea1ff), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+/* Wide enough to hit, narrow enough not to swallow a short clip whole. */
+.strip .clip-grip {
+  position: absolute; top: 0; bottom: 0; width: 9px;
+  cursor: ew-resize;
+  background: linear-gradient(rgba(255,255,255,0.28), rgba(255,255,255,0.12));
+}
+.strip .clip-grip.start { left: 0; border-radius: 5px 0 0 5px; }
+.strip .clip-grip.end { right: 0; border-radius: 0 5px 5px 0; }
+.strip .clip-grip:hover { background: var(--accent, #4ea1ff); }
 .strip-playhead {
   position: absolute; top: 0; bottom: 0; width: 2px;
   margin-left: -1px;
@@ -1157,32 +1207,8 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
 .backups .proj { grid-template-columns: 1fr auto; }
 .wide-btn { width: 100%; text-align: left; }
 
-/* Clips on the video tab. The bar is the clip; the two grips are its ends, and
-   they need to be wide enough to hit without being wide enough to swallow a
-   short clip whole. */
-.clip-bar-tools { display: flex; gap: 6px; padding: 6px 8px; flex-wrap: wrap; }
-.clip-row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 8px; padding: 3px 8px; }
-.clip-name {
-  font-size: 11px; color: var(--dim, #9aa0a6);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.clip-track {
-  position: relative; height: 26px; border-radius: 4px;
-  background: var(--well, #17171a); overflow: hidden;
-}
-.clip {
-  position: absolute; top: 3px; bottom: 3px;
-  background: linear-gradient(180deg, #3a6ea8, #2c527c);
-  border: 1px solid #5b90cc; border-radius: 4px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: grab; user-select: none; min-width: 6px; overflow: hidden;
-}
-.clip.sel { border-color: var(--accent, #4ea1ff); box-shadow: 0 0 0 1px var(--accent, #4ea1ff) inset; }
-.clip.dragging { cursor: grabbing; }
-.clip-label { font-size: 10px; color: #dfe7f2; pointer-events: none; }
-.clip-grip { position: absolute; top: 0; bottom: 0; width: 9px; cursor: ew-resize; }
-.clip-grip.start { left: 0; border-left: 2px solid rgba(255,255,255,0.5); }
-.clip-grip.end { right: 0; border-right: 2px solid rgba(255,255,255,0.5); }
+/* The edit buttons above the clip rows on the video tab. */
+.clip-bar-tools { display: flex; gap: 6px; padding: 6px 8px 8px; flex-wrap: wrap; }
 
 /* Transport audio: mute and volume, beside the time readout. */
 .tl-audio { display: flex; align-items: center; gap: 6px; padding: 0 8px; }

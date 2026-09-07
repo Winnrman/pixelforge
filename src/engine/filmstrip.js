@@ -8,6 +8,7 @@
 // moment they arrive and kept in their own cache, which never expires because
 // it costs so little to hold.
 import { getAsset } from './assets.js'
+import { assetTimeFor, clipRange } from './clips.js'
 import { frameIndexAt } from './render.js'
 import { exactFrame, frameAt } from './video.js'
 
@@ -89,21 +90,28 @@ export async function thumbAt(asset, ms, h = THUMB_H) {
  * clip's frame count — a 2000-frame video and a 12-frame GIF both want about
  * one thumbnail per thumbnail-width of screen.
  */
-export function stripTimes(layer, asset, laneWidth, duration, h = THUMB_H) {
-  if (!asset || !(duration > 0) || !(laneWidth > 0)) return []
+export function stripTimes(layer, asset, elWidth, duration, h = THUMB_H, window = null) {
+  if (!asset || !(duration > 0) || !(elWidth > 0)) return []
+  // The span of document time the strip covers. For a clip that is the clip's
+  // own range, not the whole document — the strip *is* the clip, so it shows
+  // what the clip plays and nothing else. Trimming re-slices it, which is what
+  // lets you see where a trim is landing instead of guessing.
+  const from = window ? window.from : 0
+  const to = window ? window.to : duration
+  const span = Math.max(1, to - from)
   const tw = thumbWidth(asset, h)
-  const n = Math.max(1, Math.min(60, Math.ceil(laneWidth / tw)))
+  const n = Math.max(1, Math.min(60, Math.ceil(elWidth / tw)))
   const out = []
   for (let i = 0; i < n; i++) {
     // Sampled at the centre of each slot, so a thumbnail represents the span it
     // is drawn over rather than its leading edge.
-    const docT = ((i + 0.5) / n) * duration
+    const docT = from + ((i + 0.5) / n) * span
     out.push({
       i,
-      x: (i / n) * laneWidth,
-      w: laneWidth / n,
+      x: (i / n) * elWidth,
+      w: elWidth / n,
       docT,
-      assetT: (docT - (layer.timeOffset || 0)) * (layer.speed || 1),
+      assetT: assetTimeFor(layer, docT, asset),
     })
   }
   return out
@@ -119,4 +127,24 @@ export function stripLayers(doc) {
     out.push({ layer: l, asset: a })
   }
   return out
+}
+
+/**
+ * Where a strip sits on the document timeline, as a fraction of it.
+ *
+ * A clip occupies its own span; anything unclipped fills the whole width,
+ * because that is genuinely how long it is on screen.
+ */
+export function stripWindow(layer, asset, duration) {
+  const d = Math.max(1, duration)
+  if (!layer.clip) return { from: 0, to: d, left: 0, width: 1, clipped: false }
+  const r = clipRange(layer, asset)
+  return {
+    from: r.start,
+    to: r.end,
+    left: Math.max(0, Math.min(1, r.start / d)),
+    // A floor, so a very short clip in a long project is still big enough to grab.
+    width: Math.max(0.004, Math.min(1, r.length / d)),
+    clipped: true,
+  }
 }

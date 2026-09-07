@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
-import { THUMB_H, cachedThumb, thumbAt, stripTimes } from '../engine/filmstrip.js'
+import { THUMB_H, cachedThumb, thumbAt, stripTimes, stripWindow } from '../engine/filmstrip.js'
+
+/** How close to an edge counts as grabbing it rather than the clip body. */
+const EDGE_PX = 9
 
 /**
- * A row of thumbnails across the timeline for one layer.
+ * A clip on the timeline: thumbnails of what it plays, over the span it plays.
+ *
+ * The strip *is* the clip. There used to be two rows for one piece of media — a
+ * featureless bar you could drag, and a filmstrip of the same media below it —
+ * which is two representations of one object and left trimming blind: the bar
+ * showed a duration and no pictures, so you could not see what you were
+ * trimming to. Drawing the thumbnails inside the draggable bar answers both.
  *
  * Everything lands on a single canvas rather than N <img> elements: a strip is
  * redrawn on every resize, and swapping fifty DOM nodes each time a panel moves
@@ -15,15 +24,21 @@ import { THUMB_H, cachedThumb, thumbAt, stripTimes } from '../engine/filmstrip.j
  * the clip is playing — the decoder's frame budget belongs to the playhead, and
  * a strip that fills in a moment later costs nothing.
  */
-export default function Filmstrip({ layer, asset, duration, time }) {
+export default function Filmstrip({ layer, asset, duration, time, selected }) {
   const canvasRef = useRef(null)
+  const laneRef = useRef(null)
   const boxRef = useRef(null)
   const [width, setWidth] = useState(0)
   const [pending, setPending] = useState(0)
+  const [drag, setDrag] = useState(null)
   const playing = useStore((s) => s.playing)
   const setTime = useStore((s) => s.setTime)
   const setPlaying = useStore((s) => s.setPlaying)
   const select = useStore((s) => s.select)
+  const slideClip = useStore((s) => s.slideClip)
+  const trimClip = useStore((s) => s.trimClip)
+
+  const win = stripWindow(layer, asset, duration)
 
   useEffect(() => {
     const box = boxRef.current
@@ -45,7 +60,7 @@ export default function Filmstrip({ layer, asset, duration, time }) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, width, THUMB_H)
 
-    const slots = stripTimes(layer, asset, width, duration)
+    const slots = stripTimes(layer, asset, width, duration, THUMB_H, win)
 
     // Cover-fit, so a slot narrower than a frame crops rather than squashing it.
     const draw = (slot, thumb) => {
@@ -93,37 +108,107 @@ export default function Filmstrip({ layer, asset, duration, time }) {
       }
     })()
     return () => { cancelled = true }
-  }, [width, duration, playing, asset, layer.id, layer.speed, layer.timeOffset])
+  }, [
+    width, duration, playing, asset, layer.id, layer.speed, layer.timeOffset,
+    // Re-slice when the clip moves or is trimmed: the thumbnails are what the
+    // clip plays, so they have to follow it.
+    win.from, win.to,
+  ])
 
   const scrub = (e) => {
-    const r = boxRef.current.getBoundingClientRect()
+    const r = laneRef.current.getBoundingClientRect()
     setTime(Math.max(0, Math.min(duration, ((e.clientX - r.left) / r.width) * duration)))
   }
 
+  /**
+   * Slide or trim, decided at pointerdown and held for the whole gesture.
+   *
+   * Deciding per move instead would let a fast drag that leaves the edge zone
+   * silently turn a trim into a slide.
+   */
+  const grabClip = (e) => {
+    if (e.button !== 0 || !win.clipped) return false
+    const bar = boxRef.current.getBoundingClientRect()
+    const lane = laneRef.current.getBoundingClientRect()
+    const near = e.clientX - bar.left
+    const mode = near <= EDGE_PX ? 'start'
+      : near >= bar.width - EDGE_PX ? 'end'
+        : 'move'
+    e.stopPropagation()
+    e.preventDefault()
+    setPlaying(false)
+    select([layer.id])
+    // For a slide, remember where in the bar it was grabbed — otherwise the clip
+    // jumps so its start lands under the cursor on the first move.
+    const grabOffset = (near / lane.width) * duration
+    setDrag(mode)
+
+    let moved = false
+    const move = (ev) => {
+      const t = Math.max(0, ((ev.clientX - lane.left) / lane.width) * duration)
+      if (mode === 'move') slideClip(layer.id, t - grabOffset, { commit: !moved })
+      else trimClip(layer.id, mode, t, { commit: !moved })
+      moved = true
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+      setDrag(null)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    return true
+  }
+
   const pct = duration ? Math.min(100, (time / duration) * 100) : 0
+  const label = win.clipped
+    ? `${(win.from / 1000).toFixed(2)}s to ${(win.to / 1000).toFixed(2)}s — drag to move, ends to trim`
+    : 'Drag to scrub'
 
   return (
-    <div className="strip-row">
+    <div className={'strip-row' + (selected ? ' sel' : '')}>
       <span className="strip-name" title={layer.name}>{layer.name}</span>
       <div
-        className="strip"
-        ref={boxRef}
-        title="Drag to scrub"
+        className="strip-lane"
+        ref={laneRef}
         onPointerDown={(e) => {
+          // Empty lane space scrubs; the clip itself is grabbed by its own
+          // handler below and never reaches here.
           if (e.button !== 0) return
           e.currentTarget.setPointerCapture(e.pointerId)
           setPlaying(false)
-          select([layer.id])
           scrub(e)
         }}
-        onPointerMove={(e) => { if (e.buttons === 1) scrub(e) }}
+        onPointerMove={(e) => { if (e.buttons === 1 && !drag) scrub(e) }}
       >
-        <canvas ref={canvasRef} style={{ width: '100%', height: THUMB_H }} />
+        <div
+          className={'strip' + (win.clipped ? ' clip' : '') + (drag ? ' dragging' : '')}
+          ref={boxRef}
+          title={label}
+          style={win.clipped
+            ? { left: `${win.left * 100}%`, width: `${win.width * 100}%` }
+            : undefined}
+          onPointerDown={(e) => {
+            if (grabClip(e)) return
+            if (e.button !== 0) return
+            setPlaying(false)
+            select([layer.id])
+            scrub(e)
+          }}
+        >
+          <canvas ref={canvasRef} style={{ width: '100%', height: THUMB_H }} />
+          {win.clipped && <span className="clip-grip start" />}
+          {win.clipped && <span className="clip-grip end" />}
+          {pending > 0 && <span className="strip-pending">{pending} left</span>}
+        </div>
         <div className="strip-playhead" style={{ left: `${pct}%` }} />
-        {pending > 0 && <span className="strip-pending">{pending} left</span>}
       </div>
       <span className="strip-meta">
-        {asset.isVideo ? 'MP4' : 'GIF'} · {asset.frames.length}f · {(asset.duration / 1000).toFixed(1)}s
+        {win.clipped
+          ? `${((win.to - win.from) / 1000).toFixed(2)}s`
+          : `${asset.isVideo ? 'MP4' : 'GIF'} · ${asset.frames.length}f · ${(asset.duration / 1000).toFixed(1)}s`}
       </span>
     </div>
   )

@@ -179,14 +179,21 @@ const ui = await page.evaluate(async () => {
   if (video) video.click()
   await new Promise((r) => setTimeout(r, 400))
   return {
-    bars: document.querySelectorAll('.clip').length,
-    grips: document.querySelectorAll('.clip-grip').length,
+    bars: document.querySelectorAll('.strip.clip').length,
+    grips: document.querySelectorAll('.strip .clip-grip').length,
+    // The old design drew a featureless bar *and* a filmstrip of the same media
+    // below it — two rows for one object. There must be exactly one row now.
+    rows: document.querySelectorAll('.strip-row').length,
+    canvases: document.querySelectorAll('.strip.clip canvas').length,
     tools: [...document.querySelectorAll('.clip-bar-tools button')].map((b) => b.textContent.trim()),
   }
 })
 console.log('timeline ui:', JSON.stringify(ui))
-check('the video tab draws a bar per clip', ui.bars >= 1, `${ui.bars} bars`)
+check('the video tab draws a clip per clip', ui.bars >= 1, `${ui.bars} clips`)
 check('each with two grips to trim by', ui.grips === ui.bars * 2, `${ui.grips} grips`)
+check('one row per clip, not a bar and a strip', ui.rows === ui.bars, `${ui.rows} rows`)
+check('and the clip carries its own thumbnails', ui.canvases === ui.bars,
+  `${ui.canvases} strips inside clips`)
 check('and the edit buttons are there',
   ui.tools.some((t) => /Cut at playhead/.test(t)) && ui.tools.some((t) => /Close gaps/.test(t)),
   ui.tools.join(' | '))
@@ -194,9 +201,9 @@ await page.screenshot({ path: path.join(OUT, '02-timeline.png') })
 
 // --- dragging a clip actually moves it ---------------------------------------------------------
 const dragged = await page.evaluate(() => window.__pfState().doc.layers.find((x) => x.clip).clip.start)
-await page.locator('.clip').first().scrollIntoViewIfNeeded()
-const bar = await page.locator('.clip').first().boundingBox()
-const track = await page.locator('.clip-track').first().boundingBox()
+await page.locator('.strip.clip').first().scrollIntoViewIfNeeded()
+const bar = await page.locator('.strip.clip').first().boundingBox()
+const track = await page.locator('.strip-lane').first().boundingBox()
 // The bar has to reflect the state after the undo, not before it.
 check('the bar is drawn where the clip actually is',
   bar && track && bar.x > track.x + track.width * 0.2,
@@ -216,6 +223,72 @@ if (bar && track) {
 const movedTo = await page.evaluate(() => window.__pfState().doc.layers.find((x) => x.clip).clip.start)
 console.log('drag moved the clip:', dragged, '->', movedTo)
 check('dragging the bar slides the clip', movedTo < dragged, `${dragged} -> ${movedTo}`)
+
+// --- the thumbnails follow the clip -------------------------------------------------
+// The whole reason for merging the bar into the filmstrip: trimming has to show
+// you where you are landing, which means the pictures must re-slice.
+const resliced = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const l = st.doc.layers.find((x) => x.clip)
+  const a = window.__pfAssets.getAsset(l.assetId)
+  const F = window.__pfFilmstrip
+  const before = F.stripTimes(l, a, 400, st.duration, 44, F.stripWindow(l, a, st.duration))
+  st.trimClip(l.id, 'start', (l.clip.start + l.clip.out) / 2)
+  const after0 = window.__pfState()
+  const l2 = after0.doc.layers.find((x) => x.id === l.id)
+  const after = F.stripTimes(l2, a, 400, after0.duration, 44,
+    F.stripWindow(l2, a, after0.duration))
+  return {
+    beforeFirst: Math.round(before[0].assetT),
+    afterFirst: Math.round(after[0].assetT),
+    beforeSpan: Math.round(before[before.length - 1].assetT - before[0].assetT),
+    afterSpan: Math.round(after[after.length - 1].assetT - after[0].assetT),
+  }
+})
+console.log('after trimming the head:', JSON.stringify(resliced))
+check('trimming moves which frames the strip shows',
+  resliced.afterFirst > resliced.beforeFirst,
+  `first frame ${resliced.beforeFirst}ms -> ${resliced.afterFirst}ms`)
+check('and it covers less of the source', resliced.afterSpan < resliced.beforeSpan,
+  `${resliced.beforeSpan}ms -> ${resliced.afterSpan}ms`)
+
+// --- the panel is worth looking at ----------------------------------------------------
+const sized = await page.evaluate(() => {
+  const tl = document.querySelector('.timeline')
+  const stage = document.querySelector('.stage')
+  const col = tl.parentElement
+  return {
+    timeline: Math.round(tl.getBoundingClientRect().height),
+    stage: Math.round(stage.getBoundingClientRect().height),
+    column: Math.round(col.getBoundingClientRect().height),
+    handle: !!document.querySelector('.tl-split'),
+  }
+})
+console.log('layout:', JSON.stringify(sized))
+check('the editing panel gets real height, not a sliver',
+  sized.timeline > sized.column * 0.35, `${sized.timeline} of ${sized.column}px`)
+check('and there is a handle to change it', sized.handle)
+check('while the canvas keeps room to show the frame',
+  sized.stage > 140, `${sized.stage}px of stage`)
+
+// Dragging the handle upward makes it taller, and it is remembered.
+const grip = await page.locator('.tl-split').boundingBox()
+await page.mouse.move(grip.x + grip.width / 2, grip.y + 3)
+await page.mouse.down()
+for (let i = 1; i <= 5; i++) {
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + 3 - i * 20)
+  await page.waitForTimeout(30)
+}
+await page.mouse.up()
+await page.waitForTimeout(250)
+const grew = await page.evaluate(() => ({
+  timeline: Math.round(document.querySelector('.timeline').getBoundingClientRect().height),
+  saved: Number(localStorage.getItem('pf-timeline-h')),
+}))
+console.log('after dragging the handle up:', JSON.stringify(grew))
+check('dragging the handle resizes the panel', grew.timeline > sized.timeline,
+  `${sized.timeline} -> ${grew.timeline}px`)
+check('and the size is remembered', grew.saved > 0, `${grew.saved}px stored`)
 
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
