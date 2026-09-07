@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
+import { getAsset } from '../engine/assets.js'
 import { THUMB_H, cachedThumb, thumbAt, stripTimes, stripWindow } from '../engine/filmstrip.js'
-import { trackCount, assetTimeFor } from '../engine/clips.js'
+import {
+  trackCount, assetTimeFor, snapPoints, snapClip, snapEdge, clipRange, SNAP_PX,
+} from '../engine/clips.js'
 import { columnsFor, hasPeaks } from '../engine/waveform.js'
 import { ensureAudio } from '../engine/audio.js'
 
@@ -42,6 +45,7 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
   const select = useStore((s) => s.select)
   const slideClip = useStore((s) => s.slideClip)
   const setClipTrack = useStore((s) => s.setClipTrack)
+  const setSnapAt = useStore((s) => s.setSnapAt)
   const trimClip = useStore((s) => s.trimClip)
 
   const win = stripWindow(layer, asset, duration)
@@ -208,11 +212,22 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
     // the pointer travels.
     const ceiling = trackCount(useStore.getState().doc.layers)
 
+    // Edges to line up with, gathered once: they cannot change during the drag,
+    // since the only clip moving is this one.
+    const st0 = useStore.getState()
+    const points = snapPoints(st0.doc.layers, (x) => getAsset(x.assetId), layer.id, [st0.time])
+    // A fixed number of *pixels*, converted to time — so it feels the same
+    // whether the project is four seconds or four minutes long.
+    const tol = (SNAP_PX / Math.max(1, lane.width)) * duration
+    const length = clipRange(layer, asset).length
+
     let moved = false
     const move = (ev) => {
       const t = Math.max(0, ((ev.clientX - lane.left) / lane.width) * duration)
       if (mode === 'move') {
-        slideClip(layer.id, t - grabOffset, { commit: !moved })
+        const snapped = snapClip(Math.max(0, t - grabOffset), length, points, tol)
+        setSnapAt(snapped.at)
+        slideClip(layer.id, snapped.start, { commit: !moved })
         // Dragging up or down moves the clip between tracks. No modifier and no
         // mode: the row the pointer is over is the row you meant, which is the
         // whole gesture. Read from the document rather than tracked in state,
@@ -225,7 +240,9 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
           }
         }
       } else {
-        trimClip(layer.id, mode, t, { commit: !moved })
+        const snapped = snapEdge(t, points, tol)
+        setSnapAt(snapped.at)
+        trimClip(layer.id, mode, snapped.value, { commit: !moved })
       }
       moved = true
     }
@@ -234,6 +251,8 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', up)
       setDrag(null)
+      // The guide belongs to the gesture, not to the arrangement.
+      setSnapAt(null)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)

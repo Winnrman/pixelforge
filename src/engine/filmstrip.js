@@ -12,7 +12,7 @@ import { assetTimeFor, clipRange } from './clips.js'
 import { frameIndexAt } from './render.js'
 import { exactFrame, frameAt } from './video.js'
 
-export const THUMB_H = 44
+export const THUMB_H = 60
 
 // asset -> Map(rounded ms -> canvas). Weak on the asset so closing a project
 // lets the whole strip go.

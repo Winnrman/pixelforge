@@ -715,6 +715,12 @@ export const useStore = create((set, get) => ({
   /** How many track rows the document is using. */
   trackCount: () => trackCount(get().doc.layers),
 
+  // The document time a dragging clip has lined up with, for the timeline to
+  // draw a guide at. Lives here rather than in the clip because the line is
+  // drawn across every track, not inside the one being dragged.
+  snapAt: null,
+  setSnapAt: (snapAt) => set({ snapAt }),
+
   /**
    * Moves a clip to another track.
    *

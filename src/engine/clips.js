@@ -263,3 +263,65 @@ export function overlapsOnTrack(layers, layer, assetOf) {
       return mine.start < r.end && r.start < mine.end
     })())
 }
+
+// ------------------------------------------------------------------ snapping
+//
+// Butting one clip against another by eye is a pixel-hunt, and being one frame
+// out shows as a flash of whatever is behind. So a drag looks for edges to line
+// up with and reports which one it caught, for the timeline to draw a line at.
+
+/** How close, in pixels, counts as lining up. */
+export const SNAP_PX = 8
+
+/**
+ * The times a dragged clip should want to line up with: every other clip's two
+ * edges, the start of the project, and the playhead.
+ *
+ * The dragged clip is excluded — a clip that snapped to itself could never be
+ * moved. Edges from *every* track, not only its own, because lining a cutaway up
+ * with the shot underneath is the usual reason to want this at all.
+ */
+export function snapPoints(layers, assetOf, exceptId, extra = []) {
+  const out = [0]
+  for (const l of layers) {
+    if (!l.clip || l.id === exceptId) continue
+    const r = clipRange(l, assetOf(l))
+    out.push(r.start, r.end)
+  }
+  for (const e of extra) if (Number.isFinite(e)) out.push(e)
+  return out
+}
+
+/**
+ * Nudges a clip so one of its edges lands on a snap point.
+ *
+ * Both edges are candidates and the nearest wins, so a clip can be dropped
+ * against the end of the one before it or the start of the one after without
+ * the drag having to know which the person meant.
+ *
+ * Returns the adjusted start and the time to draw the line at, or `at: null`
+ * when nothing was near enough — the line only appears when it is telling the
+ * truth.
+ */
+export function snapClip(start, length, points, tolerance) {
+  let best = null
+  for (const p of points) {
+    for (const edge of [start, start + length]) {
+      const d = Math.abs(edge - p)
+      if (d > tolerance) continue
+      if (!best || d < best.d) best = { d, at: p, start: start + (p - edge) }
+    }
+  }
+  if (!best) return { start, at: null }
+  return { start: Math.max(0, Math.round(best.start)), at: best.at }
+}
+
+/** The same, for a single edge being trimmed rather than a whole clip moving. */
+export function snapEdge(value, points, tolerance) {
+  let best = null
+  for (const p of points) {
+    const d = Math.abs(value - p)
+    if (d <= tolerance && (!best || d < best.d)) best = { d, at: p }
+  }
+  return best ? { value: best.at, at: best.at } : { value, at: null }
+}

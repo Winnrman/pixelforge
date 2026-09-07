@@ -870,7 +870,7 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   position: relative;
   flex: 1;
   min-width: 0;
-  height: 44px;
+  height: 64px;
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.022);
   box-shadow: inset 0 0 0 1px var(--line-soft);
@@ -881,7 +881,7 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   position: absolute;
   inset: 0;
   min-width: 0;
-  height: 44px;
+  height: 60px;
   border-radius: 5px;
   overflow: hidden;
   cursor: ew-resize;
@@ -1231,7 +1231,7 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
 }
 .track-row.over { background: rgba(78, 161, 255, 0.14); outline: 1px dashed var(--accent, #4ea1ff); }
 .track-name {
-  width: 106px; flex: none;
+  width: calc(var(--track-label, 116px) - 10px); flex: none;
   font-size: 11px; color: #6f6f80;
   font-variant-numeric: tabular-nums;
   text-align: right; padding-right: 4px;
@@ -1240,18 +1240,22 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   position: relative;
   flex: 1;
   min-width: 0;
-  height: 48px;
+  height: 64px;
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.022);
   box-shadow: inset 0 0 0 1px var(--line-soft);
 }
 /* The empty track reads as an invitation rather than as a broken row. */
 .track-row.empty .track-lane {
-  height: 30px;
+  height: 34px;
   background: none;
-  box-shadow: inset 0 0 0 1px var(--line-soft);
-  border-radius: 5px;
+  /* Dashed, because a solid outline reads as a container that already holds
+     something. This one is an invitation. */
+  box-shadow: none;
+  border: 1px dashed var(--line, #2a2a2e);
+  border-radius: 6px;
 }
+.track-row.empty.over .track-lane { border-color: var(--accent, #4ea1ff); }
 .track-hint {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
@@ -1291,4 +1295,23 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 6px rgba(0, 0, 0, 0.8);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   pointer-events: none;
+}
+
+/* The snapping guide: one line across every track at the time a dragged clip
+   has lined up with. Red because it is the one thing on the timeline that means
+   "this is exactly here" — everything else is blue. */
+/* The label column's width, shared by the row labels and the snapping guide so
+   the two cannot drift apart. */
+.strips.tracks { --track-label: 116px; }
+.track-rows { position: relative; }
+.snap-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #ff3b52;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 6px rgba(255, 59, 82, 0.8);
+  pointer-events: none;
+  z-index: 5;
 }

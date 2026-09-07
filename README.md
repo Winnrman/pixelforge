@@ -325,7 +325,30 @@ thing without a mode, a modifier, or anything to press. Sliding a clip on top of
 still allowed, because refusing a drag is a worse surprise than an overlap you can see.
 
 Dragging a clip up or down moves it between tracks. Same gesture as sliding it sideways, no
-modifier: the row the pointer is over is the row you meant.
+modifier: the row the pointer is over is the row you meant. A drag can promote a clip by at
+most **one** track, and the ceiling is fixed when the drag starts — without that, moving onto
+the empty row creates that track, which puts a new empty row above it, under the pointer,
+which creates another. One upward drag could make tracks for ever.
+
+### Snapping
+
+Butting one clip against another by eye is a pixel hunt, and being a frame out shows as a
+flash of whatever is behind. So a drag looks for edges to line up with — every other clip's
+start and end, on any track, plus the start of the project and the playhead — and draws a
+**red line** at the one it caught.
+
+Both ends of the dragged clip are candidates and the nearest wins, so a clip can be dropped
+against the end of the one before it or the start of the one after without the gesture having
+to say which was meant. The tolerance is a fixed number of *pixels* converted to time, so it
+feels the same whether the project is four seconds or four minutes long. The line only
+appears when something is actually in reach: a guide that is always on is not telling you
+anything.
+
+Red because it is the one mark on the timeline that means "exactly here" — everything else,
+playhead included, is blue.
+
+The guide spans the tracks and stops short of the drop row, for the same reason the playhead
+does: a line across an empty drop target reads as something already in it.
 
 **What a track does not promise:** the depth order of two clips that overlap *on the same
 row*. Clips on one track are arranged in time, not in depth. Move one to another track and
@@ -1543,11 +1566,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Twenty-nine browser suites (**667 checks**), three Electron suites (**77 checks** — the shell
+Twenty-nine browser suites (**672 checks**), three Electron suites (**77 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **1028 checks** in total.
+without a browser at all. **1048 checks** in total.
 
 ```bash
 npm run dev        # in one terminal

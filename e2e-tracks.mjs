@@ -333,6 +333,80 @@ const gif = await page.evaluate(async () => {
 })
 check('while a GIF still arrives as a looping overlay', gif === false)
 
+// --- clips line up with each other, and say so ------------------------------------------
+const snap = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  const blob = await (await fetch('/test/motion.gif')).blob()
+  const a = await window.__pfAssets.loadImageFile(
+    new File([blob], 'a.gif', { type: 'image/gif' }))
+  const first = st.insertClip(a.id, { track: 0, at: 0 })
+  const second = window.__pfState().insertClip(a.id, { track: 1, at: 4000 })
+  await new Promise((r) => setTimeout(r, 600))
+  const f = window.__pfState().doc.layers.find((l) => l.id === first)
+  return {
+    first,
+    second,
+    firstEnd: Math.round(f.clip.start + (f.clip.out - f.clip.in)),
+    secondStart: window.__pfState().doc.layers.find((l) => l.id === second).clip.start,
+  }
+})
+console.log('two clips on two tracks:', JSON.stringify(snap))
+check('a clip on its own track to drag', snap.secondStart === 4000, `${snap.secondStart}`)
+
+const geom = await page.evaluate((id) => {
+  const rows = [...document.querySelectorAll('.track-row')]
+  const row = rows.find((r) => r.querySelector('.strip.clip'))
+  const lane = row.querySelector('.track-lane').getBoundingClientRect()
+  const clips = [...document.querySelectorAll('.strip.clip')]
+  // The one on the upper track is the second: rows are drawn front-most first.
+  const bar = clips[0].getBoundingClientRect()
+  return {
+    lane: { x: lane.x, w: lane.width },
+    bar: { x: bar.x, y: bar.y, w: bar.width, h: bar.height },
+    duration: window.__pfState().duration,
+  }
+}, snap.second)
+console.log('geometry:', JSON.stringify(geom))
+
+// Drag the second clip so its start lands *near* the first one's end — a few
+// pixels off, which is exactly what a hand does.
+const pxPerMs = geom.lane.w / geom.duration
+const wantX = geom.lane.x + snap.firstEnd * pxPerMs + 5
+const grabX = geom.bar.x + geom.bar.w / 2
+const grabY = geom.bar.y + geom.bar.h / 2
+const offset = grabX - geom.bar.x
+await page.mouse.move(grabX, grabY)
+await page.mouse.down()
+let sawGuide = false
+for (let i = 1; i <= 8; i++) {
+  await page.mouse.move(grabX + ((wantX + offset - grabX) * i) / 8, grabY)
+  await page.waitForTimeout(30)
+  if (!sawGuide) {
+    sawGuide = await page.evaluate(() => !!document.querySelector('.snap-guide'))
+  }
+}
+const during = await page.evaluate(() => ({
+  guide: !!document.querySelector('.snap-guide'),
+  at: window.__pfState().snapAt,
+  start: window.__pfState().doc.layers.find((l) => l.clip && (l.track || 0) === 1)?.clip.start,
+}))
+await page.mouse.up()
+await page.waitForTimeout(250)
+const landed = await page.evaluate(() => ({
+  start: window.__pfState().doc.layers.find((l) => l.clip && (l.track || 0) === 1)?.clip.start,
+  guide: !!document.querySelector('.snap-guide'),
+  at: window.__pfState().snapAt,
+}))
+console.log('while dragging:', JSON.stringify(during), 'after:', JSON.stringify(landed))
+check('dragging near another clip shows a guide', sawGuide || during.guide)
+check('and the guide is at the edge it caught', during.at === snap.firstEnd,
+  `guide at ${during.at}, edge at ${snap.firstEnd}`)
+// The point of the whole thing: a few pixels off by hand lands exactly on.
+check('the clip lands exactly on that edge', landed.start === snap.firstEnd,
+  `${landed.start} against ${snap.firstEnd}`)
+check('and the guide goes away when the drag ends', landed.guide === false && landed.at === null)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

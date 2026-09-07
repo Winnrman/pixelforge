@@ -295,15 +295,13 @@ export default function Timeline() {
   const clipped = layers.filter((l) => l.clip)
   const insertClip = useStore((s) => s.insertClip)
   const [dropTrack, setDropTrack] = useState(null)
+  const snapAt = useStore((s) => s.snapAt)
   // One row per track, front-most first, plus one empty row above the top so a
   // new track is made by using it rather than by pressing anything.
-  const used = byTrack(layers)
-  const rows = [
-    { track: clipped.length ? trackCount(layers) : 0, clips: [], empty: true },
-    // With nothing on the timeline at all, one empty row is the invitation.
-    // Two — a drop row and an empty track under it — is just a confusing gap.
-    ...(clipped.length ? used : []),
-  ]
+  const used = clipped.length ? byTrack(layers) : []
+  // With nothing on the timeline at all, one empty row is the invitation. Two —
+  // a drop row and an empty track under it — is just a confusing gap.
+  const dropRow = { track: clipped.length ? trackCount(layers) : 0, clips: [], empty: true }
   // Animated media that is not a clip still gets its old full-width strip: an
   // overlay on a looping GIF is not on a track and should not pretend to be.
   const loose = strips.filter(({ layer }) => !layer.clip)
@@ -366,6 +364,52 @@ export default function Timeline() {
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', up)
   }
+
+  /** One track row: its label, its lane, and the clips that live on it. */
+  const renderRow = (row) => (
+    <div
+      className={'track-row' + (row.empty ? ' empty' : '') + (dropTrack === row.track ? ' over' : '')}
+      key={row.track}
+      data-track={row.track}
+      onDragOver={(e) => { e.preventDefault(); setDropTrack(row.track) }}
+      onDragLeave={() => setDropTrack((t) => (t === row.track ? null : t))}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDropTrack(null)
+        const assetId = e.dataTransfer.getData('application/x-pixelforge-asset')
+        if (!assetId) return
+        // Dropped where the pointer is, so the gesture places it.
+        const lane = e.currentTarget.querySelector('.track-lane')
+        const r = lane.getBoundingClientRect()
+        const at = Math.max(0, ((e.clientX - r.left) / r.width) * duration)
+        insertClip(assetId, { track: row.track, at })
+      }}
+    >
+      <span className="track-name">
+        {row.empty ? '' : `Track ${row.track + 1}`}
+      </span>
+      <div className="track-lane">
+        {row.clips.map((l) => (
+          <Filmstrip
+            key={l.id}
+            layer={l}
+            asset={getAsset(l.assetId)}
+            duration={duration}
+            time={time}
+            selected={selectedIds.includes(l.id)}
+            onTrack
+          />
+        ))}
+        {row.empty && (
+          <span className="track-hint">Drag media here to add a clip</span>
+        )}
+        {/* No playhead on the empty row: there is nothing there for it
+            to be the position of, and a line across a drop target reads
+            as something already in it. */}
+        {!row.empty && <div className="track-playhead" style={{ left: `${pct}%` }} />}
+      </div>
+    </div>
+  )
 
   return (
     <div
@@ -484,7 +528,7 @@ export default function Timeline() {
       )}
 
       {tab === 'video' && (
-        <div className="strips">
+        <div className="strips tracks">
           <div className="clip-bar-tools">
             <button
               className="btn ghost"
@@ -503,47 +547,18 @@ export default function Timeline() {
               Close gaps
             </button>
           </div>
-          {rows.map((row) => (
-            <div
-              className={'track-row' + (row.empty ? ' empty' : '') + (dropTrack === row.track ? ' over' : '')}
-              key={row.track}
-              data-track={row.track}
-              onDragOver={(e) => { e.preventDefault(); setDropTrack(row.track) }}
-              onDragLeave={() => setDropTrack((t) => (t === row.track ? null : t))}
-              onDrop={(e) => {
-                e.preventDefault()
-                setDropTrack(null)
-                const assetId = e.dataTransfer.getData('application/x-pixelforge-asset')
-                if (!assetId) return
-                // Dropped where the pointer is, so the gesture places it.
-                const lane = e.currentTarget.querySelector('.track-lane')
-                const r = lane.getBoundingClientRect()
-                const at = Math.max(0, ((e.clientX - r.left) / r.width) * duration)
-                insertClip(assetId, { track: row.track, at })
-              }}
-            >
-              <span className="track-name">
-                {row.empty ? '' : `Track ${row.track + 1}`}
-              </span>
-              <div className="track-lane">
-                {row.clips.map((l) => (
-                  <Filmstrip
-                    key={l.id}
-                    layer={l}
-                    asset={getAsset(l.assetId)}
-                    duration={duration}
-                    time={time}
-                    selected={selectedIds.includes(l.id)}
-                    onTrack
-                  />
-                ))}
-                {row.empty && (
-                  <span className="track-hint">Drag media here to add a clip</span>
-                )}
-                <div className="track-playhead" style={{ left: `${pct}%` }} />
-              </div>
-            </div>
-          ))}
+          {renderRow(dropRow)}
+          <div className="track-rows">
+            {snapAt != null && duration > 0 && (
+              <div
+                className="snap-guide"
+                style={{
+                  left: `calc(var(--track-label) + (100% - var(--track-label)) * ${snapAt / duration})`,
+                }}
+              />
+            )}
+            {used.map((row) => renderRow(row))}
+          </div>
           {loose.length > 0 && (
             <p className="tl-note">
               Not on a track — these play for the whole project and loop.

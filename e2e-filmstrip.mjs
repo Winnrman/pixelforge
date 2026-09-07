@@ -249,7 +249,9 @@ check('every slot the strip drew is held in the cache',
   cacheState.cached === cacheState.slots && cacheState.slots > 4,
   `${cacheState.cached} of ${cacheState.slots}`)
 check('and a time nothing asked for is not', cacheState.unseen === false)
-check('thumbnails are kept small', cacheState.thumbH === 44 && cacheState.thumbW < 200,
+// A number, not *the* number: the row height is a design choice that moves, and
+// what matters is that a strip stays cheap to hold hundreds of.
+check('thumbnails are kept small', cacheState.thumbH <= 72 && cacheState.thumbW < 200,
   `${cacheState.thumbW}x${cacheState.thumbH}`)
 
 await page.screenshot({ path: path.join(OUT, '02-video-strip.png') })

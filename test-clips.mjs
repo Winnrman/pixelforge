@@ -7,6 +7,7 @@
 import {
   sourceRange, clipRange, visibleAt, assetTimeFor, wholeClip, slideTo, trimTo,
   splitAt, clipsEnd, closeGaps, hasClip, MIN_CLIP_MS,
+  snapPoints, snapClip, snapEdge, SNAP_PX,
 } from './src/engine/clips.js'
 
 const checks = []
@@ -145,6 +146,54 @@ check('a clip over a layer with no media still has a span',
   clipRange(title, null).length === 3000 && visibleAt(title, 2000, null),
   String(clipRange(title, null).length))
 check('and that layer is hidden outside it', !visibleAt(title, 4001, null))
+
+// --- snapping ---------------------------------------------------------------------
+// Butting one clip against another by eye is a pixel hunt, and being a frame out
+// shows as a flash of whatever is behind.
+const world = [
+  clipped({ start: 0, in: 0, out: 1000 }, { id: 'first' }),
+  clipped({ start: 4000, in: 0, out: 1000 }, { id: 'second' }),
+  { id: 'title', type: 'text' },
+]
+const pts = snapPoints(world, () => asset, 'moving', [2500])
+console.log('snap points:', JSON.stringify([...pts].sort((a, b) => a - b)))
+check('every clip edge is a snap point', pts.includes(1000) && pts.includes(4000)
+  && pts.includes(5000), pts.join(','))
+check('and so is the start of the project', pts.includes(0))
+check('and the playhead', pts.includes(2500))
+check('a layer with no clip contributes none', pts.length === 6, `${pts.length} points`)
+// A clip that snapped to its own edges could never be moved at all.
+const own = snapPoints(world, () => asset, 'first', [])
+check('the clip being dragged is excluded', !own.includes(1000), own.join(','))
+
+// The near edge wins, whichever end of the clip it is.
+const byStart = snapClip(980, 500, pts, 60)
+check('a start near an edge snaps to it', byStart.start === 1000 && byStart.at === 1000,
+  JSON.stringify(byStart))
+const byEnd = snapClip(3560, 500, pts, 60)
+check('and so does an end', byEnd.start === 3500 && byEnd.at === 4000, JSON.stringify(byEnd))
+check('the guide reports where it caught, not where the clip is',
+  byEnd.at === 4000 && byEnd.start !== byEnd.at, JSON.stringify(byEnd))
+
+// 1800..2200, with points at 1000 and 2500 — both out of reach at either end.
+const nowhere = snapClip(1800, 400, pts, 60)
+check('nothing in reach leaves the clip alone', nowhere.start === 1800 && nowhere.at === null,
+  JSON.stringify(nowhere))
+// The line only appears when it is telling the truth.
+check('and draws no line', nowhere.at === null)
+
+// Start 10 from an edge, end 50 from another: the near one is the start.
+const both = snapClip(1010, 3040, pts, 60)
+check('with two edges in reach the nearer one wins', both.at === 1000, JSON.stringify(both))
+check('and the whole clip moves by that much, not to it', both.start === 1000,
+  JSON.stringify(both))
+check('a snap cannot push a clip before zero', snapClip(20, 500, [-500], 600).start >= 0)
+
+const edge = snapEdge(4020, pts, 60)
+check('trimming snaps the edge being dragged', edge.value === 4000 && edge.at === 4000,
+  JSON.stringify(edge))
+check('and leaves it alone when nothing is near',
+  snapEdge(2000, pts, 60).at === null)
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)
