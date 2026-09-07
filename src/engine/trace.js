@@ -55,14 +55,36 @@ const fillFrom = (mask, w, h, start, threshold, seen, stack) => {
  * or outside the image — the caller needs to be able to tell the user nothing
  * was picked rather than silently selecting something else.
  */
-export function componentAt(mask, w, h, x, y, threshold = 0.5) {
+export function componentAt(mask, w, h, x, y, threshold = 0.5, opts = {}) {
   const px = Math.floor(x)
   const py = Math.floor(y)
   if (!(px >= 0 && py >= 0 && px < w && py < h)) return null
   const start = py * w + px
-  if (!(mask[start] > threshold)) return null
+
+  // Hysteresis, as edge detection has used for forty years, and for the same
+  // reason. One cutoff forces a confident answer out of an unconfident matte:
+  // on a subject the model is only half sure about — the usual case when it
+  // shares a palette with its background — a single threshold either shreds the
+  // subject into islands or floods into the background, and there is no value
+  // that does neither.
+  //
+  // So grow through anything plausible, then keep the region only if it
+  // contains enough of what the model was actually confident about. Noise gets
+  // in nowhere near a confident core, and gets rejected.
+  const low = opts.low ?? threshold
+  const seed = mask[start] > low ? low : null
+  if (seed === null) return null
+
   const out = new Uint8Array(w * h)
-  fillFrom(mask, w, h, start, threshold, out, new Int32Array(w * h))
+  const count = fillFrom(mask, w, h, start, low, out, new Int32Array(w * h))
+  if (low >= threshold) return out
+
+  let confident = 0
+  for (let i = 0; i < out.length; i++) if (out[i] && mask[i] > threshold) confident++
+  // A region that is *all* uncertain is the model declining to answer, and
+  // spreading it over the picture is worse than saying so.
+  const enough = opts.minConfidentFraction ?? 0.12
+  if (confident < Math.max(8, count * enough)) return null
   return out
 }
 
@@ -360,8 +382,14 @@ export function maskToPolygon(mask, w, h, opts = {}) {
   } = opts
 
   const aimed = Number.isFinite(x) && Number.isFinite(y)
+  // Half the confident threshold: enough to carry across a soft boundary, far
+  // enough below it that a confident core is still required to keep the region.
+  const low = opts.low ?? threshold * 0.5
   const region = aimed
-    ? componentAt(mask, w, h, x, y, threshold)
+    ? componentAt(mask, w, h, x, y, threshold, { low })
+      // A click on a part the model was unsure about should still work, so the
+      // strict pass is the fallback rather than the other way round.
+      || componentAt(mask, w, h, x, y, threshold)
     : largestComponent(mask, w, h, threshold)
   if (!region) return null
 

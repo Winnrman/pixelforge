@@ -178,6 +178,11 @@ export default function CanvasStage() {
   useEffect(() => { fit() }, [docSize, view.fitRequest])
 
   const seekRef = useRef(0)
+  // Watches whether the audio clock is actually moving.
+  // Watches whether the audio clock is actually moving. `last` starts null
+  // rather than 0, because 0 is also a perfectly good reading at the start of
+  // playback and the two must not be confused.
+  const audioStallRef = useRef({ last: null, since: 0, gaveUp: false })
 
   /**
    * Starts the sound from a document time, if there is any.
@@ -189,6 +194,9 @@ export default function CanvasStage() {
     // Record where we cued to, so the seek watcher below does not read the jump
     // it just caused as a scrub and re-cue on top of it.
     seekRef.current = fromMs
+    // A new cue gets a clean slate: the previous run giving up says nothing
+    // about this one.
+    audioStallRef.current = { last: null, since: 0, gaveUp: false }
     const st = useStore.getState()
     st.loadSound().then((any) => {
       if (!any) return
@@ -237,7 +245,26 @@ export default function CanvasStage() {
         // up animation-frame deltas separately drifts against it, and a picture
         // sliding out of sync with speech is worse than a dropped frame — which
         // nobody can see anyway.
-        const fromAudio = audioTime()
+        // An audio clock that is not advancing must not be allowed to hold the
+        // playhead still. A context can fail to start on a machine with no
+        // output device, or sit suspended, and "audio is the clock" then means
+        // playback silently freezes while claiming to play.
+        //
+        // Giving up is permanent for the rest of this run, deliberately. An
+        // unreliable clock that recovers for a moment is worse than one that
+        // never worked: it is behind by then, and following it again drags the
+        // playhead backwards, so the two clocks fight and time crawls.
+        const stall = audioStallRef.current
+        const rawAudio = stall.gaveUp ? null : audioTime()
+        if (rawAudio == null) {
+          stall.last = null
+        } else if (stall.last == null || Math.abs(rawAudio - stall.last) > 0.5) {
+          stall.last = rawAudio
+          stall.since = now
+        } else if (now - stall.since > 300) {
+          stall.gaveUp = true
+        }
+        const fromAudio = stall.gaveUp ? null : rawAudio
         if (fromAudio != null) {
           if (fromAudio >= st.duration) {
             // Round the loop: the audio has to be restarted, not merely rewound,
@@ -915,7 +942,19 @@ export default function CanvasStage() {
         lassoRef.current = live
       }
       live.points.push([p.x, p.y])
-      drag.current = { mode: 'lasso', p0: p, moved: false }
+      // The magnetic lasso needs a layer to read edges from, chosen once when
+      // the drag starts. Picking it per move would let the path jump to another
+      // layer's edges halfway round a subject.
+      const magnetLayer = st.toolOptions.magnet ? topLayerAt(p) : null
+      drag.current = {
+        mode: 'lasso',
+        p0: p,
+        moved: false,
+        magnet: magnetLayer?.id || null,
+        // Where the settled part of the outline ends. Everything after this is
+        // provisional and is replaced on every move.
+        anchor: live.points.length - 1,
+      }
       return
     }
 
@@ -1095,6 +1134,24 @@ export default function CanvasStage() {
         live.freehand = true
       }
       if (!d.moved) return
+
+      if (d.magnet) {
+        const from = live.points[d.anchor]
+        if (Math.hypot(p.x - from[0], p.y - from[1]) * st.view.zoom < 4) return
+        // Everything past the anchor is provisional: recomputed from the anchor
+        // to the pointer each move, so the path can change its mind as you go
+        // rather than being stuck with the first route it found.
+        const path = st.magnetPath(d.magnet, from, [p.x, p.y])
+        live.points.length = d.anchor + 1
+        for (const q of path.slice(1)) live.points.push(q)
+        // Settle it once it has run far enough. Without this the search area
+        // grows with every move until it is the whole picture and the lasso
+        // stops keeping up.
+        const run = Math.hypot(p.x - from[0], p.y - from[1]) * st.view.zoom
+        if (run > 90) d.anchor = live.points.length - 1
+        return
+      }
+
       const last = live.points[live.points.length - 1]
       if (Math.hypot(p.x - last[0], p.y - last[1]) * st.view.zoom < 3) return
       live.points.push([p.x, p.y])

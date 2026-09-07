@@ -102,10 +102,18 @@ export default function ToolRail() {
       {tool === 'lasso' && (
         <div className="rail-options">
           <div className="rail-opt-label">Lasso select</div>
-          <Toggle
-            value={!!o.aiSelect}
-            onChange={(aiSelect) => setToolOptions({ aiSelect })}
-          >{o.aiSelect ? 'AI select: on' : 'AI select: off'}</Toggle>
+          <Segmented
+            value={o.aiSelect ? 'ai' : (o.magnet ? 'magnet' : 'free')}
+            onChange={(mode) => setToolOptions({
+              aiSelect: mode === 'ai',
+              magnet: mode === 'magnet',
+            })}
+            options={[
+              { value: 'free', label: 'Freehand' },
+              { value: 'magnet', label: 'Magnetic' },
+              { value: 'ai', label: 'AI' },
+            ]}
+          />
           {o.aiSelect ? (
             <>
               <p className="rail-hint">
@@ -117,6 +125,20 @@ export default function ToolRail() {
                 The model decides what counts as the subject; your click only picks which
                 part of it to take. Something in the background cannot be selected this
                 way. The first run downloads the model.
+              </p>
+            </>
+          ) : o.magnet ? (
+            <>
+              <p className="rail-hint">
+                Drag roughly around the subject and the outline finds the edge itself — it
+                looks for the strongest boundary between where it last settled and where the
+                pointer is, so it can be steered without being traced.
+              </p>
+              <p className="rail-hint">
+                It reads colour edges, not just light and dark, so a subject that is the same
+                brightness as what is behind it still has a boundary to follow. Where there
+                genuinely is none it runs straight, and those points can be dragged
+                afterwards like any other.
               </p>
             </>
           ) : (

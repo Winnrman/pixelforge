@@ -26,6 +26,7 @@ import * as backupApi from './engine/backup.js'
 import * as dpiApi from './engine/dpi.js'
 import * as audioApi from './engine/audio.js'
 import * as waveApi from './engine/waveform.js'
+import * as edgeApi from './engine/edges.js'
 import * as clipApi from './engine/clips.js'
 
 // Dev-only handles so the browser smoke test (e2e.mjs) can inspect state and
@@ -55,6 +56,7 @@ if (import.meta.env.DEV) {
   window.__pfDpi = dpiApi
   window.__pfAudio = audioApi
   window.__pfWave = waveApi
+  window.__pfEdges = edgeApi
   window.__pfClips = clipApi
 }
 

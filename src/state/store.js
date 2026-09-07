@@ -19,6 +19,7 @@ import {
   predictMask, rememberMask, currentBackend, currentModel, setModel,
 } from '../engine/aiMatte.js'
 import { maskToPolygon } from '../engine/trace.js'
+import { buildEdgeMap, edgeMapFor, snapToEdges, livewire } from '../engine/edges.js'
 import {
   packProject, unpackProject, isProjectFile, thumbnailBytes, PROJECT_EXT,
 } from '../engine/project.js'
@@ -1807,7 +1808,20 @@ export const useStore = create((set, get) => ({
       // Mask coordinates are a fraction of the asset frame, which is exactly
       // what assetToDoc consumes, so the outline lands on the canvas already
       // rotated, cropped and flipped to match the layer.
-      const points = traced.points.map(([x, y]) => {
+      // The matte is predicted at the model's resolution — 512 or so — and the
+      // outline traced from it lands near the boundary rather than on it. The
+      // picture itself knows where the boundary is, so the outline is pulled
+      // onto the strongest gradient within a few pixels. Points with no real
+      // edge nearby are left alone: on fur or motion blur the strongest thing
+      // in reach is noise, and snapping to noise is worse than a soft outline.
+      let asset01 = traced.points
+      const edges = buildEdgeMap(bitmap)
+      if (edges) {
+        const inMap = traced.points.map(([x, y]) => ({ x: x * edges.w, y: y * edges.h }))
+        const snapped = snapToEdges(inMap, edges, { radius: 4 })
+        asset01 = snapped.map((p) => [p.x / edges.w, p.y / edges.h])
+      }
+      const points = asset01.map(([x, y]) => {
         const d = assetToDoc(layer, x, y)
         return [d.x, d.y]
       })
@@ -1828,6 +1842,44 @@ export const useStore = create((set, get) => ({
     } finally {
       set({ matting: null })
     }
+  },
+
+  /**
+   * A path from one document point to another that runs along the picture's
+   * edges rather than straight across them.
+   *
+   * This is the magnetic lasso: drag roughly around a subject and the outline
+   * finds the boundary itself. Everything is done against the layer's own
+   * frame, so it works the same on a rotated, cropped or scaled layer without
+   * any of that having to be undone first.
+   *
+   * Falls back to the straight line whenever it cannot help — off the layer, no
+   * frame decoded — because a lasso that stops following the pointer is worse
+   * than one that briefly runs straight.
+   */
+  magnetPath: (layerId, from, to) => {
+    const s = get()
+    const raw = s.doc.layers.find((l) => l.id === layerId)
+    if (!raw) return [to]
+    const layer = resolveLayer(raw, s.time)
+    const bitmap = sourceFor(layer, s.time)
+    const map = bitmap && edgeMapFor(bitmap)
+    if (!map) return [to]
+
+    const a = docToAsset(layer, from[0], from[1])
+    const b = docToAsset(layer, to[0], to[1])
+    if (!a || !b) return [to]
+
+    const path = livewire(map, { x: a.x * map.w, y: a.y * map.h }, { x: b.x * map.w, y: b.y * map.h })
+    // Thinned on the way out: the path is one point per pixel, and a lasso with
+    // nine hundred vertices is slow to draw and impossible to adjust by hand.
+    const out = []
+    for (let i = 0; i < path.length; i++) {
+      if (i !== 0 && i !== path.length - 1 && i % 6) continue
+      const d = assetToDoc(layer, path[i].x / map.w, path[i].y / map.h)
+      out.push([d.x, d.y])
+    }
+    return out.length ? out : [to]
   },
 
   // ---- eraser -------------------------------------------------------------

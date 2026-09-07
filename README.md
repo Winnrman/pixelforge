@@ -614,6 +614,77 @@ gain a border entirely off-canvas, and clicking Polaroid would appear to do noth
 is the moment a size gets chosen, so `placeMounted` fits the finished card to the canvas at
 92% — a little under, because a tilted card clips its own corners otherwise.
 
+## Finding an edge
+
+Two things needed the same missing piece, and neither had it: a magnetic lasso needs the
+cheapest path along a boundary between where it last settled and where the pointer is, and
+the AI selection needs to pull its outline onto the real edge, because a matte predicted at
+512px lands near the boundary rather than on it.
+
+**Colour gradients, not luminance.** Converting to grey first is the usual shortcut and it
+throws away exactly the edges that matter on artwork in one hue. A green creature against a
+green background is a strong colour boundary at nearly constant brightness. Measured on the
+fixture built for this: two colours at luma 87 and 79 — a difference you would struggle to
+see — give a gradient of **0.91** across the seam, where a luminance map finds essentially
+nothing. Sobel runs per channel and takes the strongest.
+
+### The magnetic lasso
+
+Drag roughly around a subject and the outline finds the boundary itself. Between the last
+settled point and the pointer it runs Dijkstra over the pixel grid, each step costing little
+where the gradient is strong, confined to a corridor around the two ends — the path cannot
+be helped by pixels far off to one side, and searching a whole image on every pointer move
+would not feel live. A binary heap, because a linear scan for the next node turns this into
+minutes.
+
+Everything past the last anchor is provisional and recomputed on every move, so the path can
+change its mind as you go rather than being stuck with the first route it found. It settles
+an anchor every ~90 screen pixels; without that the search area grows until it is the whole
+picture and the lasso stops keeping up.
+
+Measured against an ellipse whose boundary is known exactly, asked for between two points
+deliberately 12px *outside* it, the error along the path reads:
+
+```
+12, 4, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 10, 12
+```
+
+It starts where the pointer was, converges onto the boundary within two points, rides it at
+0–1px, and returns to the far end. Mean error along the middle: **0.4px**. The ends stay
+where they were asked to be, which is the point — a rough drag starts wherever your hand was.
+
+Where there is genuinely no edge it runs straight rather than wandering after one that is
+not there, and those points can be dragged afterwards like any others.
+
+### The AI selection sees better
+
+Two changes, both aimed at the same failure: a subject the model is only half sure about.
+
+**Hysteresis instead of one cutoff**, as edge detection has used for forty years and for the
+same reason. A single threshold on an unconfident matte either shreds the subject into
+islands or floods into the background, and no value does neither. So the region grows through
+anything plausible — half the confident threshold — and is kept only if enough of it is
+material the model was actually confident about. A region that is *all* uncertain is the
+model declining to answer, and spreading that over the picture is worse than saying so.
+
+**The outline is snapped to real edges.** Each vertex moves to the strongest gradient within
+a few pixels, which is the difference between an outline that looks traced and one that looks
+approximate. Points with no real edge nearby are left where the model put them: on fur or
+motion blur the strongest thing in reach is noise, and snapping to noise is worse than a soft
+outline.
+
+### A clock that stops must not stop the picture
+
+Found while testing this, unrelated to it, and worth its own note. Audio is the clock during
+playback — but a context that fails to start on a machine with no output device, or sits
+suspended, then freezes the playhead while claiming to play. If the audio clock stops
+advancing for 300ms, time goes back to counting frames.
+
+Giving up is permanent for the rest of that run, deliberately. A clock that recovers for a
+moment is worse than one that never worked: it is behind by then, so following it again drags
+the playhead backwards and the two clocks fight until time crawls. A fresh cue gets a clean
+slate.
+
 ## Cropping a picture, versus cropping the canvas
 
 Two different things were called crop, and neither of them cropped a picture.
@@ -1637,11 +1708,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-one browser suites (**705 checks**), three Electron suites (**77 checks** — the shell
+Thirty-two browser suites (**717 checks**), three Electron suites (**77 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and five DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs` — for the parts that are pure maths and deserve testing
-without a browser at all. **1083 checks** in total.
+without a browser at all. **1107 checks** in total.
 
 ```bash
 npm run dev        # in one terminal
