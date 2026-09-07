@@ -152,13 +152,21 @@ export default function App() {
         .filter((i) => i.kind === 'file')
         .map((i) => i.getAsFile())
         .filter(Boolean)
-      if (files.length) {
+      const s = useStore.getState()
+
+      // Two clipboards, and the rule is whatever was copied last.
+      //
+      // A file on the system clipboard is only newer than the layers copied in
+      // here if the in-app copy took the system clipboard over and something
+      // has replaced it since — which is exactly what `clipboardOwned` records.
+      // Without that test a screenshot from an hour ago beat a layer copied a
+      // second ago and went on beating it, so Ctrl+C then Ctrl+V quietly added
+      // the old picture to Media instead of duplicating the layer.
+      if (files.length && (!s.clipboard.length || s.clipboardOwned)) {
         e.preventDefault()
         addImages(files)
         return
       }
-      // Nothing pasteable from the system: fall back to layers copied in-app.
-      const s = useStore.getState()
       if (s.clipboard.length) {
         e.preventDefault()
         const n = s.pasteLayers()

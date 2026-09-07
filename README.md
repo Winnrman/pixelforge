@@ -1747,6 +1747,33 @@ mapping around the canvas centre instead, which double-counts the pan — and pa
 because their fixtures were split left from right at full height, so an error in y could not
 change the answer. Both now use the mapping the stage actually uses.
 
+## Two clipboards
+
+Copy and paste looked broken: Ctrl+C on a layer, Ctrl+V, and nothing appeared. What was
+actually happening is that there are two clipboards, and the wrong one kept winning.
+
+Layers copied in the app go into the store. The operating system has its own clipboard, and
+pasting a screenshot straight in is a real feature that reads from it. The paste handler tried
+the system clipboard first and fell back to the layers — which is fine right up until the
+system clipboard has something in it, which on a real machine it almost always does. A
+screenshot taken an hour ago beat a layer copied a second ago, and went on beating it for as
+long as it sat there. The picture went quietly into Media, the canvas did not change, and the
+whole thing read as copy and paste simply not working.
+
+The rule that was wanted all along is **whatever you copied last**. There is no way to ask the
+system clipboard when it was filled, so the only way to know an in-app copy is the more recent
+of the two is to make it the system clipboard's contents as well: copying layers now writes
+`PixelForge — 2 layers copied` to it. A file being there *again* afterwards is then proof that
+something newer replaced it, so pasting a screenshot still works, and works for the right
+reason rather than by being unconditionally first.
+
+If that write is refused — no permission, or a context where the clipboard API is not there —
+the copy records that it failed and paste prefers the layers, which is the safer half of the
+trade: the in-app copy is the one the user definitely just made.
+
+The claim lives in `copyLayers` rather than in the keyboard handler, because the layer context
+menu has Copy and Cut items too and a rule that only holds for the keyboard is not a rule.
+
 ## Two ways to put text behind
 
 The original route was: remove background, then a button in the inspector. That was too
@@ -1891,11 +1918,11 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-six browser suites (**803 checks**), two Electron suites (**70 checks** — the shell
+Thirty-seven browser suites (**816 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and eight DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1193
+for the parts that are pure maths and deserve testing without a browser at all. **1206
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

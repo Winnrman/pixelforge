@@ -352,6 +352,36 @@ export function makeTextLayer(partial = {}) {
   }
 }
 
+/**
+ * Copying layers in the app takes over the system clipboard too.
+ *
+ * Paste has to decide between two clipboards — the layers copied in here, and
+ * whatever the operating system is holding — and the honest rule is "whatever
+ * you copied last". There is no way to ask the system clipboard when it was
+ * filled, so the only way to know an in-app copy is the more recent of the two
+ * is to make it the system clipboard's contents as well.
+ *
+ * Without this, a screenshot taken an hour ago beat a layer copied a second ago,
+ * every time, for as long as it sat there: Ctrl+C then Ctrl+V added the old
+ * screenshot to Media instead of duplicating the layer, and nothing said why.
+ *
+ * The text is what someone gets if they paste into another app, so it says what
+ * happened rather than being a marker only this program can read.
+ */
+async function claimSystemClipboard(n) {
+  try {
+    if (!navigator.clipboard?.writeText) return false
+    await navigator.clipboard.writeText(
+      `PixelForge — ${n} layer${n === 1 ? '' : 's'} copied`)
+    return true
+  } catch {
+    // Blocked, or no permission. Paste falls back to preferring the layers,
+    // which is the safer half of the trade: the in-app copy is the one the user
+    // definitely just made.
+    return false
+  }
+}
+
 export const useStore = create((set, get) => ({
   // Which half of the app is on screen: the canvas, or the media bin.
   workspace: 'editor',
@@ -383,6 +413,9 @@ export const useStore = create((set, get) => ({
   // one key and needs to know which.
   keySelection: [],
   clipboard: [],          // layers copied in-app, cloned on both copy and paste
+  // Whether the copy that filled `clipboard` also managed to take over the
+  // system clipboard. Paste needs to know: see claimSystemClipboard.
+  clipboardOwned: false,
   lasso: null,            // { points: [[x, y], ...] } in doc space, closed
   contextMenu: null,      // { x, y, layerId } for the layers panel
   projectName: 'Untitled',
@@ -1136,7 +1169,8 @@ export const useStore = create((set, get) => ({
     const all = withDescendants(s.doc.layers, ids)
     const picked = s.doc.layers.filter((l) => all.includes(l.id))
     if (!picked.length) return 0
-    set({ clipboard: picked.map(clone), clipboardRoots: ids.length })
+    set({ clipboard: picked.map(clone), clipboardRoots: ids.length, clipboardOwned: false })
+    claimSystemClipboard(ids.length).then((clipboardOwned) => set({ clipboardOwned }))
     return ids.length
   },
 
