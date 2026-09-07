@@ -13,6 +13,7 @@ const TOOLS = [
   { id: 'shape', key: 'S', label: 'Shape', icon: 'M3 3 H12 V12 H3 Z M9 9 A6 6 0 1 0 21 9 A6 6 0 1 0 9 9' },
   { id: 'text', key: 'T', label: 'Text', icon: 'M4 4 H20 M12 4 V20 M8 20 H16' },
   { id: 'erase', key: 'E', label: 'Erase — paint away part of a layer', icon: 'M8.5 20 H20 M3.6 16.4 l8-8 a1.5 1.5 0 0 1 2.1 0 l4.9 4.9 a1.5 1.5 0 0 1 0 2.1 l-4.6 4.6 H9.2 l-5.6 -5.6 a1.5 1.5 0 0 1 0 -2.1 Z' },
+  { id: 'clone', key: 'K', label: 'Clone stamp — copy one part of a picture over another', icon: 'M9 3 h6 a2 2 0 0 1 2 2 v1 a3 3 0 0 0 3 3 v2 H4 V9 a3 3 0 0 0 3 -3 V5 a2 2 0 0 1 2 -2 z M9 11 v4 a3 3 0 0 0 3 3 v3' },
   { id: 'wand', key: 'W', label: 'Select by colour', icon: 'M4 20 L14 10 M12.5 8.5 l3 3 M17 3 l1 2.2 l2.2 1 l-2.2 1 l-1 2.2 l-1 -2.2 l-2.2 -1 l2.2 -1 z M6 4 l0.6 1.4 l1.4 0.6 l-1.4 0.6 l-0.6 1.4 l-0.6 -1.4 l-1.4 -0.6 l1.4 -0.6 z' },
   { id: 'eyedrop', key: 'I', label: 'Pick a colour from the picture', icon: 'M18.5 2.6 a2 2 0 0 1 2.9 2.9 l-2.2 2.2 l1 1 l-1.6 1.6 l-1 -1 l-8 8 l-4 1 l1 -4 l8 -8 l-1 -1 l1.6 -1.6 l1 1 z' },
   { id: 'hand', key: 'H', label: 'Pan', icon: 'M6 11 V6 a1.5 1.5 0 0 1 3 0 v5 V4 a1.5 1.5 0 0 1 3 0 v7 V5 a1.5 1.5 0 0 1 3 0 v6 V8 a1.5 1.5 0 0 1 3 0 v7 a6 6 0 0 1 -6 6 h-2 a5 5 0 0 1 -4 -2 l-3 -4 a1.5 1.5 0 0 1 2.5 -2 z' },
@@ -56,6 +57,7 @@ export default function ToolRail() {
   const setTool = useStore((s) => s.setTool)
   const o = useStore((s) => s.toolOptions)
   const setToolOptions = useStore((s) => s.setToolOptions)
+  const cloneSource = useStore((s) => s.cloneSource)
   // Named rather than described, so the hint says which picture will be cropped
   // rather than leaving you to work it out from the selection.
   const cropTarget = useStore((s) => {
@@ -86,6 +88,40 @@ export default function ToolRail() {
           </button>
         ))}
       </div>
+
+      {tool === 'clone' && (
+        <div className="rail-options">
+          <div className="rail-opt-label">Clone stamp</div>
+          <Row label="Brush">
+            <Slider
+              value={Math.round((o.stamp?.size ?? 0.08) * 100)}
+              min={1} max={40} suffix="%"
+              onChange={(v) => setToolOptions({ stamp: { ...o.stamp, size: v / 100 } })}
+            />
+          </Row>
+          <Row label="Softness">
+            <Slider
+              value={Math.round((1 - (o.stamp?.hardness ?? 0.7)) * 100)}
+              min={0} max={100} suffix="%"
+              onChange={(v) => setToolOptions({ stamp: { ...o.stamp, hardness: 1 - v / 100 } })}
+            />
+          </Row>
+          <p className="rail-hint">
+            <b>Alt-click</b> the part of the picture you want to copy <i>from</i>, then paint
+            over what you want gone. The distance between the two is held for the whole
+            stroke, so the source travels with the brush.
+          </p>
+          <p className="rail-hint">
+            {cloneSource
+              ? 'Source set. Paint away — one drag is one undo.'
+              : 'No source yet. Alt-click somewhere clean first.'}
+          </p>
+          <p className="rail-hint">
+            Kept as strokes rather than pixels, so it scales with the layer, survives a save,
+            and undoes cleanly.
+          </p>
+        </div>
+      )}
 
       {tool === 'wand' && (
         <div className="rail-options">

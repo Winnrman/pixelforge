@@ -23,6 +23,7 @@ import {
 import { maskToPolygon } from '../engine/trace.js'
 import { buildEdgeMap, edgeMapFor, snapToEdges, livewire } from '../engine/edges.js'
 import { colorMask, coverage } from '../engine/wand.js'
+import { defaultStamp, newStamp, docToLayerPoint } from '../engine/clone.js'
 import {
   packProject, unpackProject, isProjectFile, thumbnailBytes, PROJECT_EXT,
 } from '../engine/project.js'
@@ -2002,6 +2003,76 @@ export const useStore = create((set, get) => ({
       out.push([d.x, d.y])
     }
     return out.length ? out : [to]
+  },
+
+  // ---- clone stamp --------------------------------------------------------
+  //
+  // Alt-click sets where the paint comes from; painting copies it to where the
+  // brush goes. The offset between the two is fixed when a stroke starts, so
+  // the source travels with the brush and copies rather than smearing.
+
+  /** Where cloning samples from, as a document point. Null until one is set. */
+  cloneSource: null,
+  setCloneSource: (cloneSource) => set({
+    cloneSource,
+    notice: cloneSource
+      ? { kind: 'ok', text: 'Clone source set — now paint over what you want gone.' }
+      : null,
+  }),
+
+  /**
+   * Starts a clone stroke.
+   *
+   * History is pushed once here rather than per point, so one drag is one undo.
+   */
+  beginClone: (id, point, opts = {}) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    if (!layer || layer.locked) return null
+    if (!s.cloneSource) {
+      set({ notice: { kind: 'warn', text: 'Alt-click to set where the paint comes from first.' } })
+      return null
+    }
+    const resolved = resolveLayer(layer, s.time)
+    const brush = { ...defaultStamp(), ...s.toolOptions.stamp, ...opts }
+    const from = docToLayerPoint(resolved, s.cloneSource[0], s.cloneSource[1])
+    const to = docToLayerPoint(resolved, point[0], point[1])
+    s.pushHistory()
+    const stroke = newStamp(brush, [from[0] - to[0], from[1] - to[1]], to)
+    s.updateLayer(id, { clone: { strokes: [...(layer.clone?.strokes || []), stroke] } })
+    set({ cloneStroke: { id, brush } })
+    return stroke
+  },
+
+  cloneStroke: null,
+
+  extendClone: (id, point) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    const strokes = layer?.clone?.strokes
+    if (!strokes?.length) return
+    const resolved = resolveLayer(layer, s.time)
+    const pt = docToLayerPoint(resolved, point[0], point[1])
+    const last = strokes[strokes.length - 1]
+    const prev = last.pts[last.pts.length - 1]
+    // Points closer together than a fraction of the brush add nothing but work.
+    if (prev && Math.hypot(pt[0] - prev[0], pt[1] - prev[1]) < (last.size || 0.08) * 0.12) return
+    const next = { ...last, pts: [...last.pts, pt] }
+    s.updateLayer(id, { clone: { strokes: [...strokes.slice(0, -1), next] } })
+  },
+
+  endClone: () => set({ cloneStroke: null }),
+
+  /** Throws away the cloning on a layer, or the last stroke of it. */
+  clearClone: (id, { all = false } = {}) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    const strokes = layer?.clone?.strokes
+    if (!strokes?.length) return
+    s.pushHistory()
+    s.updateLayer(id, {
+      clone: all || strokes.length === 1 ? null : { strokes: strokes.slice(0, -1) },
+    })
   },
 
   // ---- eraser -------------------------------------------------------------

@@ -1595,6 +1595,76 @@ eraser then takes bites out of what is left. That needed its own scratch surface
 feathered mask inside an erased layer would otherwise have drawn into the very canvas being
 composited from.
 
+## Three tools for an empty rail
+
+The rail had move, crop, pixelate, lasso, shape, text, eraser and pan — everything to
+*arrange* a picture and almost nothing to work on the pixels in one. Three were picked, on
+one rule: each had to be something reached for often enough to earn a permanent slot, and
+each had to work without a manual.
+
+### The eyedropper
+
+There are colour controls all over the app — text, sticker border, Polaroid card, shape
+fill, canvas background — and until now the only way to set one was to know a hex code.
+Sampling reads the **composited document**, not a layer's source, so what you pick is what
+you can see: over a 50% white square on red it gives the blend, not either layer.
+
+Every colour box grew a pipette. Pressing it takes up the eyedropper, and the next sample
+lands in *that* box and hands back the tool you were holding — asking for one colour should
+not leave you in a different mode. Escape abandons the request, and an abandoned request
+does not fire into the next colour sampled.
+
+The pending callback lives beside the store rather than in it. The store is serialised into
+projects and autosaves, and a function is the one thing that cannot survive that trip.
+
+### Selecting by colour
+
+The AI lasso finds *subjects*, which is exactly why it is no help with a flat background, a
+sky, a logo, or one panel of a screenshot: it is answering a different question. The wand
+answers the plain one — take everything that looks like what I clicked — and returns an
+ordinary lasso, so Copy, Cut, Mask, Erase and Pixelate all work on it unchanged.
+
+Distance is weighted towards green because the eye is, so one tolerance setting behaves
+roughly the same across hues. Alpha is part of the comparison: a transparent pixel is not
+the same colour as an opaque one that happens to share its RGB, which matters the moment
+you use it on a layer that has already been cut out.
+
+**The option that was deliberately not built** is "contiguous". A lasso is a single closed
+outline, so a selection scattered across a picture has nowhere to go. The tool takes the
+region the click is inside and says so, rather than offering a checkbox whose result it
+cannot carry. The same limit runs the other way: click a background that wraps around a
+disc and the disc comes back inside the selection, because one outline has no holes. That
+is stated in the test rather than left to be discovered.
+
+### The clone stamp
+
+Paint over a watermark, a blemish or a stray object with a piece of the picture from
+somewhere else. Alt-click sets the source, then paint.
+
+Strokes are points and an offset, never pixels — the same choice as the eraser, and for
+the same three reasons: cloning stays undoable in one step, it scales with its layer
+instead of staying at the pixel positions it was painted at, and a saved project does not
+grow by a full-size copy of the image. Halve the layer and the repair halves with it.
+
+The offset is fixed when a stroke *begins*, not tracked per point. A source that moved with
+the brush would smear rather than copy. It is fixed per stroke rather than per session, so
+lifting the pointer and painting again continues the same relationship instead of resetting
+it.
+
+Rendering nests inside the eraser and the mask, innermost of the three: the layer is drawn
+into a scratch surface, that surface is drawn back shifted by the offset, stencilled down
+to the stroke, and laid over the original. One surface per stroke rather than one for all
+of them, because strokes with different offsets sample different places and cannot share a
+stencil.
+
+**The bug that cost the most** was a single sign. The offset is stored as *source minus
+destination*; drawing the picture at that offset moves the destination onto the source —
+exactly backwards. With a source up and to the left of the mark, it sampled off the edge of
+the picture and painted nothing at all, which reads identically to "the tool is not wired
+up". The test said the stroke was recorded, the offset was right, undo worked, and the mark
+was still there; two probes were needed to place the fault inside `paintClone` rather than
+anywhere in the four layers of wiring around it.
+
 ## Two ways to put text behind
 
 The original route was: remove background, then a button in the inspector. That was too
@@ -1696,7 +1766,8 @@ delete).
 
 | | |
 |---|---|
-| `V` `C` `P` `L` `S` `T` `H` | move, crop, pixel overlay, lasso, shape, text, pan |
+| `V` `C` `P` `L` `S` `T` `E` | move, crop, pixel overlay, lasso, shape, text, erase |
+| `K` `W` `I` `H` | clone stamp, colour select, eyedropper, pan |
 | `Space` | play / pause (hold + drag to pan) |
 | `Ctrl+S` / `Ctrl+O` | save project / open project |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | copy / cut / paste layers |

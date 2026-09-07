@@ -12,6 +12,7 @@ import {
 } from './clips.js'
 import { applyRetro } from './retro.js'
 import { hasErase, hasRestore, paintStrokes } from './erase.js'
+import { hasClone, paintClone } from './clone.js'
 import { loopPlan, pingPongTime } from './loop.js'
 
 export function filterCSS(a) {
@@ -909,19 +910,56 @@ function eraseScratch(key, w, h) {
   return c
 }
 
+/**
+ * Draws the layer with its clone strokes stamped over it.
+ *
+ * The picture has to be built once before anything is cloned, because a stroke
+ * samples it: painting straight onto the destination would let a later stroke
+ * pick up an earlier one and smear the copy along itself.
+ */
+function withClone(ctx, l, draw) {
+  if (!hasClone(l)) { draw(ctx); return }
+  const w = ctx.canvas.width
+  const h = ctx.canvas.height
+  const base = eraseScratch('clone-base', w, h)
+  const bx = base.getContext('2d')
+  bx.setTransform(1, 0, 0, 1, 0, 0)
+  bx.globalAlpha = 1
+  bx.globalCompositeOperation = 'source-over'
+  bx.filter = 'none'
+  bx.clearRect(0, 0, w, h)
+  draw(bx)
+
+  const out = eraseScratch('clone-out', w, h)
+  const ox = out.getContext('2d')
+  ox.setTransform(1, 0, 0, 1, 0, 0)
+  ox.globalAlpha = 1
+  ox.globalCompositeOperation = 'source-over'
+  ox.filter = 'none'
+  ox.clearRect(0, 0, w, h)
+  ox.drawImage(base, 0, 0)
+  // A pool of its own: the stroke stencil cannot share a surface with the
+  // picture it is sampling from.
+  paintClone(ox, l, base, l.clone.strokes, (cw, ch) => eraseScratch('clone-mask', cw, ch))
+  ctx.drawImage(out, 0, 0)
+}
+
 function withMask(ctx, l, draw) {
   // A sticker has already folded the mask and the erase strokes into the shape
   // it grew its border from. Applying them a second time here would cut that
   // border back off again, since it deliberately extends beyond the artwork.
-  if (stickerBakes(l)) { draw(ctx); return }
+  if (stickerBakes(l)) { withClone(ctx, l, draw); return }
   // Erasing wraps the mask rather than the other way round: the mask decides
-  // the shape, the eraser then takes bites out of what is left.
+  // the shape, the eraser then takes bites out of what is left. Cloning is
+  // innermost of all: it repairs the picture, and the mask and the eraser then
+  // decide how much of the repaired picture is kept.
+  const cloned = (c) => withClone(c, l, draw)
   if (hasErase(l)) {
-    const inner = (c) => withMaskOnly(c, l, draw)
+    const inner = (c) => withMaskOnly(c, l, cloned)
     applyErase(ctx, l, inner, ctx.canvas.width, ctx.canvas.height)
     return
   }
-  withMaskOnly(ctx, l, draw)
+  withMaskOnly(ctx, l, cloned)
 }
 
 function withMaskOnly(ctx, l, draw) {

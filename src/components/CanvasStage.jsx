@@ -887,6 +887,24 @@ export default function CanvasStage() {
       return
     }
 
+    if (st.tool === 'clone') {
+      const target = st.eraseTarget(p.x, p.y)
+      if (!target) {
+        st.setNotice({ kind: 'warn', text: 'Nothing to clone there — select a layer first.' })
+        return
+      }
+      // Alt sets where the paint comes from. The same modifier every editor
+      // uses for this, and the only thing the tool needs told.
+      if (e.altKey) {
+        st.setCloneSource([p.x, p.y])
+        return
+      }
+      if (st.beginClone(target.id, [p.x, p.y])) {
+        drag.current = { mode: 'clone', id: target.id }
+      }
+      return
+    }
+
     if (st.tool === 'move') {
       // A click inside something already selected keeps that selection. Always
       // taking the topmost layer meant clicking your own selection could hand
@@ -1034,6 +1052,7 @@ export default function CanvasStage() {
         if (h) cursor = CURSORS[h.key]
         else if (st.tool === 'move') cursor = topLayerAt(p) ? 'move' : 'default'
         else if (st.tool === 'erase') cursor = 'crosshair'
+        else if (st.tool === 'clone') cursor = 'crosshair'
         else cursor = 'crosshair'
       }
       if (hoverRef.current !== cursor) {
@@ -1157,6 +1176,11 @@ export default function CanvasStage() {
       return
     }
 
+    if (d.mode === 'clone') {
+      st.extendClone(d.id, [p.x, p.y])
+      return
+    }
+
     if (d.mode === 'lasso') {
       const live = lassoRef.current
       if (!live) return
@@ -1206,6 +1230,7 @@ export default function CanvasStage() {
     try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* already released */ }
 
     const st = useStore.getState()
+    if (d.mode === 'clone') st.endClone()
     if (d.mode === 'draw') {
       const l = st.doc.layers.find((x) => x.id === d.id)
       const tiny = l && (l.w < 10 || l.h < 10)
@@ -1226,6 +1251,11 @@ export default function CanvasStage() {
       }
       st.setTool('move')
     }
+    if (d.mode === 'clone') {
+      st.extendClone(d.id, [p.x, p.y])
+      return
+    }
+
     if (d.mode === 'lasso') {
       // A freehand trace finishes on release; a plotted vertex was already
       // added on press, so a plain click needs nothing here.
