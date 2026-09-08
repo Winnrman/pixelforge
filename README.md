@@ -1987,12 +1987,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-eight browser suites (**843 checks**), two Electron suites (**70 checks** — the shell
+Thirty-eight browser suites (**846 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1282
+for the parts that are pure maths and deserve testing without a browser at all. **1285
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

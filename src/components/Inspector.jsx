@@ -374,7 +374,10 @@ export default function Inspector() {
           </Section>
         )}
 
-        {lap && (
+        {/* `> 0`, not just `lap`: a zero here is falsy but it is still a number,
+            and React renders a number. `{lap && ...}` printed a bare 0 above the
+            next section on every clip that had no overlap. */}
+        {lap > 0 && (
           <Section
             title="Transition"
             info={'Two clips lapping over each other on a track is the transition, and the '

@@ -260,6 +260,42 @@ check('saying what it is and how long it takes',
   /Crossfade/.test(marker.title) && /0\.40s/.test(marker.title), marker.title)
 await page.screenshot({ path: path.join(OUT, '03-timeline.png') })
 
+// --- the inspector says nothing when there is nothing to say --------------------
+// A number is falsy at zero but it is still a number, and React renders numbers:
+// `{lap && <Section/>}` printed a bare 0 above the next section on every clip
+// with no overlap.
+const inspector = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const [a] = st.doc.layers
+  // Pull them apart so this clip is in no transition at all, and select it.
+  const b = st.doc.layers[1]
+  st.slideClip(b.id, 4000)
+  window.__pfState().select([a.id])
+  await new Promise((r) => setTimeout(r, 500))
+  const el = document.querySelector('.inspector')
+  const text = el ? el.textContent : ''
+  return {
+    hasSection: /Transition/.test(text),
+    stray: /0\s*Motion trails/i.test(text),
+    around: (text.match(/.{0,18}Motion trails/i) || [''])[0],
+  }
+})
+console.log('with no overlap, the inspector reads:', JSON.stringify(inspector))
+check('no transition section on a clip that has none', inspector.hasSection === false)
+check('and no stray zero left where it would have been', inspector.stray === false,
+  JSON.stringify(inspector.around))
+
+// And it comes back when the clips are lapped again.
+const backAgain = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const b = st.doc.layers[1]
+  st.slideClip(b.id, 600)
+  window.__pfState().select([b.id])
+  await new Promise((r) => setTimeout(r, 500))
+  return /Transition/.test(document.querySelector('.inspector')?.textContent || '')
+})
+check('and it is there again once they lap', backAgain === true)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)
