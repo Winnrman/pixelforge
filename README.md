@@ -2078,11 +2078,31 @@ testing the browser's canvas. It now stamps *one* export twice and compares thos
 the claim it was always trying to make.
 
 ```bash
-npm run dev        # in one terminal
-npm test           # in another
-npm run test:units # no browser needed
+npm run dev           # in one terminal
+npm test              # in another — the lot, in about a minute
+npm run test:changed  # only the suites your edits could have broken
+npm run test:units    # no browser needed
 npm run test:desktop  # builds, then boots the Electron shell
 ```
+
+### Running them
+
+Thirty-eight browser suites chained with `&&`, one at a time, each booting its own Chrome,
+came to about twelve minutes — long enough that you stop running it, and a suite you stop
+running is worth nothing.
+
+They now run **at once**. Every suite drives its own browser against the same dev server and
+writes to its own screenshot folder, so nothing is shared and there was never anything to
+serialise. Eight at a time on twenty cores: **53 seconds** for all 1271 checks, against twelve
+minutes.
+
+`--changed` runs fewer still. It maps the files git reports against a table of which suites
+could possibly notice — the eraser does not need the MP4 export suite's opinion. A file the
+table has not been taught about runs **everything**, because guessing narrowly there is how a
+suite stops being trusted, and editing a suite runs that suite.
+
+`--jobs=1` puts it back to one at a time, which is what you want when a failure might be the
+concurrency rather than the code.
 
 `npm run make:testgif` regenerates every fixture in `public/test/`:
 
