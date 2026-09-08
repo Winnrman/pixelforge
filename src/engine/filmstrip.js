@@ -10,7 +10,7 @@
 import { getAsset } from './assets.js'
 import { assetTimeFor, clipRange } from './clips.js'
 import { frameIndexAt } from './render.js'
-import { exactFrame, frameAt } from './video.js'
+import { exactFrame, frameAt, indexAt } from './video.js'
 
 export const THUMB_H = 60
 
@@ -45,11 +45,67 @@ function downscale(src, h) {
 }
 
 /** A thumbnail already in hand, or null. Never decodes. */
+/** How the cache is doing. A cut should be all hits: it is the same frames, in
+ *  two boxes instead of one. */
+export const thumbStats = { hits: 0, built: 0 }
+export const resetThumbStats = () => { thumbStats.hits = 0; thumbStats.built = 0 }
+
 export function cachedThumb(asset, ms, h = THUMB_H) {
-  return bucketFor(asset).get(key(ms, h)) || null
+  const hit = bucketFor(asset).get(key(asset, ms, h)) || null
+  if (hit) thumbStats.hits++
+  return hit
 }
 
-const key = (ms, h) => `${Math.round(ms)}|${h}`
+/**
+ * The nearest thumbnail already in hand, for painting *now*.
+ *
+ * Keying by frame stops most of the rebuilding across a cut, but not all of it:
+ * the two halves of a split get their own slot counts across their own widths,
+ * so some centres land a frame or two off the ones the whole clip sampled. Those
+ * are genuinely different pictures and have to be made — but there is no reason
+ * to show a hole while they are.
+ *
+ * So a strip paints the closest frame it already has and replaces it when the
+ * real one arrives. A cut then looks like what it is, one clip in two boxes,
+ * rather than two strips rebuilding from nothing. The bound keeps it honest: a
+ * frame from somewhere else entirely is worse than a gap.
+ */
+export function nearestThumb(asset, ms, h = THUMB_H, within = 12) {
+  const bucket = bucketFor(asset)
+  const want = frameKey(asset, ms)
+  const kind = want[0]
+  const idx = Number(want.slice(1))
+  if (!Number.isFinite(idx)) return bucket.get(`${want}|${h}`) || null
+  for (let d = 1; d <= within; d++) {
+    const a = bucket.get(`${kind}${idx - d}|${h}`)
+    if (a) return a
+    const b = bucket.get(`${kind}${idx + d}|${h}`)
+    if (b) return b
+  }
+  return null
+}
+
+/**
+ * Thumbnails are cached by *frame*, not by millisecond.
+ *
+ * Both branches below resolve a time to a frame and draw that — so two requests
+ * a millisecond apart usually produce the identical picture, and keying by the
+ * millisecond stored it twice and decoded it twice. It showed up on a cut: the
+ * two halves of a split clip sample at the centres of their own slots, which are
+ * new times to the millisecond, so every thumbnail in a strip that had just been
+ * drawn was thrown away and decoded again. Keyed by the frame they land on, a cut
+ * costs nothing — the pictures are already there.
+ */
+function frameKey(asset, ms) {
+  if (asset.isVideo) {
+    const d = asset.duration || 1
+    return 'v' + indexAt(asset, ((ms % d) + d) % d)
+  }
+  if (asset.frames?.length) return 'f' + frameIndexAt(asset, ms)
+  return 's'
+}
+
+const key = (asset, ms, h) => `${frameKey(asset, ms)}|${h}`
 
 /**
  * One thumbnail, decoding if it has to.
@@ -60,7 +116,7 @@ const key = (ms, h) => `${Math.round(ms)}|${h}`
  */
 export async function thumbAt(asset, ms, h = THUMB_H) {
   const bucket = bucketFor(asset)
-  const k = key(ms, h)
+  const k = key(asset, ms, h)
   const hit = bucket.get(k)
   if (hit) return hit
 
@@ -80,6 +136,7 @@ export async function thumbAt(asset, ms, h = THUMB_H) {
 
   const thumb = downscale(src, h)
   bucket.set(k, thumb)
+  thumbStats.built++
   return thumb
 }
 

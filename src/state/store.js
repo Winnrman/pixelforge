@@ -33,7 +33,7 @@ import {
 } from '../engine/autosave.js'
 import { saveBlob } from '../engine/desktop.js'
 import {
-  wholeClip, slideTo, trimTo, splitAt, closeGaps, clipRange, MIN_CLIP_MS,
+  wholeClip, slideTo, trimTo, splitAt, closeGaps, clipRange, sourceRange, MIN_CLIP_MS,
   trackCount, sortByTrack,
 } from '../engine/clips.js'
 import { ensureAudio, setMaster } from '../engine/audio.js'
@@ -2706,6 +2706,94 @@ export const useStore = create((set, get) => ({
 
   // ---- selection / tools ------------------------------------------------
   select: (ids) => set({ selectedIds: Array.isArray(ids) ? ids : ids ? [ids] : [] }),
+
+  /** Add to the selection, or take one out of it — shift-click. */
+  toggleSelect: (id) => set((s) => ({
+    selectedIds: s.selectedIds.includes(id)
+      ? s.selectedIds.filter((x) => x !== id)
+      : [...s.selectedIds, id],
+  })),
+
+  /**
+   * Puts split clips back together.
+   *
+   * The inverse of Cut at playhead, and it holds itself to that: the clips have
+   * to be the same media on the same track, touching in time, and *continuous in
+   * the source* — the second must start in the footage exactly where the first
+   * stopped. Anything else is not a join, it is a claim that some footage does
+   * not exist, and joining would silently either skip frames or bring back ones
+   * that had been trimmed away. When it refuses it says which of those it is,
+   * because "cannot join" on its own is a puzzle.
+   */
+  joinClips: (ids = null) => {
+    const s = get()
+    const picked = (ids || s.selectedIds)
+      .map((id) => s.doc.layers.find((l) => l.id === id))
+      .filter((l) => l?.clip)
+    if (picked.length < 2) {
+      return { ok: false, reason: 'Select two or more clips on one track to join them.' }
+    }
+    if (new Set(picked.map((l) => l.assetId)).size > 1) {
+      return { ok: false, reason: 'Those clips are different media — only pieces of the same clip join.' }
+    }
+    if (new Set(picked.map((l) => l.track || 0)).size > 1) {
+      return { ok: false, reason: 'Those clips are on different tracks.' }
+    }
+
+    const assetOf = (l) => getAsset(l.assetId)
+    const sorted = [...picked].sort(
+      (a, b) => clipRange(a, assetOf(a)).start - clipRange(b, assetOf(b)).start)
+    // A frame or two of slop is a drag, not an instruction. Anything more is a
+    // gap or an overlap the user put there on purpose.
+    const SLOP = 40
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1]
+      const cur = sorted[i]
+      const pr = clipRange(prev, assetOf(prev))
+      const cr = clipRange(cur, assetOf(cur))
+      if (Math.abs(cr.start - pr.end) > SLOP) {
+        return {
+          ok: false,
+          reason: cr.start > pr.end
+            ? 'There is a gap between those clips. Close it first, or they are not one clip.'
+            : 'Those clips overlap — that is a transition, not a cut to undo.',
+        }
+      }
+      const pOut = sourceRange(prev, assetOf(prev)).out
+      const cIn = sourceRange(cur, assetOf(cur)).in
+      if (Math.abs(cIn - pOut) > SLOP) {
+        return {
+          ok: false,
+          reason: 'Those pieces are not next to each other in the footage — '
+            + 'one of them has been trimmed since the cut.',
+        }
+      }
+    }
+
+    s.pushHistory()
+    const first = sorted[0]
+    const last = sorted[sorted.length - 1]
+    const merged = {
+      ...first,
+      clip: {
+        ...first.clip,
+        start: clipRange(first, assetOf(first)).start,
+        in: sourceRange(first, assetOf(first)).in,
+        out: sourceRange(last, assetOf(last)).out,
+      },
+      // The tail's fade-out belongs to the joined clip; the head's fade-in stays.
+      fade: (first.fade?.in > 0 || last.fade?.out > 0)
+        ? { in: first.fade?.in || 0, out: last.fade?.out || 0 }
+        : undefined,
+    }
+    const gone = new Set(sorted.slice(1).map((l) => l.id))
+    const layers = s.doc.layers
+      .filter((l) => !gone.has(l.id))
+      .map((l) => (l.id === first.id ? merged : l))
+    set({ dirty: true, doc: { ...s.doc, layers }, selectedIds: [first.id] })
+    get().recomputeDuration()
+    return { ok: true, text: `Joined ${sorted.length} clips into one` }
+  },
   setTool: (tool) => set({ tool }),
   setToolOptions: (patch) => set((s) => ({ toolOptions: { ...s.toolOptions, ...patch } })),
   setView: (patch) => set((s) => ({ view: { ...s.view, ...patch } })),

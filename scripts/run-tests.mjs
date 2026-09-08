@@ -32,7 +32,7 @@ import os from 'os'
  */
 const OWNERS = [
   ['src/engine/transitions.js', ['e2e-transitions', 'test-transitions', 'e2e-clips', 'e2e-tracks']],
-  ['src/engine/clips.js', ['e2e-clips', 'e2e-tracks', 'e2e-transitions', 'test-clips', 'e2e-filmstrip']],
+  ['src/engine/clips.js', ['e2e-clips', 'e2e-tracks', 'e2e-transitions', 'test-clips', 'e2e-filmstrip', 'e2e-join']],
   ['src/engine/erase.js', ['e2e-erase', 'e2e-sticker', 'e2e-tools2', 'e2e-lasso']],
   ['src/engine/clone.js', ['e2e-clone']],
   ['src/engine/wand.js', ['e2e-wand']],
@@ -49,12 +49,12 @@ const OWNERS = [
   ['src/engine/text.js', ['e2e-text']],
   ['src/engine/collage.js', ['e2e-mount', 'test-collage']],
   ['src/engine/project.js', ['e2e-project', 'e2e-backup']],
-  ['src/engine/filmstrip.js', ['e2e-filmstrip', 'e2e-clips', 'e2e-tracks']],
+  ['src/engine/filmstrip.js', ['e2e-filmstrip', 'e2e-clips', 'e2e-tracks', 'e2e-join']],
   ['src/engine/loop.js', ['e2e-loop', 'test-loop']],
   ['src/engine/retro.js', ['test-retro', 'e2e-batch']],
   ['src/engine/cursor.js', ['test-cursor']],
   ['src/engine/trace.js', ['test-trace', 'e2e-magnet']],
-  ['src/components/Filmstrip.jsx', ['e2e-clips', 'e2e-tracks', 'e2e-filmstrip', 'e2e-transitions']],
+  ['src/components/Filmstrip.jsx', ['e2e-clips', 'e2e-tracks', 'e2e-filmstrip', 'e2e-transitions', 'e2e-join']],
   ['src/components/Timeline.jsx', ['e2e-keyframes', 'e2e-keysel', 'e2e-clips', 'e2e-tracks', 'e2e-audiotrack']],
   ['src/components/AudioRow.jsx', ['e2e-audiotrack']],
   ['src/components/MediaPool.jsx', ['e2e-media', 'e2e']],
@@ -85,7 +85,7 @@ const BROWSER = [
   'e2e-canvas', 'e2e-print', 'e2e-videoperf', 'e2e-clips', 'e2e-audio',
   'e2e-tracks', 'e2e-mount', 'e2e-cropimage', 'e2e-magnet', 'e2e-eyedrop',
   'e2e-wand', 'e2e-clone', 'e2e-tools2', 'e2e-clipboard', 'e2e-transitions',
-  'e2e-audiotrack', 'test-edges',
+  'e2e-audiotrack', 'e2e-join', 'test-edges',
 ]
 
 const fileFor = (name) => `${name}.mjs`

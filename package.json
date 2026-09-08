@@ -62,6 +62,7 @@
     "test:clipboard": "node e2e-clipboard.mjs",
     "test:transitions": "node e2e-transitions.mjs",
     "test:audiotrack": "node e2e-audiotrack.mjs",
+    "test:join": "node e2e-join.mjs",
     "test:edges": "node test-edges.mjs",
     "bench:video": "node bench-video.mjs",
     "test:dpi": "node test-dpi.mjs",

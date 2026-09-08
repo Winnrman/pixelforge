@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
-import { THUMB_H, cachedThumb, thumbAt, stripTimes, stripWindow } from '../engine/filmstrip.js'
+import {
+  THUMB_H, cachedThumb, nearestThumb, thumbAt, stripTimes, stripWindow,
+} from '../engine/filmstrip.js'
 import {
   trackCount, assetTimeFor, snapPoints, snapClip, snapEdge, clipRange, SNAP_PX,
 } from '../engine/clips.js'
-import { columnsFor, hasPeaks } from '../engine/waveform.js'
 import { pairsIn, TRANSITIONS, maxFade } from '../engine/transitions.js'
-import { ensureAudio } from '../engine/audio.js'
 
 /** How close to an edge counts as grabbing it rather than the clip body. */
 const EDGE_PX = 9
@@ -38,14 +38,13 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
   const [width, setWidth] = useState(0)
   const [pending, setPending] = useState(0)
   const [drag, setDrag] = useState(null)
-  // Bumped when a soundtrack finishes decoding, to redraw with its waveform.
-  const [sound, setSound] = useState(0)
   const playing = useStore((s) => s.playing)
   const setTime = useStore((s) => s.setTime)
   const setPlaying = useStore((s) => s.setPlaying)
   const select = useStore((s) => s.select)
   const slideClip = useStore((s) => s.slideClip)
   const setClipTrack = useStore((s) => s.setClipTrack)
+  const toggleSelect = useStore((s) => s.toggleSelect)
   const setFade = useStore((s) => s.setFade)
   const setSnapAt = useStore((s) => s.setSnapAt)
   const trimClip = useStore((s) => s.trimClip)
@@ -64,17 +63,6 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
       .find((x) => x.inId === layer.id)
     return p ? `${p.kind}|${Math.round(p.length)}` : ''
   })
-
-  // Decoding is normally deferred to the first press of play, but a waveform is
-  // wanted before that — it is how you find the moment to cut on. Asked for once
-  // per asset; `ensureAudio` is idempotent and answers instantly when it is
-  // already done or when the file has no sound at all.
-  useEffect(() => {
-    if (!asset?.isVideo || asset.audio !== undefined) return
-    let live = true
-    ensureAudio(asset).then(() => { if (live) setSound((n) => n + 1) })
-    return () => { live = false }
-  }, [asset])
 
   useEffect(() => {
     const box = boxRef.current
@@ -112,47 +100,23 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
       ctx.restore()
     }
 
-    // Drawn over the thumbnails rather than in a row of its own: the clip is one
-    // object, and a separate lane would put its picture and its sound in two
-    // places that have to be kept lined up by eye.
-    const drawWave = () => {
-      // The clip's own span in source time, not the thumbnail sample centres —
-      // those sit half a slot inside each end, which shifts the whole picture.
-      const cols = columnsFor(
-        asset,
-        assetTimeFor(layer, win.from, asset),
-        assetTimeFor(layer, win.to, asset),
-        Math.max(1, Math.round(width)),
-      )
-      if (!cols) return
-      const h = 16
-      const base = THUMB_H - 1
-      ctx.save()
-      // A solid-enough scrim: footage is often bright and busy, and a pale wave
-      // over a test pattern or a snowy landscape is invisible without one.
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.62)'
-      ctx.fillRect(0, THUMB_H - h - 2, width, h + 2)
-      ctx.fillStyle = 'rgba(120, 226, 255, 1)'
-      for (let x = 0; x < cols.length; x++) {
-        // A floor of one pixel, so a quiet passage reads as quiet rather than as
-        // a gap where the file stopped.
-        const v = Math.max(1, cols[x] * h)
-        ctx.fillRect(x, base - v, 1, v)
-      }
-      ctx.restore()
-    }
-
     const missing = []
     for (const slot of slots) {
       const hit = cachedThumb(asset, slot.assetT)
-      if (hit) draw(slot, hit)
-      else missing.push(slot)
+      if (hit) { draw(slot, hit); continue }
+      // Nothing exact yet: put the closest frame already in hand there so the
+      // slot is never empty, and queue the real one. Cutting a clip in two is
+      // the case this is for — the halves sample a frame or two off what the
+      // whole clip did, and a strip that blanks and refills reads as work being
+      // redone rather than as the same footage in two boxes.
+      const near = nearestThumb(asset, slot.assetT)
+      if (near) draw(slot, near)
+      missing.push(slot)
     }
 
     // A GIF's frames are already decoded, so filling in is instant and there is
     // no reason to wait for playback to stop.
     if (!missing.length || (playing && asset.isVideo)) {
-      drawWave()
       setPending(missing.length)
       return undefined
     }
@@ -173,8 +137,6 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
         if (thumb) draw(slot, thumb)
         setPending(--left)
       }
-      // After the pictures, so it is not painted over by the last of them.
-      if (!cancelled) drawWave()
     })()
     return () => { cancelled = true }
   }, [
@@ -182,8 +144,6 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
     // Re-slice when the clip moves or is trimmed: the thumbnails are what the
     // clip plays, so they have to follow it.
     win.from, win.to,
-    // And redraw once the soundtrack has been decoded.
-    sound,
   ])
 
   /** The lane this clip is measured against — its own when standing alone, the
@@ -213,6 +173,14 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
     e.stopPropagation()
     e.preventDefault()
     setPlaying(false)
+    // Shift adds to the selection rather than replacing it, which is how you
+    // gather the pieces of a cut clip back up to join them. It is a selection,
+    // not a drag: picking several and then dragging them as one is a different
+    // gesture and this is not it.
+    if (e.shiftKey) {
+      toggleSelect(layer.id)
+      return true
+    }
     select([layer.id])
     // For a slide, remember where in the bar it was grabbed — otherwise the clip
     // jumps so its start lands under the cursor on the first move.
@@ -294,6 +262,7 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
         if (grabClip(e)) return
         if (e.button !== 0) return
         setPlaying(false)
+        if (e.shiftKey) { toggleSelect(layer.id); return }
         select([layer.id])
         scrub(e)
       }}

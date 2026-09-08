@@ -422,6 +422,43 @@ it drew in the wrong place, and a test that counts layers cannot tell the differ
 bin now occupying that strip the same point lands on the bin and the drag is swallowed. The
 test reads the geometry at the moment it clicks now, which is what it should always have done.
 
+## A cut is a view, not a new thing
+
+Cutting a clip in two made both halves rebuild their filmstrips, which is work the app already
+had the answer to sitting in memory.
+
+Thumbnails were cached by **millisecond**. Both paths that make one resolve the time to a
+frame and draw that — so two requests a millisecond apart usually produce the identical
+picture, stored twice and made twice. The two halves of a split sample at the centres of their
+own slots, which are new times to the millisecond and the same frames, so every picture in a
+strip that had just been drawn was thrown away. They are cached by the **frame** they land on
+now.
+
+That is most of it, not all of it: the halves get their own slot counts across their own
+widths, so some centres settle a frame or two off what the whole clip sampled. Those are
+genuinely different pictures. The strip paints the nearest frame it already has into the slot
+straight away and replaces it when the real one arrives, so a cut looks like what it is — one
+clip in two boxes — instead of two strips rebuilding from nothing.
+
+Measured on a cut: both halves full of pictures a quarter of a second later, and **nothing read
+back from the video file at all**. What is left is downscaling frames already in the decoder's
+cache, which costs no seek and is never visible.
+
+The video clip also stopped drawing a waveform over its own thumbnails. Sound has its own lane
+now, and two pictures of the same thing — one of them painted across the frames it is
+competing with for space — is one too many.
+
+### Joining
+
+Cut at playhead had no inverse. Shift-click the pieces and press Join.
+
+It holds itself to being an inverse: same media, same track, touching in time, and continuous
+in the source — the second must start in the footage exactly where the first stopped. Anything
+else is not a join but a claim that some footage does not exist, and doing it anyway would
+silently skip frames or bring back ones that had been trimmed away. It refuses out loud, and
+says which of those it is, because "cannot join" on its own is a puzzle: a gap between them, an
+overlap (which is a transition, not a cut to undo), or a piece trimmed since the cut.
+
 ## Sound on its own track
 
 Volume was a number in the inspector and a waveform painted behind the thumbnails on the video
@@ -2115,12 +2152,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Forty browser suites (**891 checks**), two Electron suites (**70 checks** — the shell
+Forty-one browser suites (**907 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1360
+for the parts that are pure maths and deserve testing without a browser at all. **1376
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

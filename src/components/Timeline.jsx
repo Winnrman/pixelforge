@@ -293,6 +293,8 @@ export default function Timeline() {
   const selectedIds = useStore((s) => s.selectedIds)
   const splitClips = useStore((s) => s.splitClips)
   const closeClipGaps = useStore((s) => s.closeClipGaps)
+  const joinClips = useStore((s) => s.joinClips)
+  const setNotice = useStore((s) => s.setNotice)
   const clipped = layers.filter((l) => l.clip)
   const insertClip = useStore((s) => s.insertClip)
   const [dropTrack, setDropTrack] = useState(null)
@@ -538,6 +540,24 @@ export default function Timeline() {
               title="Cut every clip the playhead is inside (Ctrl+K)"
             >
               Cut at playhead
+            </button>
+            {/* The inverse of Cut. Shift-click the pieces on the timeline, then
+                this — there is nothing else to learn, and it refuses out loud
+                when what is selected is not one clip in pieces. */}
+            <button
+              className="btn ghost"
+              disabled={selectedIds.length < 2}
+              onClick={() => {
+                const res = joinClips()
+                setNotice(res.ok
+                  ? { kind: 'ok', text: res.text }
+                  : { kind: 'warn', text: res.reason })
+              }}
+              title={selectedIds.length < 2
+                ? 'Shift-click two or more pieces of one clip to join them'
+                : 'Put the selected pieces back together as one clip'}
+            >
+              Join
             </button>
             <button
               className="btn ghost"
