@@ -29,6 +29,7 @@ import * as waveApi from './engine/waveform.js'
 import * as edgeApi from './engine/edges.js'
 import * as cloneApi from './engine/clone.js'
 import * as clipApi from './engine/clips.js'
+import * as transitionApi from './engine/transitions.js'
 
 // Dev-only handles so the browser smoke test (e2e.mjs) can inspect state and
 // re-render the document off-screen.
@@ -60,6 +61,7 @@ if (import.meta.env.DEV) {
   window.__pfEdges = edgeApi
   window.__pfClone = cloneApi
   window.__pfClips = clipApi
+  window.__pfTransitions = transitionApi
 }
 
 createRoot(document.getElementById('root')).render(

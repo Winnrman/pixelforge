@@ -394,6 +394,75 @@ the document but never recomputed the timeline length**. Nothing showed it while
 document's length could not really change, but with clips every bar was suddenly drawn
 against a stale scale — a clip at 720ms rendering at the far left of a 720ms timeline.
 
+## Transitions
+
+Every editor makes this a thing you go and fetch: a bin of effects, a drag onto a cut, a
+dialog with a duration in it, and then a separate object living at the join that you select,
+trim and delete on its own terms. Four concepts for something people describe in one
+sentence — "fade this one into that one".
+
+**Here the overlap is the transition.** Drag a clip so it laps over its neighbour on the same
+track, and the region where they cover each other is where one becomes the other. Longer
+overlap, longer transition. Pull them apart and there is no transition, because there is no
+overlap. There is nothing to select, nothing to delete, and no duration field: the timeline
+already shows exactly how long it takes, because the length of the lap *is* the length of the
+transition.
+
+It follows that a transition with default settings **stores nothing at all**. Two clips
+overlapping is a crossfade, and the document is unchanged from the one that described a hard
+cut — the arrangement already said it. Only a changed kind is written, on the arriving clip,
+which is where it belongs: move that clip and the transition moves, delete it and it goes.
+
+The one control is which kind: crossfade, dip to black, dip to white, and a wipe each way.
+
+### What counts as an overlap
+
+Not everything that covers something else is a transition. The arriving clip has to both
+**begin later and end later** than the one it replaces. Two clips dropped at the same spot on
+one row, or one sitting entirely inside another, are stacked, not dissolving — that is
+something people do by accident and it has always simply drawn one in front of the other.
+Dissolving into a clip that ends at the same moment is a dissolve into nothing. An overlap
+under 60ms is ignored as well: a frame or two of slop from a drag is not an instruction.
+
+This was not foreseen; it was found. The tracks suite deliberately stacks two clips on one row
+to check that raising one to another track changes what is drawn in front, and the first
+version of this turned that into a full-length dissolve and broke it. The test was right.
+
+### The arithmetic of a dissolve
+
+The obvious way to crossfade is to draw the outgoing clip at `1 - p` and the incoming at `p`.
+It is wrong. The second draw lands *over* the first, so what reaches the canvas is
+`B*p + A*(1-p)*(1-p)` — the two never sum to one, and the picture sags dark through the middle
+of every dissolve. Leaving the outgoing solid and bringing the incoming up at `p` gives
+`A*(1-p) + B*p` exactly.
+
+That only holds if the incoming clip is drawn second, and stacking order is the user's
+business, not the transition's. So the renderer orders each pair before drawing. Both clips
+are on the same track and overlap in time, so nothing can be between them — the swap is
+invisible except for the thing it fixes. The suite checks the dissolve looks identical with
+the layers stacked either way.
+
+A dip is not a blend at all but two halves: the outgoing fades into the colour, then the
+incoming comes out of it, and neither is ever up at the same time as the other. The colour
+goes over the clip's **own box** rather than the whole canvas, so dipping one track to black
+does not black out a title on another. A wipe fades nothing — both clips stay solid and the
+incoming is uncovered across the frame, which is what makes it read as an edge travelling
+rather than two pictures fighting.
+
+### The sound crosses too
+
+A picture that dissolves under a hard audio cut is the thing that sounds broken — it is the
+cut you hear, not the dissolve you see, that gives it away. Each voice's gain node gets the
+ramp scheduled on it, so this costs nothing per frame and works the same in an offline render
+as through the speakers.
+
+A clip in the middle of a run is the outgoing half of one transition and the incoming half of
+the next, so the curve is a list of points rather than one ramp: keying it by layer would have
+kept one and lost the other, leaving a clip that fades in and then never fades out. Dropping
+the playhead inside a transition picks the curve up at its current value instead of restarting
+it, and a dip holds silence through the middle rather than crossing, because a picture that
+has gone to black with the sound still running is a mistake rather than a style.
+
 ## Audio
 
 There was no sound because nothing decoded any: audio was handed to ffmpeg at export
@@ -1918,11 +1987,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-seven browser suites (**816 checks**), two Electron suites (**70 checks** — the shell
-itself and MP4 export, which can only run where ffmpeg exists), and eight DOM-free unit
+Thirty-eight browser suites (**843 checks**), two Electron suites (**70 checks** — the shell
+itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
-`test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1206
+`test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
+`test-transitions.mjs` —
+for the parts that are pure maths and deserve testing without a browser at all. **1282
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

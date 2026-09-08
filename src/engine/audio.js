@@ -20,6 +20,7 @@
 // listening to it.
 
 import { clipRange, sourceRange } from './clips.js'
+import { pairsIn, gainPointsFor, gainAt } from './transitions.js'
 
 let ctx = null
 
@@ -126,13 +127,33 @@ export function buildGraph(context, doc, assetOf, {
   gain.gain.value = muted ? 0 : Math.max(0, Math.min(1, master))
   gain.connect(context.destination)
 
+  // Clips that lap over each other are dissolving on screen, so their sound has
+  // to cross as well: a picture that dissolves under a hard audio cut is the
+  // thing that sounds broken, and it is the cut you hear, not the dissolve you
+  // see, that gives it away.
+  const pairs = pairsIn(doc.layers, assetOf)
+
   for (const { layer, asset } of audioLayers(doc, assetOf)) {
     const v = voiceFor(layer, asset, from)
     if (!v) continue
     const g = context.createGain()
-    const vol = layer.muted ? 0 : (layer.volume == null ? 1 : layer.volume)
-    g.gain.value = Math.max(0, Math.min(2, vol))
+    const vol = Math.max(0, Math.min(2, layer.muted ? 0 : (layer.volume == null ? 1 : layer.volume)))
     g.connect(gain)
+
+    const points = pairs.length ? gainPointsFor(layer.id, pairs) : []
+    if (!points.length) {
+      g.gain.value = vol
+    } else {
+      // Starting the graph in the middle of a transition is ordinary — the
+      // playhead was dropped there — so the curve is picked up at its current
+      // value rather than restarted from the top, and only the points still
+      // ahead are scheduled.
+      g.gain.setValueAtTime(vol * gainAt(points, from), at)
+      for (const [ms, mult] of points) {
+        if (ms <= from) continue
+        g.gain.linearRampToValueAtTime(vol * mult, at + (ms - from) / 1000)
+      }
+    }
 
     const src = context.createBufferSource()
     src.buffer = asset.audio

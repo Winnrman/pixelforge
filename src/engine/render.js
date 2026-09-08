@@ -1,5 +1,7 @@
 import { getAsset } from './assets.js'
 import { applyEffectLayer } from './effects.js'
+import { pairsIn, stateAt, drawFor, revealRect, veilBox, orderForTransitions }
+  from './transitions.js'
 import { addShapePath, addMaskPath, hasMask, cropInsets, rad, toLocal, fromLocal } from './shapes.js'
 import { resolveLayer, keyExtent, allKeyTimes } from './keyframes.js'
 import { resolveGroups, isGroup } from './groups.js'
@@ -59,6 +61,10 @@ export function assetTime(layer, time) {
  * what an overlay on a looping GIF wants and what every project made before
  * clips existed assumes.
  */
+// No transitions anywhere is the common case, so the per-frame map is skipped
+// entirely rather than rebuilt empty.
+const EMPTY_MIX = new Map()
+
 export function onScreen(layer, time) {
   return !layer.clip || clipVisibleAt(layer, time, getAsset(layer.assetId))
 }
@@ -1120,7 +1126,16 @@ function renderDocumentInner(ctx, doc, time) {
   }
   const drawnEarly = new Set()
 
-  for (const raw of doc.layers) {
+  // Transitions. The overlap between two clips on one track is the transition,
+  // so the plan is read off the arrangement rather than stored anywhere: there
+  // is no object at the join to keep in step with the clips either side of it.
+  const assetFor = (l) => getAsset(l.assetId)
+  const pairs = pairsIn(doc.layers, assetFor)
+  const mixing = pairs.length ? stateAt(doc.layers, assetFor, time) : EMPTY_MIX
+  // Outgoing first: the dissolve maths needs the incoming clip to land on top.
+  const order = pairs.length ? orderForTransitions(doc.layers, pairs) : doc.layers
+
+  for (const raw of order) {
     if (isGroup(raw)) continue          // groups paint nothing of their own
     if (!groups.visible.get(raw.id)) continue
     // A clip is only on screen for its own span. This is the cut.
@@ -1143,9 +1158,25 @@ function renderDocumentInner(ctx, doc, time) {
     }
     const groupAlpha = groups.opacity.get(raw.id) ?? 1
     const resolved = resolveLayer(raw, time)
-    const l = groupAlpha === 1
+    const mix = mixing.get(raw.id)
+    const draw = mix ? drawFor(mix.kind, mix.role, mix.p) : null
+    // A clip that has faded all the way out is not drawn at all rather than
+    // drawn at zero: an invisible layer still costs a video frame decode.
+    if (draw && draw.alpha <= 0) continue
+    const alpha = (resolved.opacity ?? 1) * groupAlpha * (draw ? draw.alpha : 1)
+    const l = alpha === (resolved.opacity ?? 1)
       ? resolved
-      : { ...resolved, opacity: (resolved.opacity ?? 1) * groupAlpha }
+      : { ...resolved, opacity: alpha }
+    // A wipe uncovers the incoming clip across the frame, so it is drawn whole
+    // and shown through a growing window rather than faded.
+    if (draw?.reveal) {
+      const r = revealRect(draw.reveal, width, height)
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(r.x, r.y, r.w, r.h)
+      ctx.clip()
+    }
+
     if (l.type === 'effect') {
       // Effect layers read the canvas beneath them, so they cannot be drawn
       // into a detached scratch surface; their shape already does the masking.
@@ -1171,9 +1202,23 @@ function renderDocumentInner(ctx, doc, time) {
       if (l.trails?.on) drawTrails(ctx, raw, l, time, groupAlpha)
       withMask(ctx, l, (c) => paintLayer(c, l, time))
     }
+    if (draw?.reveal) ctx.restore()
     ctx.filter = 'none'
     ctx.globalAlpha = 1
     ctx.globalCompositeOperation = 'source-over'
+
+    // A dip goes through a colour, and the colour is laid over the clip's own
+    // box rather than the whole canvas: dipping one track to black should not
+    // black out a title sitting on another one.
+    if (draw?.veil && draw.veil.alpha > 0) {
+      const b = veilBox(l)
+      ctx.save()
+      ctx.globalAlpha = Math.min(1, draw.veil.alpha)
+      ctx.fillStyle = draw.veil.colour
+      ctx.fillRect(b.x, b.y, b.w, b.h)
+      ctx.restore()
+      ctx.globalAlpha = 1
+    }
 
     // Any text aimed at *this* layer gets its outline now, immediately on top
     // of it — which is what "outline above the woman" has to mean if anything

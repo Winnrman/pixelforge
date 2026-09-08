@@ -6,6 +6,7 @@ import {
   trackCount, assetTimeFor, snapPoints, snapClip, snapEdge, clipRange, SNAP_PX,
 } from '../engine/clips.js'
 import { columnsFor, hasPeaks } from '../engine/waveform.js'
+import { pairsIn, TRANSITIONS } from '../engine/transitions.js'
 import { ensureAudio } from '../engine/audio.js'
 
 /** How close to an edge counts as grabbing it rather than the clip body. */
@@ -49,6 +50,19 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
   const trimClip = useStore((s) => s.trimClip)
 
   const win = stripWindow(layer, asset, duration)
+
+  // The overlap with the clip before this one, if there is one — this clip is
+  // the arriving half, which is the half a transition belongs to.
+  //
+  // Returned as a string rather than an object: this is a zustand selector, and
+  // a fresh object every call compares unequal every call, which is a render
+  // loop rather than a subscription.
+  const lap = useStore((st) => {
+    if (!layer.clip) return ''
+    const p = pairsIn(st.doc.layers, (l) => getAsset(l.assetId))
+      .find((x) => x.inId === layer.id)
+    return p ? `${p.kind}|${Math.round(p.length)}` : ''
+  })
 
   // Decoding is normally deferred to the first press of play, but a waveform is
   // wanted before that — it is how you find the moment to cut on. Asked for once
@@ -287,6 +301,18 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
       {/* On a track the row's label names the track, not the clip, so without
           this there is nothing on screen saying which file a clip is. */}
       {win.clipped && <span className="clip-title">{layer.name}</span>}
+      {lap && (() => {
+        const [kind, ms] = lap.split('|')
+        const len = clipRange(layer, asset).length || 1
+        const label = TRANSITIONS.find((t) => t.id === kind)?.label || kind
+        return (
+          <span
+            className="clip-transition"
+            style={{ width: `${Math.min(100, (Number(ms) / len) * 100)}%` }}
+            title={`${label}, ${(Number(ms) / 1000).toFixed(2)}s — drag the clips apart to shorten it`}
+          />
+        )
+      })()}
       {win.clipped && <span className="clip-grip start" />}
       {win.clipped && <span className="clip-grip end" />}
       {pending > 0 && <span className="strip-pending">{pending} left</span>}

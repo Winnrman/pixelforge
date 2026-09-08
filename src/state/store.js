@@ -15,6 +15,7 @@ import {
 import { suggestLoop } from '../engine/loop.js'
 import { cardInsets, layoutCollage, defaultCollage } from '../engine/collage.js'
 import { defaultBrush, newStroke, newRegion, docToLayer } from '../engine/erase.js'
+import { DEFAULT_KIND as DEFAULT_TRANSITION } from '../engine/transitions.js'
 import { cursorPath, smoothPath, autoZoomTracks } from '../engine/cursor.js'
 import { exactFrame } from '../engine/video.js'
 import {
@@ -1198,6 +1199,22 @@ export const useStore = create((set, get) => ({
     }))
     get().recomputeDuration()
     return fresh.filter((l) => !l.parentId).length
+  },
+
+  /**
+   * The kind of transition on a clip.
+   *
+   * There is no action to *create* one and none to delete one, because there is
+   * nothing to create: two clips lapping over each other on a track is the
+   * transition, and pulling them apart ends it. All that can be stored is which
+   * kind it is, and even that is only written once it stops being a crossfade.
+   */
+  setTransitionKind: (id, kind) => {
+    const s = get()
+    s.pushHistory()
+    s.updateLayer(id, kind === DEFAULT_TRANSITION
+      ? { transition: undefined }
+      : { transition: { kind } })
   },
 
   setContextMenu: (contextMenu) => set({ contextMenu }),

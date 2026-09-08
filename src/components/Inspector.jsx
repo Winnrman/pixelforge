@@ -6,6 +6,7 @@ import { defaultBgRemove, analyzeKey } from '../engine/matte.js'
 import { MODELS, currentBackend } from '../engine/aiMatte.js'
 import { sourceFor } from '../engine/render.js'
 import { EFFECTS } from '../engine/effects.js'
+import { pairsIn, TRANSITIONS, kindOf } from '../engine/transitions.js'
 import {
   resolveLayer, hasTracks, activeGroups, groupKeyTimes,
   groupEaseAt, GROUP_OF, EASING_OPTIONS,
@@ -94,6 +95,16 @@ export default function Inspector() {
   const setCursorZoom = useStore((s) => s.setCursorZoom)
   const trimToSubject = useStore((s) => s.trimToSubject)
   const clearErase = useStore((s) => s.clearErase)
+  const setTransitionKind = useStore((s) => s.setTransitionKind)
+  // The overlap this layer arrives into, in milliseconds, or 0. A number rather
+  // than the pair itself, because a selector that builds an object rebuilds it
+  // every call and never compares equal.
+  const lap = useStore((st) => {
+    const id = st.selectedIds[st.selectedIds.length - 1]
+    if (!id) return 0
+    const p = pairsIn(st.doc.layers, (x) => getAsset(x.assetId)).find((x) => x.inId === id)
+    return p ? Math.round(p.length) : 0
+  })
   const setText = useStore((s) => s.setText)
 
   const sel = doc.layers.filter((l) => selectedIds.includes(l.id))
@@ -359,6 +370,30 @@ export default function Inspector() {
               <button className="btn ghost" onClick={() => clearErase(base.id)}>
                 Undo the last stroke
               </button>
+            </Row>
+          </Section>
+        )}
+
+        {lap && (
+          <Section
+            title="Transition"
+            info={'Two clips lapping over each other on a track is the transition, and the '
+              + 'overlap is how long it takes. There is nothing here to add or remove: drag the '
+              + 'clips further over each other to make it longer, or apart to end it. All this '
+              + 'chooses is which kind.'}
+          >
+            <Row label="Kind">
+              <Select
+                value={kindOf(l)}
+                onChange={(kind) => setTransitionKind(base.id, kind)}
+                options={TRANSITIONS.map((t) => ({ value: t.id, label: t.label }))}
+              />
+            </Row>
+            <Row label="Length">
+              <span className="readout">
+                {(lap / 1000).toFixed(2)}s
+                <span className="dim"> · set by the overlap</span>
+              </span>
             </Row>
           </Section>
         )}
