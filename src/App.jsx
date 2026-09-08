@@ -274,7 +274,17 @@ export default function App() {
       if (typing) return
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (s.selectedIds.length) { e.preventDefault(); s.removeLayers(s.selectedIds) }
+        if (!s.selectedIds.length) return
+        e.preventDefault()
+        // Shift closes the hole behind it. Plain delete leaves the gap, because
+        // sometimes the gap is the point — a beat of black, or room for
+        // something going in later.
+        if (e.shiftKey) {
+          const r = s.rippleDelete(s.selectedIds)
+          s.setNotice(r.ok ? { kind: 'ok', text: r.text } : { kind: 'warn', text: r.reason })
+        } else {
+          s.removeLayers(s.selectedIds)
+        }
         return
       }
       if (e.key === 'Escape') { s.select([]); return }
@@ -283,6 +293,44 @@ export default function App() {
 
       if (e.key === '[' && s.selectedIds.length === 1) { s.reorderLayer(s.selectedIds[0], -1); return }
       if (e.key === ']' && s.selectedIds.length === 1) { s.reorderLayer(s.selectedIds[0], 1); return }
+
+      // Marking a range, and stepping through it. I and O are what every editor
+      // uses and what the fingers already know; the eyedropper keeps I as well,
+      // because it only answers while its own tool is up and these only answer
+      // when it is not.
+      if (!typing && !mod && (e.key === 'i' || e.key === 'I') && s.tool !== 'eyedrop') {
+        e.preventDefault()
+        s.setMark('in', s.time)
+        return
+      }
+      if (!typing && !mod && (e.key === 'o' || e.key === 'O')) {
+        e.preventDefault()
+        s.setMark('out', s.time)
+        return
+      }
+      if (!typing && !mod && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault()
+        const el = document.querySelector('.stage')
+        if (document.fullscreenElement) document.exitFullscreen()
+        else el?.requestFullscreen?.().catch(() => {})
+        return
+      }
+
+      // With nothing selected the arrows belong to the playhead. One frame at a
+      // time is how you land a cut on the right one, and there is nothing else
+      // for them to move.
+      if (!typing && e.key.startsWith('Arrow') && !s.selectedIds.length && s.duration > 0) {
+        e.preventDefault()
+        const fps = s.doc.fps || 30
+        const frame = 1000 / fps
+        const step = (e.shiftKey ? 10 : 1) * frame
+        const dir = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0
+        if (dir) {
+          s.setPlaying(false)
+          s.setTime(Math.max(0, Math.min(s.duration, s.time + dir * step)))
+        }
+        return
+      }
 
       if (e.key.startsWith('Arrow') && s.selectedIds.length) {
         e.preventDefault()

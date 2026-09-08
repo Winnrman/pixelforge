@@ -153,7 +153,7 @@ const MIN_H = 120
 
 /** Things on the transport bar that are controls in their own right, and must
  *  not be read as "scrub to here". */
-const CONTROLS = '.play, .tl-audio, .tl-readout'
+const CONTROLS = '.play, .tl-audio, .tl-readout, .tl-marks, .tl-rate'
 
 export default function Timeline() {
   const [tab, setTab] = useState('keys')
@@ -298,6 +298,12 @@ export default function Timeline() {
   const splitClips = useStore((s) => s.splitClips)
   const closeClipGaps = useStore((s) => s.closeClipGaps)
   const joinClips = useStore((s) => s.joinClips)
+  const rate = useStore((s) => s.rate)
+  const setRate = useStore((s) => s.setRate)
+  const markIn = useStore((s) => s.markIn)
+  const markOut = useStore((s) => s.markOut)
+  const setMark = useStore((s) => s.setMark)
+  const clearMarks = useStore((s) => s.clearMarks)
   const setNotice = useStore((s) => s.setNotice)
   const clipped = layers.filter((l) => l.clip)
   const insertClip = useStore((s) => s.insertClip)
@@ -544,6 +550,26 @@ export default function Timeline() {
             )
           })}
           <div className="played" style={{ width: `${pct}%` }} />
+          {/* The marked range, drawn on the bar it refers to. Everything outside
+              it is dimmed rather than the range being highlighted: what is
+              excluded is the thing worth seeing. */}
+          {(markIn != null || markOut != null) && duration > 0 && (
+            <>
+              <div
+                className="tl-mark-span"
+                style={{
+                  left: `${((markIn ?? 0) / duration) * 100}%`,
+                  width: `${(((markOut ?? duration) - (markIn ?? 0)) / duration) * 100}%`,
+                }}
+              />
+              {markIn != null && (
+                <div className="tl-mark in" style={{ left: `${(markIn / duration) * 100}%` }} />
+              )}
+              {markOut != null && (
+                <div className="tl-mark out" style={{ left: `${(markOut / duration) * 100}%` }} />
+              )}
+            </>
+          )}
           <div className="playhead" style={{ left: `${pct}%` }} />
         </div>
         {soundy && (
@@ -566,6 +592,43 @@ export default function Timeline() {
             />
           </div>
         )}
+        <div className="tl-marks">
+          <button
+            className={'mini' + (markIn != null ? ' on' : '')}
+            title="Mark in at the playhead (I)"
+            onClick={() => setMark('in', useStore.getState().time)}
+          >[</button>
+          <button
+            className={'mini' + (markOut != null ? ' on' : '')}
+            title="Mark out at the playhead (O)"
+            onClick={() => setMark('out', useStore.getState().time)}
+          >]</button>
+          <button
+            className="mini"
+            disabled={markIn == null && markOut == null}
+            title="Clear the marked range"
+            onClick={clearMarks}
+          >✕</button>
+        </div>
+        <select
+          className="tl-rate"
+          value={rate}
+          onChange={(e) => setRate(Number(e.target.value))}
+          title="How fast the preview plays. The edit is unchanged."
+        >
+          {[0.25, 0.5, 1, 1.5, 2, 4].map((r) => (
+            <option key={r} value={r}>{r}×</option>
+          ))}
+        </select>
+        <button
+          className="mini"
+          title="Full screen (F). Escape comes back."
+          onClick={() => {
+            const el = document.querySelector('.stage')
+            if (document.fullscreenElement) document.exitFullscreen()
+            else el?.requestFullscreen?.().catch(() => {})
+          }}
+        >⛶</button>
         <div className="tl-readout">
           {(time / 1000).toFixed(2)}s / {(duration / 1000).toFixed(2)}s
           {frames > 0 && <span className="dim"> · {frames} frames</span>}

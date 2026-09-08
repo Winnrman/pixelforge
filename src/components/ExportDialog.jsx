@@ -19,6 +19,12 @@ const EXT_FOR = {
 export default function ExportDialog({ onClose }) {
   const doc = useStore((s) => s.doc)
   const duration = useStore((s) => s.duration)
+  const markIn = useStore((s) => s.markIn)
+  const markOut = useStore((s) => s.markOut)
+  const marked = markIn != null || markOut != null
+  const [ranged, setRanged] = useState(true)
+  const from = marked && ranged ? (markIn ?? 0) : 0
+  const to = marked && ranged ? (markOut ?? duration) : duration
   const time = useStore((s) => s.time)
 
   const [format, setFormat] = useState(duration > 0 ? 'gif' : 'png')
@@ -154,7 +160,10 @@ export default function ExportDialog({ onClose }) {
   const oh = Math.max(1, Math.round(doc.height * effScale))
   const printH = sizeFor(oh, printUnit, dpi)
   const stampDpi = sizeBy === 'print' ? dpi : 0
-  const plan = duration > 0 ? sampleTimes(doc, duration, fps) : { times: [0], exact: true }
+  const planAll = duration > 0 ? sampleTimes(doc, duration, fps) : { times: [0], exact: true }
+  const plan = duration > 0 && marked && ranged
+    ? { ...planAll, times: planAll.times.filter((t) => t >= from && t < to) }
+    : planAll
 
   const run = async () => {
     if (isBatch) return runTheBatch()
@@ -174,10 +183,10 @@ export default function ExportDialog({ onClose }) {
           scale: s, matte: transparent ? null : matte, filename, dpi: stampDpi,
         })
       } else if (format === 'gif') {
-        await exportGIF(doc, { fps, scale: s, transparent, matte, colors, filename }, setProgress)
+        await exportGIF(doc, { fps, scale: s, transparent, matte, colors, filename, from, to }, setProgress)
       } else if (format === 'mp4') {
         const out = await exportMP4(doc, {
-          fps, scale: s, crf, matte, audioAssetId: audioId || null, filename,
+          fps, scale: s, crf, matte, audioAssetId: audioId || null, filename, from, to,
         }, (p, info) => {
           setProgress(p)
           setStage(info ? `frame ${info.rendered} of ${info.total}` +
@@ -187,7 +196,7 @@ export default function ExportDialog({ onClose }) {
         if (out.cancelled) { setProgress(null); return }
         if (out.path) revealItem(out.path)
       } else {
-        await exportWebM(doc, { fps: Math.max(fps, 24), scale: s, filename }, setProgress)
+        await exportWebM(doc, { fps: Math.max(fps, 24), scale: s, filename, from, to }, setProgress)
       }
       // Every export also stashes the editable project, so a PNG on disk is
       // never the only copy of the work that made it.
@@ -383,6 +392,23 @@ export default function ExportDialog({ onClose }) {
             <p className="hint">Exports the frame currently on the playhead ({(time / 1000).toFixed(2)}s).</p>
           )}
 
+          {format !== 'png' && !isBatch && marked && (
+            <Row
+              label="Range"
+              info={'You have marked a range on the transport bar. Exporting it writes only '
+                + 'that stretch — the way you pull one clip out of a longer edit without '
+                + 'rendering the whole thing and trimming it afterwards.'}
+            >
+              <Segmented
+                value={ranged ? 'marked' : 'all'}
+                onChange={(v) => setRanged(v === 'marked')}
+                options={[
+                  { value: 'marked', label: `Marked · ${((to - from) / 1000).toFixed(2)}s` },
+                  { value: 'all', label: `Whole · ${(duration / 1000).toFixed(2)}s` },
+                ]}
+              />
+            </Row>
+          )}
           {format !== 'png' && !isBatch && duration <= 0 && (
             <p className="hint warn">Nothing in this document animates — add a GIF to export motion.</p>
           )}

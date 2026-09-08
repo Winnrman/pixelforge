@@ -217,7 +217,7 @@ export default function CanvasStage() {
       const now = useStore.getState()
       if (!now.playing) return
       playAudio(now.doc, (l) => getAsset(l.assetId), fromMs, {
-        master: now.volume, muted: now.muted,
+        master: now.volume, muted: now.muted, rate: now.rate || 1,
       })
     })
   }
@@ -228,11 +228,15 @@ export default function CanvasStage() {
   const time = useStore((s) => s.time)
   const timeRef = useRef(time)
   timeRef.current = time
+  const rate = useStore((s) => s.rate)
   useEffect(() => {
     if (playing) startAudio(timeRef.current)
     else stopAudio()
     return () => stopAudio()
-  }, [playing])
+    // The rate is in here because the sources were scheduled at the old one and
+    // cannot be sped up in place — changing it re-cues from where we are, which
+    // is the same thing a seek does.
+  }, [playing, rate])
 
   // Seeking while playing has to re-cue the sound: its sources were scheduled
   // from where playback began and cannot simply be moved.
@@ -289,7 +293,17 @@ export default function CanvasStage() {
             st.setTime(fromAudio)
           }
         } else {
-          st.setTime((st.time + dt) % st.duration)
+          st.setTime((st.time + dt * (st.rate || 1)) % st.duration)
+        }
+
+        // Stop at the marked out-point, if there is one. Marking a range and
+        // pressing play should play that range, not run past it into the rest of
+        // the edit — that is the whole reason to mark it.
+        const out = st.markOut
+        if (out != null && useStore.getState().time >= out) {
+          const back = st.markIn ?? 0
+          st.setTime(back)
+          startAudio(back)
         }
       }
       const time = useStore.getState().time

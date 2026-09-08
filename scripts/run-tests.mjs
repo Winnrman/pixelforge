@@ -46,6 +46,7 @@ const OWNERS = [
   ['src/engine/matte.js', ['e2e-matte', 'e2e-ai', 'e2e-subject']],
   ['src/engine/aiMatte.js', ['e2e-ai', 'e2e-subject']],
   ['src/engine/keyframes.js', ['e2e-keyframes', 'e2e-keysel', 'e2e-framing', 'e2e-identity', 'e2e-audiotrack']],
+  ['src/engine/exporters.js', ['e2e-editing', 'e2e-print', 'e2e-batch']],
   ['src/engine/text.js', ['e2e-text']],
   ['src/engine/collage.js', ['e2e-mount', 'test-collage']],
   ['src/engine/project.js', ['e2e-project', 'e2e-backup']],
@@ -55,11 +56,11 @@ const OWNERS = [
   ['src/engine/cursor.js', ['test-cursor']],
   ['src/engine/trace.js', ['test-trace', 'e2e-magnet']],
   ['src/components/Filmstrip.jsx', ['e2e-clips', 'e2e-tracks', 'e2e-filmstrip', 'e2e-transitions', 'e2e-join']],
-  ['src/components/Timeline.jsx', ['e2e-keyframes', 'e2e-keysel', 'e2e-clips', 'e2e-tracks', 'e2e-audiotrack', 'e2e-transport']],
+  ['src/components/Timeline.jsx', ['e2e-keyframes', 'e2e-keysel', 'e2e-clips', 'e2e-tracks', 'e2e-audiotrack', 'e2e-transport', 'e2e-editing']],
   ['src/components/AudioRow.jsx', ['e2e-audiotrack']],
   ['src/components/MediaPool.jsx', ['e2e-media', 'e2e', 'e2e-transport']],
   ['src/components/MediaView.jsx', ['e2e-media', 'e2e-mount']],
-  ['src/components/ExportDialog.jsx', ['e2e-print', 'e2e-batch', 'e2e']],
+  ['src/components/ExportDialog.jsx', ['e2e-print', 'e2e-batch', 'e2e', 'e2e-editing']],
   ['src/components/LassoBar.jsx', ['e2e-lasso', 'e2e-wand', 'e2e-tools2']],
   ['src/components/ToolRail.jsx', ['e2e-clone', 'e2e-wand', 'e2e-eyedrop', 'e2e-lasso', 'e2e-erase']],
   ['src/components/OpenDialog.jsx', ['e2e-project', 'e2e-backup']],
@@ -85,7 +86,7 @@ const BROWSER = [
   'e2e-canvas', 'e2e-print', 'e2e-videoperf', 'e2e-clips', 'e2e-audio',
   'e2e-tracks', 'e2e-mount', 'e2e-cropimage', 'e2e-magnet', 'e2e-eyedrop',
   'e2e-wand', 'e2e-clone', 'e2e-tools2', 'e2e-clipboard', 'e2e-transitions',
-  'e2e-audiotrack', 'e2e-join', 'e2e-transport', 'test-edges',
+  'e2e-audiotrack', 'e2e-join', 'e2e-transport', 'e2e-editing', 'test-edges',
 ]
 
 const fileFor = (name) => `${name}.mjs`

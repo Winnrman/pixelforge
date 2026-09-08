@@ -75,6 +75,9 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
   }, [])
 
   useEffect(() => {
+    // A title has no film in it. Everything here is about pictures from an
+    // asset and there is none — the clip is drawn by its label alone.
+    if (!asset) return undefined
     const canvas = canvasRef.current
     if (!canvas || width <= 0 || !(duration > 0)) return undefined
 
@@ -313,7 +316,7 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
   const clipEl = (
     <div
       className={'strip' + (win.clipped ? ' clip' : '') + (drag ? ' dragging' : '')
-        + (selected ? ' sel' : '')}
+        + (selected ? ' sel' : '') + (asset ? '' : ' titleclip')}
       ref={boxRef}
       title={label}
       style={win.clipped
@@ -337,7 +340,9 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
         setContextMenu({ x: e.clientX, y: e.clientY, layerId: layer.id })
       }}
     >
-      <canvas ref={canvasRef} style={{ width: '100%', height: THUMB_H }} />
+      {asset
+        ? <canvas ref={canvasRef} style={{ width: '100%', height: THUMB_H }} />
+        : <span className="clip-title-bar" style={{ height: THUMB_H }} />}
       {/* On a track the row's label names the track, not the clip, so without
           this there is nothing on screen saying which file a clip is. */}
       {win.clipped && <span className="clip-title">{layer.name}</span>}

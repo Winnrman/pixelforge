@@ -39,6 +39,20 @@ function renderScaled(doc, time, scale, matte) {
   return out
 }
 
+/**
+ * The span an export covers: the whole document, or the marked range.
+ *
+ * Passed in rather than read from the store, because an exporter should be a
+ * function of the document it is given — the batch exporter renders documents
+ * nobody is looking at, and a global "what is marked right now" would leak into
+ * those.
+ */
+function spanOf(duration, from, to) {
+  const lo = Math.max(0, Math.min(duration, from ?? 0))
+  const hi = Math.max(lo + 1, Math.min(duration, to ?? duration))
+  return { from: lo, to: hi, length: hi - lo }
+}
+
 export async function exportPNG(doc, time, {
   scale = 1, matte = null, filename = 'pixelforge.png', dir = null, silent = false, dpi = 0,
 } = {}) {
@@ -72,7 +86,15 @@ export async function exportGIF(doc, opts = {}, onProgress = () => {}) {
   } = opts
 
   const duration = docDuration(doc)
-  const { times, exact } = sampleTimes(doc, duration, fps, maxFrames)
+  const span = spanOf(duration, opts.from, opts.to)
+  const all = sampleTimes(doc, duration, fps, maxFrames)
+  const exact = all.exact
+  // Sampled across the document, then narrowed: the sample points are where the
+  // frames actually change, and recomputing them for a sub-range would drift
+  // off those boundaries and make an exact export inexact.
+  const times = span.length < duration
+    ? all.times.filter((t) => t >= span.from && t < span.to)
+    : all.times
   const ow = Math.max(1, Math.round(doc.width * scale))
   const oh = Math.max(1, Math.round(doc.height * scale))
 
@@ -168,7 +190,9 @@ export async function exportMP4(doc, opts = {}, onProgress = () => {}) {
     : await pickSavePath(filename)
   if (!outPath) return { cancelled: true }
 
-  const duration = Math.max(1000 / fps, docDuration(doc) * Math.max(1, loops))
+  const whole = docDuration(doc)
+  const span = spanOf(whole, opts.from, opts.to)
+  const duration = Math.max(1000 / fps, span.length * Math.max(1, loops))
   const count = Math.max(1, Math.round((duration / 1000) * fps))
 
   // H.264 in yuv420p has no alpha, so a transparent document is flattened onto
@@ -205,9 +229,11 @@ export async function exportMP4(doc, opts = {}, onProgress = () => {}) {
     enc = await encoder(args, (frame) => { encoded = frame })
 
     for (let i = 0; i < count; i++) {
-      const t = (i / count) * duration
-      await awaitVideo(doc, t % Math.max(1, docDuration(doc) || duration))
-      const c = renderScaled(doc, t % Math.max(1, docDuration(doc) || duration), scale, matte)
+      // Looping repeats the *span*, so the modulo is against its length and the
+      // result is offset back into the document.
+      const t = span.from + ((i / count) * duration) % Math.max(1, span.length)
+      await awaitVideo(doc, t)
+      const c = renderScaled(doc, t, scale, matte)
       const blob = await new Promise((r) => c.toBlob(r, 'image/png'))
       await enc.write(await blob.arrayBuffer())
       onProgress((i + 1) / count, { rendered: i + 1, total: count, encoded })
@@ -226,7 +252,8 @@ export async function exportMP4(doc, opts = {}, onProgress = () => {}) {
 
 export async function exportWebM(doc, opts = {}, onProgress = () => {}) {
   const { fps = 30, scale = 1, filename = 'pixelforge.webm', loops = 1 } = opts
-  const duration = Math.max(1000, docDuration(doc) * loops)
+  const span = spanOf(docDuration(doc), opts.from, opts.to)
+  const duration = Math.max(1000, span.length * loops)
   const ow = Math.max(1, Math.round(doc.width * scale))
   const oh = Math.max(1, Math.round(doc.height * scale))
   const out = makeCanvas(ow, oh)
@@ -248,7 +275,9 @@ export async function exportWebM(doc, opts = {}, onProgress = () => {}) {
   await new Promise((res) => {
     const tick = () => {
       const elapsed = performance.now() - start
-      renderDocument(dctx, doc, elapsed)
+      // Recorded in real time, so the document time is the elapsed time offset
+      // into the span rather than measured from zero.
+      renderDocument(dctx, doc, span.from + (elapsed % Math.max(1, span.length)))
       oc.clearRect(0, 0, ow, oh)
       oc.drawImage(dc, 0, 0, ow, oh)
       onProgress(Math.min(1, elapsed / duration))

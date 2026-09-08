@@ -135,26 +135,35 @@ check('and z-order still follows the layer array',
   (frontName === 'greenscreen.gif') === (nowFront.join() === before.join()),
   `${frontName} in front, pixel ${nowFront.join()}`)
 
-// --- layers that are not clips are never shuffled ------------------------------------
-// A title in front of the footage must not fall behind it because a clip moved.
+// --- a title lands above the footage, and stays on its own track ----------------------
+// A title used to be a layer with no clip, which is why this once asked whether
+// its position in the array survived clips moving: there was nothing else to ask.
+// A title is a clip now, so it has a track, and depth is that track. What matters
+// is that it arrives above the pictures and that moving *other* clips does not
+// move it.
 const withText = await page.evaluate((ids) => {
   const st = window.__pfState()
   const { makeTextLayer } = window.__pfStore
+  const before = window.__pfState().trackCount()
   st.addLayer(makeTextLayer({ text: 'TITLE', size: 40, x: 10, y: 10, color: '#ffffff' }))
-  const posBefore = window.__pfState().doc.layers.findIndex((l) => l.type === 'text')
+  const title = () => window.__pfState().doc.layers.find((l) => l.type === 'text')
+  const trackBefore = title().track
   window.__pfState().setClipTrack(ids.a, 1)
   window.__pfState().setClipTrack(ids.b, 2)
-  const posAfter = window.__pfState().doc.layers.findIndex((l) => l.type === 'text')
   return {
-    posBefore,
-    posAfter,
-    order: window.__pfState().doc.layers.map((l) => l.type),
+    topTrackWas: before - 1,
+    trackBefore,
+    trackAfter: title().track,
+    hasClip: !!title().clip,
   }
 }, built)
-console.log('text layer position:', JSON.stringify(withText))
-check('a text layer keeps its place while clips move around it',
-  withText.posBefore === withText.posAfter,
-  `index ${withText.posBefore} -> ${withText.posAfter}`)
+console.log('the title:', JSON.stringify(withText))
+check('a title arrives above the footage that is already there',
+  withText.hasClip && withText.trackBefore > withText.topTrackWas,
+  `track ${withText.trackBefore} over a top track of ${withText.topTrackWas}`)
+check('and moving other clips does not move it',
+  withText.trackBefore === withText.trackAfter,
+  `track ${withText.trackBefore} -> ${withText.trackAfter}`)
 
 // --- the timeline shows a row per track, and one to grow into --------------------------
 const ui = await page.evaluate(async () => {

@@ -217,10 +217,29 @@ function AudioClip({ layer, duration }) {
  */
 export default function AudioRows({ duration }) {
   const layers = useStore((s) => s.doc.layers)
+  // Whether a clip has sound is not known until its soundtrack has been looked
+  // at, and looking is asynchronous and not a store change. Without this a
+  // silent video keeps an empty lane for ever, because nothing ever re-renders
+  // to notice the answer came back "none".
+  const [, settled] = useState(0)
+  useEffect(() => {
+    let live = true
+    for (const l of layers) {
+      const a = getAsset(l.assetId)
+      if (!l.clip || !a?.isVideo || a.audio !== undefined) continue
+      ensureAudio(a).then(() => { if (live) settled((n) => n + 1) })
+    }
+    return () => { live = false }
+  }, [layers])
+  // Being a video is not the same as having sound in it. `audio === undefined`
+  // means nobody has looked yet, which is worth a lane because one is probably
+  // coming; `audio === null` means it was looked at and there is none, and a
+  // permanently empty row for a silent clip is a row of nothing.
   const withSound = layers.filter((l) => {
     if (!l.clip) return false
     const a = getAsset(l.assetId)
-    return !!a && (a.audio || hasPeaks(a) || a.isVideo)
+    if (!a?.isVideo) return false
+    return a.audio !== null && a.audio !== false
   })
   if (!withSound.length) return null
 

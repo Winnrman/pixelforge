@@ -65,6 +65,14 @@ export default function LayerContextMenu() {
     { label: 'Rename…', act: () => window.dispatchEvent(
       new CustomEvent('pf-rename-layer', { detail: layer.id })) },
     ...(layer.mask ? [{ label: 'Remove mask', act: () => s.clearMask(layer.id) }] : []),
+    // The way in and out of the timeline for things that are not media. A title
+    // is normally a clip; a watermark is normally not.
+    ...(layer.type !== 'image' || !layer.assetId
+      ? [{
+        label: layer.clip ? 'Show for the whole video' : 'Put on the timeline',
+        act: () => s.toggleClip(layer.id),
+      }]
+      : []),
     // What a clip can do that a layer cannot. Only shown on clips, because a
     // menu that lists things which do not apply is a menu you have to read.
     ...(layer.clip ? [
@@ -79,6 +87,13 @@ export default function LayerContextMenu() {
       }] : []),
       { label: layer.muted ? 'Unmute' : 'Mute',
         act: () => { s.pushHistory(); s.updateLayer(layer.id, { muted: !layer.muted }) } },
+      { label: many ? `Ripple out ${ids.length} clips` : 'Ripple delete',
+        hint: 'Shift+Del',
+        danger: true,
+        act: () => {
+          const r = s.rippleDelete(ids)
+          s.setNotice(r.ok ? { kind: 'ok', text: r.text } : { kind: 'warn', text: r.reason })
+        } },
     ] : []),
     { sep: true },
     { label: many ? `Delete ${ids.length} layers` : 'Delete', hint: 'Del', danger: true,

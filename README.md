@@ -633,6 +633,46 @@ voice's gain — what the volume track is doing, and what a transition or fade i
 and they multiply, because turning a clip down *and* fading it out should be quieter than
 either alone.
 
+## The operations between the effects
+
+Everything in the timeline already worked on clips. Text never had one — so a title was on for
+the whole video or not at all, which is not a thing any editor does. A title is a clip now: it
+lands at the playhead, three seconds long, on a track above the picture, and trims, slides,
+ripples and joins like any other clip because it *is* any other clip. The context menu has the
+way back for the things that really do run throughout, a watermark or a border.
+
+**Ripple delete.** Deleting left a hole, and the only tool for holes closed *every* gap on the
+track including the ones put there on purpose. Shift+Delete closes the hole behind what it
+removed and nothing else. Each track closes over its own hole, by the length of what was
+removed from *that* track — shifting every track by the same amount would drag a second track
+out of sync with the picture it was laid against. Plain Delete still leaves the gap, because
+sometimes the gap is a beat of black or room for something going in later.
+
+**In and out points.** `I` and `O` mark a range on the transport bar; the marked stretch plays
+as a loop and Export offers to write only that. Pulling one section out of a long edit used to
+mean exporting everything and trimming it afterwards. Crossing the marks drops the one that no
+longer makes sense rather than refusing the drag, because a control that argues mid-gesture
+feels stuck. `I` still belongs to the eyedropper while the eyedropper is the tool in hand.
+
+**A frame at a time.** With nothing selected, the arrows step the playhead one frame — with
+something selected they nudge it, which is what they were always for. Cutting on an exact frame
+needs both this and the scroll-zoom.
+
+**Speed and full screen.** A preview rate of 0.25x to 4x, which changes nothing about the edit,
+and `F` for the whole display. The rate scales the audio clock too: a clock that ignored it
+would drift against the very sound it is reading.
+
+### Two things the suite caught
+
+The transport marks were first called `.mark`, and the top bar already has one — the dot that
+says there are unsaved changes. The new CSS restyled it into a yellow bar. They are
+timeline-scoped now.
+
+And a tracks check asserted that a text layer's position in the layer array survived clips
+moving around it, which was the only way to ask the question when text could not be a clip. It
+can now, so depth is its track. The check asks what it always meant: a title arrives above the
+footage, and moving other clips does not move it.
+
 ## Transitions
 
 Every editor makes this a thing you go and fetch: a bin of effects, a drag onto a cut, a
@@ -2300,12 +2340,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Forty-two browser suites (**940 checks**), two Electron suites (**70 checks** — the shell
+Forty-three browser suites (**982 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1409
+for the parts that are pure maths and deserve testing without a browser at all. **1451
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

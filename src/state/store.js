@@ -48,6 +48,10 @@ import {
   KEY_SNAP,
 } from '../engine/keyframes.js'
 
+/** How long a title is when it first lands. Long enough to read, short enough
+ *  that trimming it down is the common adjustment rather than up. */
+const TITLE_MS = 3000
+
 let uid = 0
 /**
  * Layer ids.
@@ -474,14 +478,53 @@ export const useStore = create((set, get) => ({
     }),
 
   addLayer: (layer, { select = true } = {}) => {
-    get().pushHistory()
+    const s0 = get()
+    s0.pushHistory()
+    // In a project that has a timeline, a title is a *clip*. Otherwise it is on
+    // for the whole video, which is right for a watermark and wrong for
+    // everything anyone actually adds text for. It lands at the playhead on a
+    // track of its own above the picture, and can be trimmed and dragged like
+    // any other clip — which is the point: the timeline already knew how to do
+    // all of this, text simply never had a clip to do it with.
+    const timeline = s0.doc.layers.some((l) => l.clip)
+    const titleish = layer.type === 'text' || layer.type === 'shape' || layer.type === 'effect'
+    const withClip = timeline && titleish && !layer.clip
+      ? {
+        ...layer,
+        track: trackCount(s0.doc.layers),
+        clip: { start: Math.round(s0.time), in: 0, out: TITLE_MS },
+      }
+      : layer
     set((s) => ({
       dirty: true,
-      doc: { ...s.doc, layers: [...s.doc.layers, layer] },
-      selectedIds: select ? [layer.id] : s.selectedIds,
+      doc: { ...s.doc, layers: sortByTrack([...s.doc.layers, withClip]) },
+      selectedIds: select ? [withClip.id] : s.selectedIds,
     }))
     get().recomputeDuration()
-    return layer
+    return withClip
+  },
+
+  /**
+   * Gives a layer a clip, or takes it away.
+   *
+   * The way back for anything that should be on for the whole video after all —
+   * a watermark, a border — without having to trim it to the exact length of the
+   * edit and re-trim it every time the edit changes.
+   */
+  toggleClip: (id) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === id)
+    if (!l) return
+    s.pushHistory()
+    if (l.clip) {
+      s.updateLayer(id, { clip: undefined, track: undefined })
+    } else {
+      s.updateLayer(id, {
+        track: trackCount(s.doc.layers),
+        clip: { start: Math.round(s.time), in: 0, out: TITLE_MS },
+      })
+    }
+    get().recomputeDuration()
   },
 
   /**
@@ -852,6 +895,34 @@ export const useStore = create((set, get) => ({
   // ---- audio --------------------------------------------------------------
   volume: 1,
   muted: false,
+  /**
+   * How fast the preview plays. The clip's own `speed` is a different thing —
+   * that retimes the footage and changes how long it occupies the timeline.
+   * This changes nothing about the edit, only how you are watching it.
+   */
+  rate: 1,
+  setRate: (rate) => set({ rate }),
+
+  /**
+   * The marked range: play it, export it, leave it alone.
+   *
+   * Null means unmarked, which is not the same as zero — an in-point at the very
+   * start is a thing you can set deliberately.
+   */
+  markIn: null,
+  markOut: null,
+  setMark: (which, t) => set((s) => {
+    const at = t == null ? null : Math.max(0, Math.min(s.duration, Math.round(t)))
+    if (which === 'in') {
+      // An in-point after the out-point is not a range. Moving one past the
+      // other takes the other with it rather than refusing, because refusing
+      // mid-drag is how a control feels stuck.
+      return { markIn: at, markOut: at != null && s.markOut != null && s.markOut <= at ? null : s.markOut }
+    }
+    return { markOut: at, markIn: at != null && s.markIn != null && s.markIn >= at ? null : s.markIn }
+  }),
+  clearMarks: () => set({ markIn: null, markOut: null }),
+
   setVolume: (volume) => {
     set({ volume })
     setMaster(volume, get().muted)
@@ -1244,6 +1315,56 @@ export const useStore = create((set, get) => ({
     get().updateLayer(id, {
       fade: next.in === 0 && next.out === 0 ? undefined : next,
     })
+  },
+
+  /**
+   * Deletes clips and closes the hole behind them.
+   *
+   * The ordinary delete leaves a gap, and the only tool for that was Close gaps,
+   * which closes *every* gap on the track — including ones put there on purpose.
+   * Rippling is the common case: you cut something out because you want it gone,
+   * not because you want a silence where it was.
+   *
+   * Each track closes over its own hole, by the length of what was removed from
+   * *that* track. Shifting every track by the same amount would drag clips on a
+   * second track out of sync with the picture they were laid against.
+   */
+  rippleDelete: (ids = null) => {
+    const s = get()
+    const picked = (ids || s.selectedIds)
+      .map((id) => s.doc.layers.find((l) => l.id === id))
+      .filter((l) => l?.clip)
+    if (!picked.length) {
+      return { ok: false, reason: 'Select a clip on the timeline to ripple out.' }
+    }
+
+    const assetOf = (l) => getAsset(l.assetId)
+    // Where each track's hole starts, and how wide it is.
+    const holes = new Map()
+    for (const l of picked) {
+      const t = l.track || 0
+      const r = clipRange(l, assetOf(l))
+      const cur = holes.get(t) || { from: Infinity, span: 0 }
+      cur.from = Math.min(cur.from, r.start)
+      cur.span += r.length
+      holes.set(t, cur)
+    }
+
+    s.pushHistory()
+    const gone = new Set(picked.map((l) => l.id))
+    const layers = s.doc.layers
+      .filter((l) => !gone.has(l.id))
+      .map((l) => {
+        if (!l.clip) return l
+        const hole = holes.get(l.track || 0)
+        if (!hole) return l
+        const start = clipRange(l, assetOf(l)).start
+        if (start < hole.from) return l
+        return { ...l, clip: { ...l.clip, start: Math.max(0, start - hole.span) } }
+      })
+    set({ dirty: true, doc: { ...s.doc, layers }, selectedIds: [] })
+    get().recomputeDuration()
+    return { ok: true, text: `Rippled out ${picked.length} clip${picked.length === 1 ? '' : 's'}` }
   },
 
   setContextMenu: (contextMenu) => set({ contextMenu }),

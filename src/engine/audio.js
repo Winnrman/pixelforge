@@ -120,7 +120,7 @@ export function voiceFor(layer, asset, fromMs) {
  * time the graph is connected, which clicks.
  */
 export function buildGraph(context, doc, assetOf, {
-  from = 0, when = null, master = 1, muted = false,
+  from = 0, when = null, master = 1, muted = false, rate = 1,
 } = {}) {
   const at = when == null ? context.currentTime + 0.02 : when
   const voices = []
@@ -179,12 +179,16 @@ export function buildGraph(context, doc, assetOf, {
 
     const src = context.createBufferSource()
     src.buffer = asset.audio
-    src.playbackRate.value = v.rate
+    // The clip's own speed, times how fast the preview is running.
+    src.playbackRate.value = v.rate * (rate || 1)
     if (v.loop) {
       src.loop = true
-      src.start(at + v.delay, v.offset)
+      // A clip that starts later starts sooner when the preview runs fast: the
+      // wait is in document time, and the preview is playing document time at a
+      // different speed.
+      src.start(at + v.delay / (rate || 1), v.offset)
     } else {
-      src.start(at + v.delay, v.offset, v.duration)
+      src.start(at + v.delay / (rate || 1), v.offset, v.duration)
     }
     src.connect(g)
     voices.push({ layerId: layer.id, source: src, gain: g, ...v })
@@ -204,7 +208,7 @@ export const isPlaying = () => !!live
  * Returns false when there is nothing to play, so the caller can fall back to
  * driving time itself rather than waiting on a clock that will never tick.
  */
-export async function play(doc, assetOf, fromMs, { master = 1, muted = false } = {}) {
+export async function play(doc, assetOf, fromMs, { master = 1, muted = false, rate = 1 } = {}) {
   stop()
   const c = audioContext()
   if (!c) return false
@@ -214,10 +218,10 @@ export async function play(doc, assetOf, fromMs, { master = 1, muted = false } =
   const needed = audioLayers(doc, assetOf)
   if (!needed.length) return false
 
-  const graph = buildGraph(c, doc, assetOf, { from: fromMs, master, muted })
+  const graph = buildGraph(c, doc, assetOf, { from: fromMs, master, muted, rate })
   if (!graph.voices.length) { graph.master.disconnect(); return false }
 
-  live = { graph, fromMs, startedAt: graph.startedAt, ctx: c }
+  live = { graph, fromMs, startedAt: graph.startedAt, ctx: c, rate }
   return true
 }
 
@@ -243,7 +247,11 @@ export function currentTime() {
   const elapsed = live.ctx.currentTime - live.startedAt
   // Before the scheduled start the clock has not begun; reporting a negative
   // elapsed would run the playhead backwards for the first few milliseconds.
-  return live.fromMs + Math.max(0, elapsed) * 1000
+  //
+  // Scaled by the preview rate, because the sound is playing faster and the
+  // playhead has to agree with it — a clock that ignores the rate would drift
+  // against the very thing it is reading.
+  return live.fromMs + Math.max(0, elapsed) * 1000 * (live.rate || 1)
 }
 
 /** Master volume and mute, applied to whatever is already playing. */
