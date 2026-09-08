@@ -434,15 +434,23 @@ own slots, which are new times to the millisecond and the same frames, so every 
 strip that had just been drawn was thrown away. They are cached by the **frame** they land on
 now.
 
-That is most of it, not all of it: the halves get their own slot counts across their own
-widths, so some centres settle a frame or two off what the whole clip sampled. Those are
-genuinely different pictures. The strip paints the nearest frame it already has into the slot
-straight away and replaces it when the real one arrives, so a cut looks like what it is — one
-clip in two boxes — instead of two strips rebuilding from nothing.
+That was not enough, and the way it was measured hid it. A landscape clip split down the
+middle gives each half exactly half the slots, so their sample centres land on the identical
+instants by arithmetic and everything hits the cache whatever the code does. A **portrait** clip
+— narrow thumbnails, so many more slots — cut a third of the way along gets slot counts that do
+not divide, and every centre is new. Measured there, with the fix in: the first half drew
+*nothing at all*, the second drew half of itself, and fifteen thumbnails were seeked and remade.
 
-Measured on a cut: both halves full of pictures a quarter of a second later, and **nothing read
-back from the video file at all**. What is left is downscaling frames already in the decoder's
-cache, which costs no seek and is never visible.
+What matters is not the frame index but how far off in **time** the nearest picture is, measured
+against how much time a slot covers. A thumbnail is one frame standing for the whole span it is
+drawn over, so a cached frame less than half a slot away is not an approximation — it is a
+picture that was standing for that span a moment ago, at almost the same place on screen. The
+strip uses it and does not queue a seek. Searching by frame *index* is what made the first
+attempt useless at this scale: twelve frames is four tenths of a second, and the slots were
+seconds apart.
+
+Same cut, after: both halves full of pictures a quarter of a second later, and **one** thumbnail
+made instead of fifteen.
 
 The video clip also stopped drawing a waveform over its own thumbnails. Sound has its own lane
 now, and two pictures of the same thing — one of them painted across the frames it is

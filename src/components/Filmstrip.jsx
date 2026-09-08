@@ -104,13 +104,16 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
     for (const slot of slots) {
       const hit = cachedThumb(asset, slot.assetT)
       if (hit) { draw(slot, hit); continue }
-      // Nothing exact yet: put the closest frame already in hand there so the
-      // slot is never empty, and queue the real one. Cutting a clip in two is
-      // the case this is for — the halves sample a frame or two off what the
-      // whole clip did, and a strip that blanks and refills reads as work being
-      // redone rather than as the same footage in two boxes.
+      // Nothing exact. Take the closest picture already in hand, and if it is
+      // closer than half of what this slot stands for, that *is* the picture —
+      // it was standing for the same span a moment ago. Cutting a clip in two is
+      // the case this is for: the halves sample instants a little off what the
+      // whole clip did, and on a long clip "a little off" is still seconds and
+      // still a seek each. Decoding them again to move a thumbnail by less than
+      // its own width is work nobody asked for.
       const near = nearestThumb(asset, slot.assetT)
-      if (near) draw(slot, near)
+      if (near) draw(slot, near.thumb)
+      if (near && near.delta <= slot.slotMs / 2) continue
       missing.push(slot)
     }
 

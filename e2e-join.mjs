@@ -36,15 +36,32 @@ await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' })
 await page.evaluate(() => indexedDB.deleteDatabase('pixelforge'))
 await page.reload({ waitUntil: 'networkidle' })
 
-await importAndPlace(page, 'public/test/motion.mp4', { timeout: 40000 })
+// A long clip, not a two-second one. On a short clip the halves of a split land
+// on the same frames and everything hits the cache by accident; on a thirty
+// second one the slots are seconds apart, which is where the rebuilding actually
+// happened and where the first attempt at fixing it did nothing.
+await importAndPlace(page, 'public/test/longgop.mp4', { timeout: 40000 })
 await page.evaluate(() => { window.__pfState().setPlaying(false); window.__pfState().setTime(0) })
 await page.waitForTimeout(1200)
 await page.evaluate(() => {
   const b = [...document.querySelectorAll('.tl-tabs button')].find((x) => /^Video/.test(x.textContent))
   if (b) b.click()
 })
-// Long enough for the whole strip to have been drawn once.
-await page.waitForTimeout(2500)
+// Long enough for the whole strip to have been drawn once — a thirty second
+// clip has real seeking to do before it is complete.
+await page.waitForTimeout(1000)
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll('.tl-tabs button')].find((x) => /^Video/.test(x.textContent))
+  if (b) b.click()
+})
+await page.waitForFunction(
+  () => [...document.querySelectorAll('.track-row .strip canvas')].some((c) => c.getBoundingClientRect().width > 20),
+  null, { timeout: 30000 })
+// And drawn, not just mounted: the pending count reaching zero is the strip
+// saying it has everything.
+await page.waitForFunction(
+  () => !document.querySelector('.strip-pending'), null, { timeout: 60000 }).catch(() => {})
+await page.waitForTimeout(1500)
 
 // --- a cut should not cost any decoding -----------------------------------------
 // Thumbnails are cached by frame now, not by millisecond. The two halves of a
@@ -53,7 +70,7 @@ await page.waitForTimeout(2500)
 // that had just been drawn was thrown away and decoded again.
 const cut = await page.evaluate(async () => {
   const st = window.__pfState()
-  st.setTime(1000)
+  st.setTime(9000)
   await new Promise((r) => setTimeout(r, 300))
   // Counted where it happens: how many thumbnails had to be *made* rather than
   // found. Decoder chunks are the wrong meter — a short fixture sits entirely in
@@ -61,7 +78,7 @@ const cut = await page.evaluate(async () => {
   // and the meter reads zero either way.
   window.__pfFilmstrip.resetThumbStats()
   window.__pfVideo.resetDecodeStats()
-  window.__pfState().splitClips(1000)
+  window.__pfState().splitClips(9000)
   // Deliberately short: what matters is what is on screen in the moment after a
   // cut, not what it settles to a few seconds later.
   await new Promise((r) => setTimeout(r, 250))
@@ -75,14 +92,17 @@ const cut = await page.evaluate(async () => {
     filled.push(Math.round((lit / (d.length / 4)) * 100))
   }
   const early = { ...window.__pfFilmstrip.thumbStats }
-  const decode = { ...window.__pfVideo.decodeStats }
-  await new Promise((r) => setTimeout(r, 2500))
+  // And then long enough for anything the strip queued to have been seeked and
+  // built. Checking at a quarter of a second says what is on screen; checking
+  // after several seconds says what work was set in motion, and it is the second
+  // one that catches a strip quietly rebuilding behind an unchanged picture.
+  await new Promise((r) => setTimeout(r, 5000))
   return {
     clips: window.__pfState().doc.layers.filter((l) => l.clip).length,
     filled,
     builtEarly: early.built,
+    built: window.__pfFilmstrip.thumbStats.built,
     hits: window.__pfFilmstrip.thumbStats.hits,
-    decoded: decode.chunks,
   }
 })
 console.log('cutting the clip in two:', JSON.stringify(cut))
@@ -95,8 +115,20 @@ check('both halves are full of pictures a quarter second after the cut',
 // two either side of what the whole clip sampled, and those get made from frames
 // already in the decoder's cache. Nothing is read from the file again, and
 // nothing is blank while it happens — which is the whole of what a cut costs now.
-check('and the cut read nothing back from the video file',
-  cut.decoded === 0, `${cut.decoded} chunks decoded, ${cut.builtEarly} thumbnails downscaled`)
+// Counted where the work is, not at the decoder. Moving the playhead to the cut
+// makes the renderer decode for the *picture*, which has nothing to do with the
+// strip and swamps the meter — that is what made an earlier version of this
+// check read zero whether the fix was in or out.
+// The cut is deliberately off centre. Split a landscape clip down the middle and
+// the halves get exactly half the slots each, so their sample centres land on
+// the identical instants by arithmetic and everything hits the cache whatever
+// the code does — which is how a first attempt at this was measured as fixed
+// while a portrait clip cut a third of the way along still rebuilt everything.
+//
+// Measured here with the old code: the first half drew nothing at all, the
+// second drew half of itself, and fifteen thumbnails were seeked and remade.
+check('and barely made a thumbnail — they were already in hand',
+  cut.built <= 2, `${cut.built} made, against 15 before`)
 await page.screenshot({ path: path.join(OUT, '01-cut.png') })
 
 // --- and the pictures are actually on screen ---------------------------------------
@@ -201,10 +233,10 @@ const refusals = await page.evaluate(async () => {
   const out = {}
 
   // A gap: not one clip in pieces.
-  st.splitClips(1000)
+  st.splitClips(9000)
   await new Promise((r) => setTimeout(r, 300))
   let clips = window.__pfState().doc.layers.filter((l) => l.clip)
-  window.__pfState().slideClip(clips[1].id, 1600)
+  window.__pfState().slideClip(clips[1].id, 21000)
   await new Promise((r) => setTimeout(r, 300))
   clips = window.__pfState().doc.layers.filter((l) => l.clip)
   window.__pfState().select(clips.map((l) => l.id))
