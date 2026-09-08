@@ -394,6 +394,34 @@ the document but never recomputed the timeline length**. Nothing showed it while
 document's length could not really change, but with clips every bar was suddenly drawn
 against a stale scale — a clip at 720ms rendering at the far left of a 720ms timeline.
 
+## One room
+
+The editor was a canvas with a timeline tucked underneath it and the media behind a tab. That
+is an image editor with a video editor bolted on, and it shows the moment you try to cut
+anything: editing is a loop of *look at the shot, drag it onto a track, look again*, and a
+whole screen change sat in the middle of that loop.
+
+It is now one room. The bin is beside the picture, the tracks run along the bottom under the
+full width of the window rather than under the canvas column, and the inspector stays where it
+was. Media drags straight from the bin onto a track, or double-clicks onto the canvas. The
+Media tab stays, because browsing a hundred photographs and picking one to work on is a
+different job that deserves the whole window — it is the image editor's front door now, not
+the only way to reach your own footage.
+
+The timeline moved out of the canvas column and became a child of the workspace grid, which is
+why it now gets the width of the window. It only ever had the width left over because of where
+it sat in the tree.
+
+### A shift that had been hiding a stale test
+
+Arming a tool that has options widens the rail from 52px to 210px, moving everything to its
+right — the canvas included — by 158 pixels. `e2e.mjs` cached the canvas position before
+arming a tool and clicked with those coordinates, which were therefore always stale. It passed
+anyway: the stale point still landed *somewhere* on a canvas that ran to the window edge, so
+it drew in the wrong place, and a test that counts layers cannot tell the difference. With the
+bin now occupying that strip the same point lands on the bin and the drag is swallowed. The
+test reads the geometry at the moment it clicks now, which is what it should always have done.
+
 ## Transitions
 
 Every editor makes this a thing you go and fetch: a bin of effects, a drag onto a cut, a

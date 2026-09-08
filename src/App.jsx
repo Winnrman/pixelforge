@@ -13,6 +13,7 @@ import Inspector from './components/Inspector.jsx'
 import Timeline from './components/Timeline.jsx'
 import ExportDialog from './components/ExportDialog.jsx'
 import LassoBar from './components/LassoBar.jsx'
+import MediaPool from './components/MediaPool.jsx'
 import MediaView from './components/MediaView.jsx'
 import LayerContextMenu from './components/LayerContextMenu.jsx'
 import OpenDialog from './components/OpenDialog.jsx'
@@ -335,12 +336,17 @@ export default function App() {
 
       {workspace === 'media' && <MediaView />}
 
+      {/* The editor is one room: the bin to hand on the left, the picture beside
+          it, the tracks along the bottom under both, the inspector on the right.
+          It used to be a canvas with a timeline tucked under it and the media
+          behind a tab, which is an image editor with a video editor bolted on
+          rather than one tool. */}
       <div className="workspace" hidden={workspace !== 'editor'}>
         <ToolRail />
+        <MediaPool />
         <div className="center">
           <CanvasStage />
           <LassoBar />
-          <Timeline />
           {!layerCount && (
             <div
               // Only the move tool lets the hero catch clicks. With a drawing
@@ -417,6 +423,10 @@ export default function App() {
           />
           <Inspector />
         </aside>
+
+        {/* Under all three, not tucked inside the canvas column: the tracks are
+            where the editing happens, so they get the width of the window. */}
+        <Timeline />
       </div>
 
       {recovery && (

@@ -126,16 +126,31 @@ const geo = await page.evaluate(() => {
     before: { w: Math.round(l.w), h: Math.round(l.h), x: Math.round(l.x), y: Math.round(l.y) },
     count: s.doc.layers.length }
 })
-const onScreen = (dx, dy) => [
-  geo.cx + geo.view.panX + dx * geo.view.zoom,
-  geo.cy + geo.view.panY + dy * geo.view.zoom,
-]
+// Read the geometry *now*, not from the snapshot taken earlier.
+//
+// Arming a tool that has options widens the rail from 52px to 210px, which moves
+// everything to the right of it — the canvas included — by 158 pixels. Cached
+// coordinates are therefore stale the moment a tool is picked. This used to pass
+// anyway, because the stale point still landed somewhere on a canvas that ran to
+// the window edge; it just drew in the wrong place, and a test that counts layers
+// cannot tell. With the media bin now occupying that strip, the same stale point
+// lands on the bin and the drag is swallowed.
+const onScreen = async (dx, dy) => {
+  const now = await page.evaluate(() => {
+    const r = document.querySelector('.stage canvas').getBoundingClientRect()
+    return { x: r.x, y: r.y, view: window.__pfState().view }
+  })
+  return [
+    now.x + now.view.panX + dx * now.view.zoom,
+    now.y + now.view.panY + dy * now.view.zoom,
+  ]
+}
 
 await page.keyboard.press('p')
 await page.waitForTimeout(450)
 
 // Hovering a handle position with a drawing tool must show the draw cursor.
-const [ehx, ehy] = onScreen(geo.layer.x + geo.layer.w, geo.layer.y + geo.layer.h / 2)
+const [ehx, ehy] = await onScreen(geo.layer.x + geo.layer.w, geo.layer.y + geo.layer.h / 2)
 await page.mouse.move(ehx, ehy)
 await page.waitForTimeout(120)
 const cursor = await page.evaluate(() => document.querySelector('.stage canvas').style.cursor)
@@ -170,7 +185,7 @@ const startCount = afterDraw.count
 for (let i = 0; i < 3; i++) {
   await page.keyboard.press('p')
   await page.waitForTimeout(420)
-  const [sx, sy] = onScreen(40 + i * 30, 40)
+  const [sx, sy] = await onScreen(40 + i * 30, 40)
   await page.mouse.move(sx, sy)
   await page.mouse.down()
   await page.mouse.move(sx + 90, sy + 70, { steps: 8 })

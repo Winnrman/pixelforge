@@ -34,7 +34,22 @@ button:disabled { opacity: 0.35; cursor: default; }
 /* ------------------------------------------------------------------ shell */
 .app { display: flex; flex-direction: column; height: 100%; }
 
-.workspace { flex: 1; display: flex; min-height: 0; }
+/* The editor's four places: tools, bin, picture, inspector — with the tracks
+   spanning the bottom under all of them. A grid rather than nested flex columns
+   because the timeline belongs to the window, not to the canvas: it used to live
+   inside the canvas column, which is why it only ever got the width left over. */
+.workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: auto var(--pool-w, 232px) minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+.workspace > .rail { grid-column: 1; grid-row: 1 / span 2; }
+.workspace > .pool { grid-column: 2; grid-row: 1; }
+.workspace > .center { grid-column: 3; grid-row: 1; }
+.workspace > .side { grid-column: 4; grid-row: 1; }
+.workspace > .timeline { grid-column: 2 / span 3; grid-row: 2; }
 
 .center {
   position: relative;
@@ -1390,4 +1405,95 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
     linear-gradient(to bottom right,
       transparent calc(50% - 0.8px), rgba(255,255,255,0.75) 50%, transparent calc(50% + 0.8px)),
     linear-gradient(to left, rgba(0,0,0,0.45), rgba(0,0,0,0));
+}
+
+/* ------------------------------------------------------------- media pool */
+/* The bin, beside the picture rather than behind a tab. Editing is a loop of
+   look at the shot, drag it onto a track, look again, and a whole screen change
+   in the middle of that loop is what made the media tab the wrong home for it. */
+.pool {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+.pool-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.pool-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+.pool-count {
+  font-size: 10px;
+  color: var(--dim);
+  background: var(--panel-2);
+  border-radius: 9px;
+  padding: 1px 6px;
+  margin-right: auto;
+}
+.pool-grid {
+  overflow-y: auto;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  align-content: start;
+}
+.pool-card {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  padding: 4px;
+  cursor: grab;
+  overflow: hidden;
+}
+.pool-card:hover { border-color: rgba(78,161,255,0.55); }
+.pool-card:active { cursor: grabbing; }
+.pool-card canvas { display: block; border-radius: 4px; background: #0b0b0e; }
+.pool-name {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Media already on the canvas is marked rather than hidden: putting the same
+   clip on twice is an ordinary thing to want. */
+.pool-card.used::after {
+  content: '';
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #4ea1ff;
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.5);
+}
+.pool-badge {
+  position: absolute;
+  left: 7px;
+  top: 7px;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.65);
+  color: #fff;
+}
+.pool-empty {
+  padding: 16px 12px;
+  color: var(--dim);
+  font-size: 11.5px;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
 }
