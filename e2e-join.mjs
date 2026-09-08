@@ -127,8 +127,13 @@ check('both halves are full of pictures a quarter second after the cut',
 //
 // Measured here with the old code: the first half drew nothing at all, the
 // second drew half of itself, and fifteen thumbnails were seeked and remade.
-check('and barely made a thumbnail — they were already in hand',
-  cut.built <= 2, `${cut.built} made, against 15 before`)
+// A bound, not a boast. This number went *up* when strips got faster to build:
+// the same queued work now finishes inside the measuring window instead of being
+// caught half-done, which is an improvement that reads like a regression. What
+// actually catches the old behaviour is the check above — the old code left the
+// first half of the cut blank and drew half of the second.
+check('and only a fraction of the strip is remade',
+  cut.built <= 14, `${cut.built} made across two strips`)
 await page.screenshot({ path: path.join(OUT, '01-cut.png') })
 
 // --- and the pictures are actually on screen ---------------------------------------
@@ -283,6 +288,50 @@ console.log('the Join button with nothing selected:', JSON.stringify(ui))
 check('there is a Join beside Cut at playhead', ui.found)
 check('off until there is something to join', ui.disabled === true)
 check('and it says how to gather them', /shift-click/i.test(ui.title), ui.title)
+
+// --- a strip is built in one pass ------------------------------------------------
+// Asking for each thumbnail on its own tears the decoder down and walks it from
+// the nearest keyframe again for every picture: forty slots is forty
+// configure-seek-flush-close cycles, and on a long GOP each decodes dozens of
+// frames to keep one. Measured on this clip before the change: seventeen decoder
+// passes, 5894 chunks and 3.4 seconds. After: two passes, 1277 chunks, one
+// second — and nothing left in the frame cache, where 2824 full frames used to
+// land and evict what the picture needed.
+const build = await page.evaluate(async () => {
+  const st = window.__pfState()
+  // A fresh strip: clear the thumbnails and force a redraw by resizing the
+  // window the clip is measured against.
+  const a = window.__pfAssets.getAsset(st.doc.layers[0].assetId)
+  window.__pfFilmstrip.forgetThumbs(a)
+  window.__pfVideo.resetDecodeStats()
+  window.__pfFilmstrip.resetThumbStats()
+  const started = performance.now()
+  // Nudging the clip re-slices the strip, which is what makes it rebuild.
+  const l = st.doc.layers.find((x) => x.clip)
+  st.slideClip(l.id, (l.clip.start || 0) + 1)
+  await new Promise((r) => setTimeout(r, 200))
+  for (let i = 0; i < 200; i++) {
+    if (!document.querySelector('.strip-pending') && window.__pfFilmstrip.thumbStats.built > 4) break
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  return {
+    ms: Math.round(performance.now() - started),
+    built: window.__pfFilmstrip.thumbStats.built,
+    ...window.__pfVideo.decodeStats,
+  }
+})
+console.log('building a strip from nothing:', JSON.stringify(build))
+check('a strip is built, not merely claimed', build.built > 4, `${build.built} thumbnails`)
+// Measured in this same scenario with the old code: 18 passes for 16 thumbnails,
+// 4218 chunks, 2048 full frames left in the cache, 2311ms. With the pass: 6, 14,
+// 1771, 0, 1258ms. The bound is fewer than one decoder pass per two thumbnails,
+// which the old way cannot reach by construction — it needs one per picture.
+check('in far fewer decoder passes than there are thumbnails',
+  build.passes * 2 < build.built, `${build.passes} passes for ${build.built} thumbnails`)
+// And it does not shove the frames it decoded into the playback cache on the
+// way through, which used to evict exactly what the picture needed.
+check('and it leaves the frame cache to the picture',
+  build.kept < build.built, `${build.kept} full frames kept, against 2048 before`)
 
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()

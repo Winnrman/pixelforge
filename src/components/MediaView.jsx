@@ -37,9 +37,12 @@ function MediaCard({ asset, selected, onSelect, onOpen }) {
       const ctx = ref.current.getContext('2d')
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, POSTER_H)
-      // Contain, not cover: in a bin the whole frame matters more than filling
-      // the tile, and a cropped poster hides what the shot actually is.
-      const k = Math.min(w / thumb.width, POSTER_H / thumb.height)
+      // Cover. The argument for contain was that a bin should show the whole
+      // frame — but a portrait clip in a wide tile then becomes a sliver between
+      // two black margins, and a picture too small to recognise shows nothing at
+      // all. Filling the tile and cropping the edges is the trade every bin
+      // makes, and it is the right one.
+      const k = Math.max(w / thumb.width, POSTER_H / thumb.height)
       const dw = thumb.width * k
       const dh = thumb.height * k
       ctx.drawImage(thumb, (w - dw) / 2, (POSTER_H - dh) / 2, dw, dh)

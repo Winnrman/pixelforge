@@ -49,6 +49,24 @@ console.log('with nothing imported:', JSON.stringify(empty))
 check('no media bin before there is any media', empty.pool === 0 && empty.media === 0,
   JSON.stringify(empty))
 
+// --- the media page looks like somewhere to drop things ------------------------------
+const dropzone = await page.evaluate(async () => {
+  window.__pfState().setWorkspace('media')
+  await new Promise((r) => setTimeout(r, 500))
+  const el = document.querySelector('.media-empty')
+  if (!el) return { found: false }
+  const cs = getComputedStyle(el)
+  return { found: true, style: cs.borderStyle, width: parseFloat(cs.borderTopWidth) }
+})
+console.log('the media page:', JSON.stringify(dropzone))
+// Words alone read as a message rather than as a place things can go.
+check('the empty media page is drawn as a drop zone',
+  dropzone.found && /dashed/.test(dropzone.style) && dropzone.width >= 1,
+  JSON.stringify(dropzone))
+
+await page.evaluate(() => window.__pfState().setWorkspace('editor'))
+await page.waitForTimeout(300)
+
 await importAndPlace(page, 'public/test/beeps.mp4', { timeout: 40000 })
 await page.waitForTimeout(1200)
 const filled = await page.evaluate(() => ({
@@ -271,6 +289,30 @@ console.log('using it:', JSON.stringify(acted))
 check('and the items do what they say', acted.after === acted.before + 1,
   `${acted.before} -> ${acted.after} layers`)
 check('closing the menu afterwards', acted.closed)
+
+// --- posters fill their card ------------------------------------------------------------
+const cover = await page.evaluate(async () => {
+  window.__pfState().setWorkspace('editor')
+  await new Promise((r) => setTimeout(r, 1500))
+  const c = document.querySelector('.pool-card canvas')
+  if (!c) return { found: false }
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  const mid = Math.floor(c.height / 2)
+  const row = ctx.getImageData(0, mid, c.width, 1).data
+  // A letterboxed poster is transparent at both ends of its middle row; one that
+  // fills the card is not.
+  const lit = (x) => row[x * 4 + 3] > 8
+  return {
+    found: true,
+    left: lit(1),
+    right: lit(c.width - 2),
+    centre: lit(Math.floor(c.width / 2)),
+    w: c.width,
+  }
+})
+console.log('the poster across its card:', JSON.stringify(cover))
+check('a poster reaches both edges of its card rather than sitting letterboxed',
+  cover.found && cover.left && cover.right && cover.centre, JSON.stringify(cover))
 
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()

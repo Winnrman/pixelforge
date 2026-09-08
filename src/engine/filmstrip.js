@@ -10,7 +10,7 @@
 import { getAsset } from './assets.js'
 import { assetTimeFor, clipRange } from './clips.js'
 import { frameIndexAt } from './render.js'
-import { exactFrame, frameAt, indexAt } from './video.js'
+import { exactFrame, frameAt, indexAt, decodeThumbs } from './video.js'
 
 export const THUMB_H = 60
 
@@ -67,6 +67,15 @@ const key = (asset, ms, h) => `${frameKey(asset, ms)}|${h}`
  *  two boxes instead of one. */
 export const thumbStats = { hits: 0, built: 0 }
 export const resetThumbStats = () => { thumbStats.hits = 0; thumbStats.built = 0 }
+
+/** Throws away an asset's thumbnails. Only the suite needs this — the cache is
+ *  meant to be permanent, because it costs almost nothing to hold. */
+export function forgetThumbs(asset) {
+  const b = cache.get(asset)
+  if (!b) return
+  for (const v of b.values()) v?.c?.close?.()
+  b.clear()
+}
 
 export function cachedThumb(asset, ms, h = THUMB_H) {
   const hit = bucketFor(asset).get(key(asset, ms, h)) || null
@@ -136,6 +145,59 @@ export async function thumbAt(asset, ms, h = THUMB_H) {
   bucket.set(k, { c: thumb, ms, h })
   thumbStats.built++
   return thumb
+}
+
+/**
+ * Every thumbnail a strip is missing, in one pass.
+ *
+ * `thumbAt` is right for one picture and wrong for forty: each call seeks, so a
+ * strip built that way pays a keyframe walk per slot. This asks the decoder for
+ * the whole run at once and downscales each wanted frame as it arrives, which is
+ * one walk for the lot.
+ *
+ * `onThumb` is called as they land so the strip fills in from the left rather
+ * than appearing all at once at the end — the work is the same either way, and
+ * watching it arrive is much better than watching nothing.
+ */
+export async function thumbsFor(asset, msList, h = THUMB_H, onThumb = null) {
+  if (!asset?.isVideo || !msList.length) return
+  const bucket = bucketFor(asset)
+  const d = asset.duration || 1
+  const wrap = (ms) => ((ms % d) + d) % d
+
+  // What is genuinely missing, by frame — several slots often want the same one.
+  const byIndex = new Map()
+  for (const ms of msList) {
+    if (bucket.has(key(asset, ms, h))) continue
+    const i = indexAt(asset, wrap(ms))
+    if (!byIndex.has(i)) byIndex.set(i, ms)
+  }
+  if (!byIndex.size) return
+
+  const scratch = typeof OffscreenCanvas !== 'undefined'
+    ? new OffscreenCanvas(1, 1)
+    : document.createElement('canvas')
+
+  await decodeThumbs(asset, [...byIndex.keys()], (i, frame) => {
+    const ms = byIndex.get(i)
+    if (ms == null) return
+    const k = key(asset, ms, h)
+    if (bucket.has(k)) return
+    // Downscaled here and now: a VideoFrame holds a slot in a small hardware
+    // pool, and the whole point of the pass is not to hold any.
+    const w = Math.max(1, Math.round((frame.displayWidth / frame.displayHeight) * h))
+    scratch.width = w
+    scratch.height = h
+    const ctx = scratch.getContext('2d')
+    ctx.clearRect(0, 0, w, h)
+    ctx.drawImage(frame, 0, 0, w, h)
+    const thumb = typeof OffscreenCanvas !== 'undefined' && scratch.transferToImageBitmap
+      ? scratch.transferToImageBitmap()
+      : downscale(scratch, h)
+    bucket.set(k, { c: thumb, ms, h })
+    thumbStats.built++
+    if (onThumb) onThumb(ms, thumb)
+  })
 }
 
 /**

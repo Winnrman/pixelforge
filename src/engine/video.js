@@ -427,6 +427,80 @@ async function decodeExact(asset, from, to) {
   trim(asset.cache, from)
 }
 
+/**
+ * Every wanted frame in one forward pass.
+ *
+ * This is how a filmstrip is supposed to be built, and it is the difference
+ * between a strip that appears and a strip you watch fill in. Asking for each
+ * thumbnail on its own — which is what `exactFrame` per slot amounts to — tears
+ * the decoder down and walks it from the nearest keyframe again for *every*
+ * picture: forty slots is forty configure-seek-flush-close cycles, and on a long
+ * GOP each of those decodes dozens of frames to keep one. The work is quadratic
+ * in the number of thumbnails for no reason at all.
+ *
+ * One decoder, opened once, fed straight through from the keyframe before the
+ * first wanted frame to the last. Every frame in between is decoded exactly once
+ * — which has to happen anyway to reach the later ones — and the wanted ones are
+ * handed to the caller as they go by. Nothing is kept: `onThumb` is expected to
+ * downscale immediately, because holding full frames is what exhausts the
+ * hardware pool.
+ *
+ * Fed with backpressure rather than all at once. A thirty-second clip is nine
+ * hundred chunks, and queueing them all makes the decoder's own buffer the
+ * memory problem this was meant to avoid.
+ */
+export async function decodeThumbs(asset, wanted, onThumb) {
+  if (!wanted?.length) return
+  closeRun(asset)
+  const want = new Set(wanted)
+  const first = Math.max(0, Math.min(...wanted))
+  const last = Math.min(asset.times.length - 1, Math.max(...wanted))
+  let fail = null
+
+  const decoder = new VideoDecoder({
+    output: (frame) => {
+      try {
+        const i = indexAt(asset, frame.timestamp / 1000 - asset.baseMs)
+        if (want.has(i)) onThumb(i, frame)
+      } catch (e) {
+        fail = e
+      } finally {
+        frame.close()
+      }
+    },
+    error: (e) => { fail = e },
+  })
+  decoder.configure(asset.config)
+  decodeStats.passes++
+
+  const samples = asset.video.samples
+  const end = asset.maxDecode[last]
+  for (let i = asset.syncBefore[first]; i <= end; i++) {
+    if (fail) break
+    decodeStats.chunks++
+    const smp = samples[i]
+    decoder.decode(new EncodedVideoChunk({
+      type: smp.isSync ? 'key' : 'delta',
+      timestamp: smp.timeUs,
+      duration: smp.durationUs,
+      data: smp.data,
+    }))
+    if (decoder.decodeQueueSize > 24) {
+      // Wait for it to catch up rather than piling on. Polling rather than
+      // `ondequeue`, which not every build fires reliably.
+      while (decoder.decodeQueueSize > 8 && !fail) {
+        await new Promise((r) => setTimeout(r, 4))
+      }
+    }
+  }
+  try {
+    await decoder.flush()
+  } finally {
+    try { decoder.close() } catch { /* already gone */ }
+  }
+  if (fail) throw fail
+}
+
 export let lastError = null
 export const clearError = () => { lastError = null }
 

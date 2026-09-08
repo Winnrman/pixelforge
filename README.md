@@ -457,6 +457,15 @@ the canvas measures zero while the editor is hidden — which is exactly when a 
 appears, because importing takes you to the Media tab. It drew a one-pixel-wide poster and,
 having no reason to run again, kept it. It watches its own box now.
 
+Posters **cover** their card rather than fitting inside it. The argument for contain was that a
+bin should show the whole frame, but a portrait clip in a wide tile is then a sliver between two
+black margins — most of the tile spent on nothing and the picture too small to tell one shot
+from another, which is the only thing a bin is for.
+
+The empty media page is drawn with a dashed border, and the bin lights up while something is
+being dragged over the window. Words alone read as a message rather than as a place things can
+go.
+
 **The bin appears when there is something in it** — an empty bin is a place to grab from
 with nothing to grab, and its Import button led to the Media tab anyway, which is a button
 press to arrive where the other button already goes. Media drags straight from the bin onto a track, or double-clicks onto the canvas. The
@@ -477,6 +486,41 @@ anyway: the stale point still landed *somewhere* on a canvas that ran to the win
 it drew in the wrong place, and a test that counts layers cannot tell the difference. With the
 bin now occupying that strip the same point lands on the bin and the drag is swallowed. The
 test reads the geometry at the moment it clicks now, which is what it should always have done.
+
+## Building a filmstrip the way an editor does
+
+Watching a strip fill in is not a decoding problem, it is a *shape* problem. `thumbAt` seeks
+to one frame, which is right for one picture and catastrophic for forty: each call tears the
+decoder down and walks it from the nearest keyframe again, so a strip cost forty
+configure-seek-flush-close cycles, and on a long GOP each of those decoded dozens of frames to
+keep one. The work was quadratic in the number of thumbnails for no reason.
+
+Real editors do one sequential pass: open the decoder once, run forward through the file, and
+take every Nth frame as it goes by. `decodeThumbs` does that — one walk, every frame in
+between decoded exactly once because reaching the later ones requires it anyway, and the wanted
+ones handed out as they pass. Nothing is kept: they are downscaled on arrival, because holding
+full frames is what exhausts the hardware pool. Fed with backpressure rather than all at once,
+since a thirty-second clip is nine hundred chunks and queueing them all makes the decoder's own
+buffer the memory problem this was meant to avoid.
+
+Measured on a thirty-second clip, same strip:
+
+| | before | after |
+| --- | --- | --- |
+| time to a complete strip | 3376ms | **1006ms** |
+| decoder passes | 17 | **2** |
+| chunks decoded | 5894 | **1277** |
+| full frames left in the cache | 2824 | **0** |
+
+That last row is a second bug the first one was hiding. Every seek dumped its frames into the
+playback cache, so building a filmstrip evicted exactly the frames the picture needed — which
+is part of why scrubbing felt worse right after a clip loaded.
+
+One number in the suite went *up* because of this and had to be re-read rather than
+re-asserted: a check that counted thumbnails made within five seconds of a cut. The same queued
+work now finishes inside that window instead of being caught half-done. An improvement that
+reads like a regression, and the reason the check that actually catches the old behaviour is
+the one measuring what is on screen.
 
 ## A cut is a view, not a new thing
 
@@ -2216,12 +2260,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Forty-two browser suites (**935 checks**), two Electron suites (**70 checks** — the shell
+Forty-two browser suites (**940 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1404
+for the parts that are pure maths and deserve testing without a browser at all. **1409
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

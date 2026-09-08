@@ -1104,12 +1104,36 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   pointer-events: none;
 }
 
+/* A dashed border, because the words alone read as a message rather than as a
+   place you can drop something. The dashes say "this rectangle takes things"
+   before anything has been read. */
 .media-empty {
   flex: 1;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
   text-align: center; color: var(--dim);
   padding: 24px;
+  margin: 16px;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.media-empty.clickable:hover {
+  border-color: rgba(78,161,255,0.55);
+  background: rgba(78,161,255,0.04);
+}
+/* And while something is actually over the window, so the target lights up
+   rather than the drop being a guess. */
+.app.dragging .media-empty {
+  border-color: rgba(78,161,255,0.85);
+  background: rgba(78,161,255,0.07);
+}
+/* The bin with things already in it is a drop target too — a dashed edge round
+   the grid, so there is somewhere obvious to put the next one. */
+.app.dragging .media-grid {
+  outline: 2px dashed rgba(78,161,255,0.7);
+  outline-offset: -8px;
+  border-radius: 12px;
 }
 .media-empty h2 { font-size: 17px; color: var(--text); margin: 0 0 10px; }
 .media-empty p { max-width: 460px; margin: 0 0 10px; font-size: 12.5px; line-height: 1.6; }
@@ -1479,6 +1503,9 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
 .pool-card:hover { border-color: rgba(78,161,255,0.55); }
 .pool-card:active { cursor: grabbing; }
 .pool-card canvas { display: block; border-radius: 4px; background: #0b0b0e; }
+/* The poster fills its card. A portrait clip shown "contain" in a wide tile is a
+   sliver between two black margins, which is most of the tile spent on nothing
+   and the picture too small to recognise. */
 .pool-name {
   display: block;
   margin-top: 4px;

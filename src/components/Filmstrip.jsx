@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
 import {
-  THUMB_H, cachedThumb, nearestThumb, thumbAt, stripTimes, stripWindow,
+  THUMB_H, cachedThumb, nearestThumb, thumbAt, thumbsFor, stripTimes, stripWindow,
 } from '../engine/filmstrip.js'
 import {
   trackCount, assetTimeFor, snapPoints, snapClip, snapEdge, clipRange, SNAP_PX,
@@ -128,6 +128,28 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
     let cancelled = false
     setPending(missing.length)
     ;(async () => {
+      if (asset.isVideo) {
+        // One pass for the whole strip. Asking slot by slot seeks per picture,
+        // which on a long clip is a keyframe walk each and is what made a strip
+        // something you sat and watched fill in.
+        const bySlot = new Map(missing.map((sl) => [Math.round(sl.assetT), sl]))
+        let left = missing.length
+        try {
+          await thumbsFor(asset, missing.map((sl) => sl.assetT), THUMB_H, (ms, thumb) => {
+            if (cancelled) return
+            const slot = bySlot.get(Math.round(ms))
+            if (slot) draw(slot, thumb)
+            setPending(Math.max(0, --left))
+          })
+        } catch {
+          // An unreadable stretch leaves what it managed rather than a broken
+          // strip; the nearest-frame fill is already showing something.
+        }
+        if (!cancelled) setPending(0)
+        return
+      }
+
+      // A GIF's frames are already in memory, so there is nothing to batch.
       let left = missing.length
       for (const slot of missing) {
         if (cancelled) return
@@ -135,7 +157,7 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
         try {
           thumb = await thumbAt(asset, slot.assetT)
         } catch {
-          thumb = null // an unreadable frame leaves a gap rather than a broken strip
+          thumb = null
         }
         if (cancelled) return
         if (thumb) draw(slot, thumb)

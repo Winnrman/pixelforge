@@ -54,7 +54,12 @@ function PoolCard({ asset, used, onOpen }) {
       const ctx = ref.current.getContext('2d')
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, POSTER_H)
-      const k = Math.min(w / thumb.width, POSTER_H / thumb.height)
+      // Cover, not contain: the poster fills the card and is cropped to fit.
+      // A portrait clip letterboxed into a wide tile is a sliver between two
+      // black margins — most of the tile spent on nothing, and the picture too
+      // small to tell one shot from another, which is the only thing a bin is
+      // for.
+      const k = Math.max(w / thumb.width, POSTER_H / thumb.height)
       const dw = thumb.width * k
       const dh = thumb.height * k
       ctx.drawImage(thumb, (w - dw) / 2, (POSTER_H - dh) / 2, dw, dh)
