@@ -64,6 +64,12 @@ export async function loadImageFile(file) {
     // Start decoding from the first frame right away, so the clip shows a
     // picture as soon as it lands rather than a blank until something asks.
     prewarm(v)
+    // And build its filmstrip pictures now, in the background, rather than when
+    // the timeline is first looked at. It is the same work either way; doing it
+    // here is the difference between a strip that is there and a strip you watch
+    // being made. Imported dynamically so the asset module does not depend on
+    // the timeline's.
+    import('./filmstrip.js').then((m) => m.primeThumbs(v)).catch(() => {})
     // The encoded bytes are kept for the audio decoder, which runs on first play
     // rather than now: decoding a long soundtrack to PCM costs real memory, and
     // most imports are never played with sound on.

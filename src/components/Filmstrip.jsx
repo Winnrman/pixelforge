@@ -101,6 +101,30 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
       ctx.restore()
     }
 
+    /**
+     * Paints every slot from whatever is in hand, and says what is still short.
+     *
+     * Run again once the decoding is over, and that is the point of it: a strip
+     * used to draw once, ask for what it lacked, and paint only what its own
+     * request handed back. Anything that turned up by another route — built
+     * ahead of time, or skipped because a near-enough picture already existed —
+     * was never painted, and those slots stayed empty for good. Painting from
+     * the cache rather than from the answers means the strip shows what there
+     * is, however it got there.
+     */
+    const paint = () => {
+      const short = []
+      for (const slot of slots) {
+        const hit = cachedThumb(asset, slot.assetT)
+        if (hit) { draw(slot, hit); continue }
+        const near = nearestThumb(asset, slot.assetT, THUMB_H, slot.slotMs * 2)
+        if (near) draw(slot, near.thumb)
+        if (near && near.delta <= slot.slotMs / 2) continue
+        short.push(slot)
+      }
+      return short
+    }
+
     const missing = []
     for (const slot of slots) {
       const hit = cachedThumb(asset, slot.assetT)
@@ -112,7 +136,12 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
       // whole clip did, and on a long clip "a little off" is still seconds and
       // still a seek each. Decoding them again to move a thumbnail by less than
       // its own width is work nobody asked for.
-      const near = nearestThumb(asset, slot.assetT)
+      // The closest picture already in hand, but only if it is actually close.
+      // Unbounded, this paints one frame across every empty slot and then
+      // replaces them one by one, which looks like the strip filling with the
+      // same picture and then churning — worse than an honest gap. Two slots is
+      // near enough to stand in; beyond that, wait for the real one.
+      const near = nearestThumb(asset, slot.assetT, THUMB_H, slot.slotMs * 2)
       if (near) draw(slot, near.thumb)
       if (near && near.delta <= slot.slotMs / 2) continue
       missing.push(slot)
@@ -135,17 +164,23 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
         const bySlot = new Map(missing.map((sl) => [Math.round(sl.assetT), sl]))
         let left = missing.length
         try {
+          // A whole slot, not half: a thumbnail stands for the span it covers,
+          // so a picture from anywhere inside that span is the picture. Half
+          // would send it back to the decoder for a difference you cannot see.
+          const tol = missing[0]?.slotMs || 0
           await thumbsFor(asset, missing.map((sl) => sl.assetT), THUMB_H, (ms, thumb) => {
             if (cancelled) return
             const slot = bySlot.get(Math.round(ms))
             if (slot) draw(slot, thumb)
             setPending(Math.max(0, --left))
-          })
+          }, tol)
         } catch {
           // An unreadable stretch leaves what it managed rather than a broken
-          // strip; the nearest-frame fill is already showing something.
+          // strip.
         }
-        if (!cancelled) setPending(0)
+        // Whatever exists now, on the canvas — including pictures this pass
+        // decided it did not need to build.
+        if (!cancelled) { paint(); setPending(0) }
         return
       }
 

@@ -428,6 +428,66 @@ async function decodeExact(asset, from, to) {
 }
 
 /**
+ * Just the keyframes, which cost nothing to reach.
+ *
+ * A filmstrip does not need frame-accurate pictures — it needs enough different
+ * pictures to find a moment by eye. Every other frame in an H.264 file can only
+ * be reached by decoding the whole run since the last keyframe, but a keyframe
+ * decodes on its own: forty of them is forty decodes, not two thousand.
+ *
+ * So this runs first and gives the strip real coverage almost immediately, and
+ * the exact frames fill in behind it. On a clip whose keyframes are seconds
+ * apart that is a coarse strip in a moment instead of a fine one in a minute,
+ * which is the right way round: you look at a filmstrip to find roughly where
+ * something is.
+ */
+export async function decodeKeyframes(asset, fromIndex, toIndex, onFrame) {
+  const samples = asset.video.samples
+  const first = asset.syncBefore[Math.max(0, fromIndex)]
+  const lastSample = asset.maxDecode[Math.min(asset.times.length - 1, toIndex)]
+  const keys = []
+  for (let i = first; i <= lastSample; i++) {
+    if (samples[i]?.isSync) keys.push(i)
+  }
+  if (!keys.length) return
+  closeRun(asset)
+
+  let fail = null
+  const decoder = new VideoDecoder({
+    output: (frame) => {
+      try {
+        onFrame(indexAt(asset, frame.timestamp / 1000 - asset.baseMs), frame)
+      } catch (e) {
+        fail = e
+      } finally {
+        frame.close()
+      }
+    },
+    error: (e) => { fail = e },
+  })
+  decoder.configure(asset.config)
+  decodeStats.passes++
+
+  for (const i of keys) {
+    if (fail) break
+    decodeStats.chunks++
+    const smp = samples[i]
+    decoder.decode(new EncodedVideoChunk({
+      type: 'key', timestamp: smp.timeUs, duration: smp.durationUs, data: smp.data,
+    }))
+    if (decoder.decodeQueueSize > 8) {
+      while (decoder.decodeQueueSize > 2 && !fail) await new Promise((r) => setTimeout(r, 3))
+    }
+  }
+  try {
+    await decoder.flush()
+  } finally {
+    try { decoder.close() } catch { /* already gone */ }
+  }
+  if (fail) throw fail
+}
+
+/**
  * Every wanted frame in one forward pass.
  *
  * This is how a filmstrip is supposed to be built, and it is the difference

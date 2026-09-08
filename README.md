@@ -503,7 +503,7 @@ full frames is what exhausts the hardware pool. Fed with backpressure rather tha
 since a thirty-second clip is nine hundred chunks and queueing them all makes the decoder's own
 buffer the memory problem this was meant to avoid.
 
-Measured on a thirty-second clip, same strip:
+Measured on a thirty-second 640x360 clip, same strip:
 
 | | before | after |
 | --- | --- | --- |
@@ -511,6 +511,12 @@ Measured on a thirty-second clip, same strip:
 | decoder passes | 17 | **2** |
 | chunks decoded | 5894 | **1277** |
 | full frames left in the cache | 2824 | **0** |
+
+**And that measurement was on the wrong thing.** It reported a threefold win while the real
+complaint — a minute of waiting on a 1080x1920 phone clip — was untouched, because the fixture
+was a tenth the pixels and a third the length. One sequential pass still decodes *every frame
+in the range*, and for ninety seconds of 1080p that is thousands of frames to produce forty
+pictures. Merging the passes never addressed the cost; it addressed the overhead on top of it.
 
 That last row is a second bug the first one was hiding. Every seek dumped its frames into the
 playback cache, so building a filmstrip evicted exactly the frames the picture needed — which
@@ -521,6 +527,40 @@ re-asserted: a check that counted thumbnails made within five seconds of a cut. 
 work now finishes inside that window instead of being caught half-done. An improvement that
 reads like a regression, and the reason the check that actually catches the old behaviour is
 the one measuring what is on screen.
+
+## The frames a filmstrip does not need
+
+Reaching an arbitrary frame in an H.264 file means decoding everything since the last
+keyframe. A keyframe decodes on its own. That is the whole difference: forty keyframes is forty
+decodes, forty arbitrary frames on a ninety-second clip is a couple of thousand.
+
+A filmstrip does not need arbitrary frames. A thumbnail stands for the whole span it is drawn
+over, so **a picture from anywhere inside that span is the picture** — not an approximation of
+it. So the keyframes are decoded first, each one filed against the slot it lands nearest, and
+the expensive exact pass runs only for slots the keyframes left uncovered.
+
+Zooming in asks for precision and gets it for nothing: a stretched strip covers less time per
+slot, so the tolerance shrinks *and* the range left to decode shrinks with it.
+
+The pictures are also built at import, in the background, rather than when the timeline is
+first looked at. "I should not have to wait for the frames to generate at all" is the right
+expectation, and the only way to meet it is to have generated them already. It is the same work
+moved earlier.
+
+On a 90-second 1080x1920 clip cut into four, with everything above:
+
+| | before | after |
+| --- | --- | --- |
+| four strips complete | 8.3s | **0.5s** |
+| chunks decoded | 2557 | **57** |
+
+### The strip could not see pictures it had not asked for
+
+Making that work exposed something the old design had hidden. A strip painted once, asked for
+what it lacked, and painted whatever its own request handed back — so a picture that arrived by
+any other route was never drawn. Nothing had ever arrived by another route before. Now that
+they are built ahead of time and shared between clips, the strip paints from the **cache** when
+a pass ends rather than from that pass's answers, which is what it should always have done.
 
 ## A cut is a view, not a new thing
 

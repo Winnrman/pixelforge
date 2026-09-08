@@ -322,12 +322,14 @@ const build = await page.evaluate(async () => {
 })
 console.log('building a strip from nothing:', JSON.stringify(build))
 check('a strip is built, not merely claimed', build.built > 4, `${build.built} thumbnails`)
-// Measured in this same scenario with the old code: 18 passes for 16 thumbnails,
-// 4218 chunks, 2048 full frames left in the cache, 2311ms. With the pass: 6, 14,
-// 1771, 0, 1258ms. The bound is fewer than one decoder pass per two thumbnails,
-// which the old way cannot reach by construction — it needs one per picture.
-check('in far fewer decoder passes than there are thumbnails',
-  build.passes * 2 < build.built, `${build.passes} passes for ${build.built} thumbnails`)
+// Counted in chunks, which is what the time is actually spent on. Passes are the
+// wrong meter now: the keyframe sweep is a pass of its own, and it *saves* work
+// by making most of the exact frames unnecessary — so a better strip has more
+// passes and less decoding. Measured in this same scenario: 4218 chunks with the
+// old seek-per-thumbnail code, 1771 with one sequential pass, about 1100 once
+// keyframes could settle a slot.
+check('and does not decode the file end to end to do it',
+  build.chunks < 2600, `${build.chunks} chunks, against 4218 before`)
 // And it does not shove the frames it decoded into the playback cache on the
 // way through, which used to evict exactly what the picture needed.
 check('and it leaves the frame cache to the picture',

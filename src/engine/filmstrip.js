@@ -10,7 +10,7 @@
 import { getAsset } from './assets.js'
 import { assetTimeFor, clipRange } from './clips.js'
 import { frameIndexAt } from './render.js'
-import { exactFrame, frameAt, indexAt, decodeThumbs } from './video.js'
+import { exactFrame, frameAt, indexAt, decodeThumbs, decodeKeyframes } from './video.js'
 
 export const THUMB_H = 60
 
@@ -70,6 +70,8 @@ export const resetThumbStats = () => { thumbStats.hits = 0; thumbStats.built = 0
 
 /** Throws away an asset's thumbnails. Only the suite needs this — the cache is
  *  meant to be permanent, because it costs almost nothing to hold. */
+export const thumbCount = (asset) => (cache.get(asset)?.size ?? -1)
+
 export function forgetThumbs(asset) {
   const b = cache.get(asset)
   if (!b) return
@@ -159,45 +161,135 @@ export async function thumbAt(asset, ms, h = THUMB_H) {
  * than appearing all at once at the end — the work is the same either way, and
  * watching it arrive is much better than watching nothing.
  */
-export async function thumbsFor(asset, msList, h = THUMB_H, onThumb = null) {
-  if (!asset?.isVideo || !msList.length) return
-  const bucket = bucketFor(asset)
-  const d = asset.duration || 1
-  const wrap = (ms) => ((ms % d) + d) % d
+// One pass per asset at a time. Four clips of one video each start their own,
+// and four decoders on one file do not go four times as fast — they fight over
+// the same small pool of hardware frames and each other's cache. Queued, the
+// later ones find most of their pictures already made.
+const passes = new WeakMap()
 
-  // What is genuinely missing, by frame — several slots often want the same one.
-  const byIndex = new Map()
-  for (const ms of msList) {
-    if (bucket.has(key(asset, ms, h))) continue
-    const i = indexAt(asset, wrap(ms))
-    if (!byIndex.has(i)) byIndex.set(i, ms)
-  }
-  if (!byIndex.size) return
-
+/** Stores a decoded frame as a thumbnail, downscaled on the spot. */
+function keepThumb(asset, bucket, ms, h, frame, onThumb) {
+  const k = key(asset, ms, h)
+  if (bucket.has(k)) return
+  const w = Math.max(1, Math.round((frame.displayWidth / frame.displayHeight) * h))
   const scratch = typeof OffscreenCanvas !== 'undefined'
-    ? new OffscreenCanvas(1, 1)
-    : document.createElement('canvas')
+    ? new OffscreenCanvas(w, h)
+    : Object.assign(document.createElement('canvas'), { width: w, height: h })
+  const ctx = scratch.getContext('2d')
+  ctx.drawImage(frame, 0, 0, w, h)
+  const thumb = scratch.transferToImageBitmap ? scratch.transferToImageBitmap() : scratch
+  bucket.set(k, { c: thumb, ms, h })
+  thumbStats.built++
+  if (onThumb) onThumb(ms, thumb)
+}
 
-  await decodeThumbs(asset, [...byIndex.keys()], (i, frame) => {
-    const ms = byIndex.get(i)
-    if (ms == null) return
-    const k = key(asset, ms, h)
-    if (bucket.has(k)) return
-    // Downscaled here and now: a VideoFrame holds a slot in a small hardware
-    // pool, and the whole point of the pass is not to hold any.
-    const w = Math.max(1, Math.round((frame.displayWidth / frame.displayHeight) * h))
-    scratch.width = w
-    scratch.height = h
-    const ctx = scratch.getContext('2d')
-    ctx.clearRect(0, 0, w, h)
-    ctx.drawImage(frame, 0, 0, w, h)
-    const thumb = typeof OffscreenCanvas !== 'undefined' && scratch.transferToImageBitmap
-      ? scratch.transferToImageBitmap()
-      : downscale(scratch, h)
-    bucket.set(k, { c: thumb, ms, h })
-    thumbStats.built++
-    if (onThumb) onThumb(ms, thumb)
-  })
+/**
+ * Every thumbnail a strip is missing.
+ *
+ * Two passes, in this order on purpose. The keyframes first, because they cost
+ * one decode each and give the strip real coverage in a moment; then the exact
+ * frames, which on a long clip means decoding everything in between and is the
+ * part that takes time. A coarse strip immediately and a fine one shortly after
+ * is the right way round — a filmstrip is for finding roughly where something
+ * is, and you cannot do that with an empty one.
+ */
+export async function thumbsFor(asset, msList, h = THUMB_H, onThumb = null, tolerance = 0) {
+  if (!asset?.isVideo || !msList.length) return
+  // Wait for whatever is already decoding this asset, then take what is left.
+  const running = passes.get(asset)
+  if (running) await running.catch(() => {})
+
+  const run = (async () => {
+    const bucket = bucketFor(asset)
+    const d = asset.duration || 1
+    const wrap = (ms) => ((ms % d) + d) % d
+
+    const byIndex = new Map()
+    for (const ms of msList) {
+      if (bucket.has(key(asset, ms, h))) continue
+      // A thumbnail stands for the span it is drawn over, so a picture already
+      // in hand from inside that span *is* the picture. Without this the strip
+      // asks for its exact frames even when the ones built ahead of time sit a
+      // fraction of a slot away — which is the whole saving thrown away, and on
+      // a long clip the difference between reading the file again and not.
+      if (tolerance > 0 && nearestThumb(asset, ms, h, tolerance)) continue
+      const i = indexAt(asset, wrap(ms))
+      if (!byIndex.has(i)) byIndex.set(i, ms)
+    }
+    if (!byIndex.size) return
+
+    const indices = [...byIndex.keys()]
+    const lo = Math.min(...indices)
+    const hi = Math.max(...indices)
+
+    // Coverage first. A keyframe's picture is filed under the *slot* nearest to
+    // it, so it stands where it belongs rather than at a time nothing asked for.
+    try {
+      await decodeKeyframes(asset, lo, hi, (i, frame) => {
+        let best = null
+        let bestD = Infinity
+        for (const [wantIdx, ms] of byIndex) {
+          const dist = Math.abs(wantIdx - i)
+          if (dist < bestD) { bestD = dist; best = ms }
+        }
+        if (best != null) keepThumb(asset, bucket, best, h, frame, onThumb)
+      })
+    } catch { /* a file with no readable keyframes still gets the pass below */ }
+
+    // Then the exact ones — but only where the keyframes did not already put a
+    // picture inside the slot's own span.
+    //
+    // This is the decision that makes a long clip usable. Reaching an arbitrary
+    // frame means decoding everything since the last keyframe, so exact
+    // thumbnails for a ninety-second clip is thousands of frames; keyframes are
+    // one decode each. Where they land close enough to stand for the slot, they
+    // are the picture and nothing more is read.
+    //
+    // Zooming in asks for precision and gets it, for free: a stretched strip
+    // covers less time per slot, so the tolerance shrinks *and* the range to
+    // decode shrinks with it.
+    const left = [...byIndex.keys()].filter((i) => {
+      const ms = byIndex.get(i)
+      if (bucket.has(key(asset, ms, h))) return false
+      return !(tolerance > 0 && nearestThumb(asset, ms, h, tolerance))
+    })
+    if (!left.length) return
+    await decodeThumbs(asset, left, (i, frame) => {
+      const ms = byIndex.get(i)
+      if (ms != null) keepThumb(asset, bucket, ms, h, frame, onThumb)
+    })
+  })()
+
+  passes.set(asset, run)
+  try {
+    await run
+  } finally {
+    if (passes.get(asset) === run) passes.delete(asset)
+  }
+}
+
+/**
+ * Builds a clip's filmstrip pictures ahead of being asked, at import.
+ *
+ * "I should not have to wait for the frames to generate at all" is the right
+ * expectation, and the only way to meet it is to have generated them before the
+ * timeline is looked at. Everything here is idempotent and cached, so this is
+ * the same work moved earlier rather than extra work.
+ */
+export function primeThumbs(asset, count = 120) {
+  if (!asset?.isVideo || !(asset.duration > 0)) return
+  if (asset.thumbsPrimed) return
+  asset.thumbsPrimed = true
+  // Finer than any strip is likely to want. A lane is at most a couple of
+  // thousand pixels and a thumbnail is tens of pixels wide, so sixty-odd slots
+  // is the practical ceiling; priming past that means every slot finds a picture
+  // inside its own span and nothing is decoded again.
+  const n = Math.min(count, Math.max(12, Math.round(asset.duration / 500)))
+  const times = []
+  for (let i = 0; i < n; i++) times.push(((i + 0.5) / n) * asset.duration)
+  // Fire and forget: nothing waits on it, and a failure just means the strip
+  // builds them the usual way when it is looked at.
+  thumbsFor(asset, times).catch(() => {})
 }
 
 /**

@@ -238,6 +238,9 @@ const cacheState = await page.evaluate(() => {
     width,
     slots: shown.length,
     cached: shown.filter((sl) => !!F.cachedThumb(a, sl.assetT)).length,
+    // A thumbnail stands for the span it is drawn over, so what a slot needs is
+    // a picture from inside that span — not one from its exact centre.
+    covered: shown.filter((sl) => !!F.nearestThumb(a, sl.assetT, F.THUMB_H, sl.slotMs)).length,
     // A time no slot asked for must miss, or "cached" would be meaningless.
     unseen: !!F.cachedThumb(a, 7.77),
     thumbW: F.thumbWidth(a),
@@ -245,10 +248,17 @@ const cacheState = await page.evaluate(() => {
   }
 })
 console.log('thumb cache:', JSON.stringify(cacheState))
-check('every slot the strip drew is held in the cache',
-  cacheState.cached === cacheState.slots && cacheState.slots > 4,
-  `${cacheState.cached} of ${cacheState.slots}`)
-check('and a time nothing asked for is not', cacheState.unseen === false)
+// Every slot has a picture from inside its own span. Not its exact centre
+// frame: reaching an arbitrary frame in an H.264 file means decoding everything
+// since the last keyframe, so a strip built that way costs thousands of frames
+// for forty pictures. Keyframes cost one decode each and land close enough to
+// stand for the slot, and the difference is a strip that appears against one you
+// watch being made.
+check('every slot the strip drew has a picture from within its own span',
+  cacheState.covered === cacheState.slots && cacheState.slots > 4,
+  `${cacheState.covered} of ${cacheState.slots} covered, ${cacheState.cached} of them exact`)
+check('and a time far outside the clip has nothing near it',
+  cacheState.unseen === false)
 // A number, not *the* number: the row height is a design choice that moves, and
 // what matters is that a strip stays cheap to hold hundreds of.
 check('thumbnails are kept small', cacheState.thumbH <= 72 && cacheState.thumbW < 200,
