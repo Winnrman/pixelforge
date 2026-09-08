@@ -1349,3 +1349,36 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
       transparent calc(50% - 0.8px), rgba(255,255,255,0.5) 50%, transparent calc(50% + 0.8px)),
     rgba(78,161,255,0.3);
 }
+
+/* ------------------------------------------------------------- clip fades */
+/* The corner handle and the ramp it drags out. The ramp is drawn as the wedge
+   of darkness the fade actually is, so the clip shows its own shape rather than
+   keeping the length in a field somewhere. */
+.strip .clip-fade {
+  position: absolute;
+  top: 0;
+  width: 12px;
+  height: 12px;
+  z-index: 4;
+  cursor: ew-resize;
+  background: rgba(255,255,255,0.85);
+  border: 1px solid rgba(0,0,0,0.5);
+  border-radius: 2px;
+  transform: translateX(-50%);
+}
+.strip .clip-fade.end { transform: translateX(50%); }
+.strip .clip-fade-ramp {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.strip .clip-fade-ramp.start {
+  left: 0;
+  background: linear-gradient(to right, rgba(0,0,0,0.82), rgba(0,0,0,0));
+}
+.strip .clip-fade-ramp.end {
+  right: 0;
+  background: linear-gradient(to left, rgba(0,0,0,0.82), rgba(0,0,0,0));
+}

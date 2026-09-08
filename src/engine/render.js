@@ -1,6 +1,6 @@
 import { getAsset } from './assets.js'
 import { applyEffectLayer } from './effects.js'
-import { pairsIn, stateAt, drawFor, revealRect, veilBox, orderForTransitions }
+import { pairsIn, stateAt, drawFor, revealRect, veilBox, orderForTransitions, fadeAlphaAt, hasFade }
   from './transitions.js'
 import { addShapePath, addMaskPath, hasMask, cropInsets, rad, toLocal, fromLocal } from './shapes.js'
 import { resolveLayer, keyExtent, allKeyTimes } from './keyframes.js'
@@ -1163,7 +1163,12 @@ function renderDocumentInner(ctx, doc, time) {
     // A clip that has faded all the way out is not drawn at all rather than
     // drawn at zero: an invisible layer still costs a video frame decode.
     if (draw && draw.alpha <= 0) continue
-    const alpha = (resolved.opacity ?? 1) * groupAlpha * (draw ? draw.alpha : 1)
+    // A clip's own fade at its ends, on top of whatever a transition is doing —
+    // a clip can be dissolving into its neighbour and fading at its far end in
+    // the same breath, and the two multiply.
+    const fade = hasFade(raw) ? fadeAlphaAt(resolved, time, getAsset(raw.assetId)) : 1
+    if (fade <= 0) continue
+    const alpha = (resolved.opacity ?? 1) * groupAlpha * (draw ? draw.alpha : 1) * fade
     const l = alpha === (resolved.opacity ?? 1)
       ? resolved
       : { ...resolved, opacity: alpha }

@@ -296,6 +296,120 @@ const backAgain = await page.evaluate(async () => {
 })
 check('and it is there again once they lap', backAgain === true)
 
+// --- fades at a clip's own edges ---------------------------------------------------
+// The other half of what "transitions" means: not going from one clip to
+// another, but coming up from nothing at the start and going away at the end.
+//
+// Its own fixture, because the timeline section above resets the document — and
+// on a *black* canvas, so that fading to nothing is measurable as brightness.
+// Over a transparent one the colour a half-faded pixel reports is unpremultiplied
+// and says nothing about what you would see.
+const faded = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  await new Promise((r) => setTimeout(r, 250))
+  const c = document.createElement('canvas')
+  c.width = 200
+  c.height = 120
+  const x = c.getContext('2d')
+  x.fillStyle = '#c81414'
+  x.fillRect(0, 0, 200, 120)
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'))
+  const a = await window.__pfAssets.loadImageFile(new File([blob], 'red.png', { type: 'image/png' }))
+  window.__pfState().placeMedia([a.id], { resizeDocToFirst: true })
+  await new Promise((r) => setTimeout(r, 400))
+  window.__pfState().setPlaying(false)
+  window.__pfState().setDoc({ background: '#000000' })
+  const id = window.__pfState().doc.layers[0].id
+  window.__pfState().updateLayer(id, { track: 0, clip: { start: 0, in: 0, out: 2000 } })
+  window.__pfState().setFade(id, { in: 400, out: 400 })
+  await new Promise((r) => setTimeout(r, 300))
+  return { id, fade: window.__pfState().doc.layers.find((l) => l.id === id).fade }
+})
+console.log('one clip with fades:', JSON.stringify(faded))
+check('a fade is stored on the clip', faded.fade.in === 400 && faded.fade.out === 400,
+  JSON.stringify(faded.fade))
+
+const bright = (c) => c.r + c.g + c.b
+const atStart = await frameAt(0)
+const quarterIn = await frameAt(100)
+const upFully = await frameAt(1000)
+const quarterOut = await frameAt(1900)
+const atEnd = await frameAt(1999)
+console.log('across the clip:', JSON.stringify([atStart, quarterIn, upFully, quarterOut, atEnd]))
+check('the clip is not there on its first frame', bright(atStart) < 12, JSON.stringify(atStart))
+check('a quarter of the way into the fade it is a quarter up',
+  bright(quarterIn) > bright(upFully) * 0.15 && bright(quarterIn) < bright(upFully) * 0.4,
+  `${bright(quarterIn)} against ${bright(upFully)}`)
+check('and fully up once the fade is done', bright(upFully) > 180, String(bright(upFully)))
+check('then on its way out at the far end',
+  bright(quarterOut) < bright(upFully) * 0.4, `${bright(quarterOut)} against ${bright(upFully)}`)
+check('and gone on the last frame', bright(atEnd) < 12, JSON.stringify(atEnd))
+check('and the frame stays opaque the whole way — it fades, it does not vanish',
+  atStart.a > 250 && atEnd.a > 250, `${atStart.a}, ${atEnd.a}`)
+await page.screenshot({ path: path.join(OUT, '04-fade.png') })
+
+// It fades opacity rather than painting a colour over the clip, which is what
+// makes it right for a title over footage as well as for a clip on its own.
+const through = await page.evaluate(async (s) => {
+  const st = window.__pfState()
+  const c = document.createElement('canvas')
+  c.width = 200
+  c.height = 120
+  const x = c.getContext('2d')
+  x.fillStyle = '#1414c8'
+  x.fillRect(0, 0, 200, 120)
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'))
+  const a = await window.__pfAssets.loadImageFile(new File([blob], 'blue.png', { type: 'image/png' }))
+  window.__pfState().placeMedia([a.id])
+  await new Promise((r) => setTimeout(r, 400))
+  const st2 = window.__pfState()
+  const blue = st2.doc.layers[st2.doc.layers.length - 1]
+  // Underneath, spanning the whole thing; the fading clip stays on top.
+  st2.updateLayer(blue.id, { track: 0, clip: { start: 0, in: 0, out: 2000 } })
+  window.__pfState().setClipTrack(s.id, 1)
+  await new Promise((r) => setTimeout(r, 400))
+  return true
+}, faded)
+const behind = await frameAt(0)
+console.log('with something underneath:', JSON.stringify(behind))
+check('fading out shows what is behind rather than painting over it',
+  behind.b > 150 && behind.r < 60, JSON.stringify(behind))
+
+// --- the handle is on the clip ------------------------------------------------------
+const handles = await page.evaluate(async () => {
+  const btn = [...document.querySelectorAll('button')].find((b) => /^Video/.test(b.textContent))
+  if (btn) btn.click()
+  await new Promise((r) => setTimeout(r, 800))
+  return {
+    grips: document.querySelectorAll('.clip-fade').length,
+    ramps: document.querySelectorAll('.clip-fade-ramp').length,
+    title: document.querySelector('.clip-fade.start')?.getAttribute('title') || '',
+  }
+})
+console.log('fade handles:', JSON.stringify(handles))
+check('a clip has a handle at each end', handles.grips >= 2, `${handles.grips}`)
+check('and a ramp is drawn where a fade is set', handles.ramps >= 1, `${handles.ramps}`)
+check('the handle says what it does and how long it is',
+  /Fade in/.test(handles.title) && /drag/i.test(handles.title), handles.title)
+
+// Half the clip is as long as a fade may be, so the two can never cross.
+const capped = await page.evaluate((s) => {
+  window.__pfState().setFade(s.id, { in: 99999 })
+  return window.__pfState().doc.layers.find((x) => x.id === s.id).fade.in
+}, faded)
+console.log('asking for a fade longer than the clip:', capped)
+check('a fade cannot be longer than half its clip', capped === 1000,
+  `${capped}ms of a 2000ms clip`)
+
+// Clearing both drops the field rather than leaving zeroes behind.
+const cleared = await page.evaluate((s) => {
+  window.__pfState().setFade(s.id, { in: 0, out: 0 })
+  return window.__pfState().doc.layers.find((x) => x.id === s.id).fade ?? null
+}, faded)
+check('clearing a fade leaves the clip as it was, not with zeroes on it',
+  cleared === null, JSON.stringify(cleared))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

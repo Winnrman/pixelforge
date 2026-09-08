@@ -15,7 +15,7 @@ import {
 import { suggestLoop } from '../engine/loop.js'
 import { cardInsets, layoutCollage, defaultCollage } from '../engine/collage.js'
 import { defaultBrush, newStroke, newRegion, docToLayer } from '../engine/erase.js'
-import { DEFAULT_KIND as DEFAULT_TRANSITION } from '../engine/transitions.js'
+import { DEFAULT_KIND as DEFAULT_TRANSITION, maxFade } from '../engine/transitions.js'
 import { cursorPath, smoothPath, autoZoomTracks } from '../engine/cursor.js'
 import { exactFrame } from '../engine/video.js'
 import {
@@ -1215,6 +1215,29 @@ export const useStore = create((set, get) => ({
     s.updateLayer(id, kind === DEFAULT_TRANSITION
       ? { transition: undefined }
       : { transition: { kind } })
+  },
+
+  /**
+   * How long a clip takes to come up at its start or go away at its end.
+   *
+   * Capped at half the clip each, so the two can never cross and there is never
+   * a moment defined by both. Zero on both ends drops the field rather than
+   * leaving `{in: 0, out: 0}` behind, so a clip with no fades is the same
+   * document it was before anyone touched the handles.
+   */
+  setFade: (id, patch, { commit = true } = {}) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === id)
+    if (!l?.clip) return
+    const cap = maxFade(clipRange(l, getAsset(l.assetId)).length)
+    const next = {
+      in: Math.round(Math.max(0, Math.min(cap, patch.in ?? l.fade?.in ?? 0))),
+      out: Math.round(Math.max(0, Math.min(cap, patch.out ?? l.fade?.out ?? 0))),
+    }
+    if (commit) s.pushHistory()
+    get().updateLayer(id, {
+      fade: next.in === 0 && next.out === 0 ? undefined : next,
+    })
   },
 
   setContextMenu: (contextMenu) => set({ contextMenu }),

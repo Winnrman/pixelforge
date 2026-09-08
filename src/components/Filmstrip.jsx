@@ -6,7 +6,7 @@ import {
   trackCount, assetTimeFor, snapPoints, snapClip, snapEdge, clipRange, SNAP_PX,
 } from '../engine/clips.js'
 import { columnsFor, hasPeaks } from '../engine/waveform.js'
-import { pairsIn, TRANSITIONS } from '../engine/transitions.js'
+import { pairsIn, TRANSITIONS, maxFade } from '../engine/transitions.js'
 import { ensureAudio } from '../engine/audio.js'
 
 /** How close to an edge counts as grabbing it rather than the clip body. */
@@ -46,6 +46,7 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
   const select = useStore((s) => s.select)
   const slideClip = useStore((s) => s.slideClip)
   const setClipTrack = useStore((s) => s.setClipTrack)
+  const setFade = useStore((s) => s.setFade)
   const setSnapAt = useStore((s) => s.setSnapAt)
   const trimClip = useStore((s) => s.trimClip)
 
@@ -311,6 +312,62 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
             style={{ width: `${Math.min(100, (Number(ms) / len) * 100)}%` }}
             title={`${label}, ${(Number(ms) / 1000).toFixed(2)}s — drag the clips apart to shorten it`}
           />
+        )
+      })()}
+      {win.clipped && (() => {
+        // Fade handles: the corner triangles every editor puts here, dragged
+        // inwards. The length of the ramp on screen is the length of the fade,
+        // so the clip shows its own shape the way the overlap shows a
+        // transition's — nothing to open and no number to type.
+        const len = clipRange(layer, asset).length || 1
+        const grab = (edge) => (e) => {
+          if (e.button !== 0) return
+          e.preventDefault()
+          e.stopPropagation()
+          const lane = e.currentTarget.closest('.strip').getBoundingClientRect()
+          setPlaying(false)
+          select([layer.id])
+          let moved = false
+          const move = (ev) => {
+            const px = edge === 'in'
+              ? ev.clientX - lane.left
+              : lane.right - ev.clientX
+            const ms = Math.max(0, Math.min(maxFade(len), (px / lane.width) * len))
+            setFade(layer.id, { [edge]: ms }, { commit: !moved })
+            moved = true
+          }
+          const up = () => {
+            window.removeEventListener('pointermove', move)
+            window.removeEventListener('pointerup', up)
+            window.removeEventListener('pointercancel', up)
+          }
+          window.addEventListener('pointermove', move)
+          window.addEventListener('pointerup', up)
+          window.addEventListener('pointercancel', up)
+        }
+        const pctIn = ((layer.fade?.in || 0) / len) * 100
+        const pctOut = ((layer.fade?.out || 0) / len) * 100
+        return (
+          <>
+            {pctIn > 0 && (
+              <span className="clip-fade-ramp start" style={{ width: `${pctIn}%` }} />
+            )}
+            {pctOut > 0 && (
+              <span className="clip-fade-ramp end" style={{ width: `${pctOut}%` }} />
+            )}
+            <span
+              className="clip-fade start"
+              style={{ left: `${pctIn}%` }}
+              title={`Fade in — ${((layer.fade?.in || 0) / 1000).toFixed(2)}s. Drag right to lengthen.`}
+              onPointerDown={grab('in')}
+            />
+            <span
+              className="clip-fade end"
+              style={{ right: `${pctOut}%` }}
+              title={`Fade out — ${((layer.fade?.out || 0) / 1000).toFixed(2)}s. Drag left to lengthen.`}
+              onPointerDown={grab('out')}
+            />
+          </>
         )
       })()}
       {win.clipped && <span className="clip-grip start" />}

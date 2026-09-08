@@ -449,12 +449,39 @@ does not black out a title on another. A wipe fades nothing — both clips stay 
 incoming is uncovered across the frame, which is what makes it read as an edge travelling
 rather than two pictures fighting.
 
+### Fades, which are the other half of the ask
+
+A transition needs two clips. A fade needs one: the clip comes up from nothing at its own
+start, or goes away at its own end. It is the first and last thing in almost every piece of
+video ever cut, and doing it by hand means keyframing opacity twice at times you have to look
+up.
+
+Unlike the overlap this cannot be read off the arrangement — a clip's edges say *when* it
+starts, not *how* — so it is the one thing here that is genuinely stored: `fade: { in, out }`
+in milliseconds. Set by dragging the square handles in the clip's top corners, with the ramp
+drawn on the clip so it shows its own shape, the same way the lap shows a transition's.
+
+**It fades opacity, not to a colour**, and that is the decision worth defending. A veil of
+black would be right for a lone clip and wrong for everything else: a title fading in over
+footage would appear from under a black rectangle rather than fading into the picture. Fading
+opacity is right in both cases — a clip on its own fades to whatever the canvas is behind it,
+which in a video export with no alpha is black. Set the canvas background if you want to be
+sure of what it fades to.
+
+Each fade is capped at half its clip, so the two can never cross and no moment is defined by
+both ends at once. Clearing both drops the field rather than leaving `{in: 0, out: 0}` behind,
+so a clip with no fades is the same document it was before anyone touched the handles.
+
 ### The sound crosses too
 
 A picture that dissolves under a hard audio cut is the thing that sounds broken — it is the
 cut you hear, not the dissolve you see, that gives it away. Each voice's gain node gets the
 ramp scheduled on it, so this costs nothing per frame and works the same in an offline render
 as through the speakers.
+
+A clip's own fades go through the same machinery, combined with any transition it is part of
+by taking whichever is quieter — both are attenuations, and a clip that is fading in *and*
+dissolving in should not come out louder than either would give alone.
 
 A clip in the middle of a run is the outgoing half of one transition and the incoming half of
 the next, so the curve is a list of points rather than one ramp: keying it by layer would have
@@ -1987,12 +2014,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-eight browser suites (**846 checks**), two Electron suites (**70 checks** — the shell
+Thirty-eight browser suites (**859 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1285
+for the parts that are pure maths and deserve testing without a browser at all. **1314
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

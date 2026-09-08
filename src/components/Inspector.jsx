@@ -2,11 +2,12 @@ import { useMemo, useRef } from 'react'
 import { isCropped } from '../engine/shapes.js'
 import { useStore, BLEND_MODES, defaultAdjust } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
+import { clipRange } from '../engine/clips.js'
 import { defaultBgRemove, analyzeKey } from '../engine/matte.js'
 import { MODELS, currentBackend } from '../engine/aiMatte.js'
 import { sourceFor } from '../engine/render.js'
 import { EFFECTS } from '../engine/effects.js'
-import { pairsIn, TRANSITIONS, kindOf } from '../engine/transitions.js'
+import { pairsIn, TRANSITIONS, kindOf, hasFade, maxFade } from '../engine/transitions.js'
 import {
   resolveLayer, hasTracks, activeGroups, groupKeyTimes,
   groupEaseAt, GROUP_OF, EASING_OPTIONS,
@@ -96,6 +97,7 @@ export default function Inspector() {
   const trimToSubject = useStore((s) => s.trimToSubject)
   const clearErase = useStore((s) => s.clearErase)
   const setTransitionKind = useStore((s) => s.setTransitionKind)
+  const setFade = useStore((s) => s.setFade)
   // The overlap this layer arrives into, in milliseconds, or 0. A number rather
   // than the pair itself, because a selector that builds an object rebuilds it
   // every call and never compares equal.
@@ -104,6 +106,12 @@ export default function Inspector() {
     if (!id) return 0
     const p = pairsIn(st.doc.layers, (x) => getAsset(x.assetId)).find((x) => x.inId === id)
     return p ? Math.round(p.length) : 0
+  })
+  // The selected clip's own length, for capping the fade sliders at half of it.
+  const clipLength = useStore((st) => {
+    const id = st.selectedIds[st.selectedIds.length - 1]
+    const l = id && st.doc.layers.find((x) => x.id === id)
+    return l?.clip ? Math.round(clipRange(l, getAsset(l.assetId)).length) : 0
   })
   const setText = useStore((s) => s.setText)
 
@@ -370,6 +378,41 @@ export default function Inspector() {
               <button className="btn ghost" onClick={() => clearErase(base.id)}>
                 Undo the last stroke
               </button>
+            </Row>
+          </Section>
+        )}
+
+        {l.clip && (
+          <Section
+            title="Fade"
+            info={'How long the clip takes to come up at its start and go away at its end. '
+              + 'Drag the square handles in the top corners of the clip on the timeline — the '
+              + 'ramp drawn on it is the fade. It fades opacity rather than to a colour, so a '
+              + 'clip on its own fades to whatever the canvas is behind it (black, in a video '
+              + 'export) and a title over footage fades into the footage instead of appearing '
+              + 'from under a black rectangle. Each is capped at half the clip so the two '
+              + 'cannot cross.'}
+            right={hasFade(l) && (
+              <button className="mini" onClick={() => setFade(base.id, { in: 0, out: 0 })}>
+                Clear
+              </button>
+            )}
+          >
+            <Row label="In">
+              <Slider
+                value={Math.round(l.fade?.in || 0)} min={0} max={Math.round(maxFade(clipLength))}
+                step={10} suffix="ms"
+                onChange={(v) => setFade(base.id, { in: v }, { commit: false })}
+                onCommit={() => setFade(base.id, {}, { commit: true })}
+              />
+            </Row>
+            <Row label="Out">
+              <Slider
+                value={Math.round(l.fade?.out || 0)} min={0} max={Math.round(maxFade(clipLength))}
+                step={10} suffix="ms"
+                onChange={(v) => setFade(base.id, { out: v }, { commit: false })}
+                onCommit={() => setFade(base.id, {}, { commit: true })}
+              />
             </Row>
           </Section>
         )}

@@ -20,7 +20,7 @@
 // listening to it.
 
 import { clipRange, sourceRange } from './clips.js'
-import { pairsIn, gainPointsFor, gainAt } from './transitions.js'
+import { pairsIn, voiceGainPoints, gainAt } from './transitions.js'
 
 let ctx = null
 
@@ -140,7 +140,7 @@ export function buildGraph(context, doc, assetOf, {
     const vol = Math.max(0, Math.min(2, layer.muted ? 0 : (layer.volume == null ? 1 : layer.volume)))
     g.connect(gain)
 
-    const points = pairs.length ? gainPointsFor(layer.id, pairs) : []
+    const points = voiceGainPoints(layer, asset, pairs)
     if (!points.length) {
       g.gain.value = vol
     } else {

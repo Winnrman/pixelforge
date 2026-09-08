@@ -7,6 +7,7 @@
 import {
   pairsIn, stateAt, drawFor, revealRect, orderForTransitions,
   audioRamp, gainPointsFor, gainAt, kindOf, MIN_OVERLAP_MS, DEFAULT_KIND,
+  fadeAlphaAt, fadePoints, voiceGainPoints, hasFade, maxFade,
 } from './src/engine/transitions.js'
 
 let pass = 0
@@ -231,6 +232,57 @@ const assetOf = () => null
   const b = clip('b', 800, 1000, { visible: false })
   check('a hidden clip does not dissolve into anything',
     pairsIn([a, b], assetOf).length === 0)
+}
+
+// --- fades at a clip's own edges ---------------------------------------------------
+// A transition needs two clips; a fade needs one. This is the one thing here
+// that has to be stored, because a clip's edges say when it starts, not how.
+{
+  const l = clip('a', 1000, 2000, { fade: { in: 400, out: 400 } })
+  check('a clip with no fade is left alone', fadeAlphaAt(clip('b', 0, 1000), 500, null) === 1)
+  check('at the very start it is not there yet', fadeAlphaAt(l, 1000, null) === 0)
+  check('a quarter in, a quarter up', near(fadeAlphaAt(l, 1100, null), 0.25),
+    String(fadeAlphaAt(l, 1100, null)))
+  check('and fully up once the fade is done', fadeAlphaAt(l, 1400, null) === 1)
+  check('it stays up through the middle', fadeAlphaAt(l, 2000, null) === 1)
+  check('then goes away at the far end', near(fadeAlphaAt(l, 2900, null), 0.25),
+    String(fadeAlphaAt(l, 2900, null)))
+  check('reaching nothing on the last frame', fadeAlphaAt(l, 3000, null) === 0)
+}
+{
+  // Fades are capped at half a clip each, so they meet at most in the middle
+  // rather than defining the same moment twice.
+  const l = clip('a', 0, 1000, { fade: { in: 500, out: 500 } })
+  check('two fades that meet dip rather than fight',
+    near(fadeAlphaAt(l, 500, null), 1) && near(fadeAlphaAt(l, 250, null), 0.5),
+    `${fadeAlphaAt(l, 250, null)} / ${fadeAlphaAt(l, 500, null)}`)
+  check('and half a clip is as long as either may be', maxFade(1000) === 500)
+}
+{
+  check('a clip is only fading if a fade is set', hasFade({ fade: { in: 0, out: 0 } }) === false)
+  check('and is once one is', hasFade({ fade: { in: 10, out: 0 } }) === true)
+}
+{
+  const l = clip('a', 1000, 2000, { fade: { in: 400, out: 400 } })
+  const pts = fadePoints(l, null)
+  check('the sound follows the same curve',
+    JSON.stringify(pts) === JSON.stringify([[1000, 0], [1400, 1], [2600, 1], [3000, 0]]),
+    JSON.stringify(pts))
+}
+{
+  // A clip can be dissolving into its neighbour at one end and fading at the
+  // other. Both attenuate, so where they meet the quieter one is the answer —
+  // adding or averaging would make a clip doing both come out louder than one
+  // doing either.
+  const a = clip('a', 0, 1000)
+  const b = clip('b', 800, 1000, { fade: { out: 400, in: 0 } })
+  const pairs = pairsIn([a, b], assetOf)
+  const pts = voiceGainPoints(b, null, pairs)
+  check('a clip that both dissolves in and fades out has both', pts.length >= 4,
+    JSON.stringify(pts))
+  check('silent as it dissolves in', near(gainAt(pts, 800), 0), String(gainAt(pts, 800)))
+  check('full in the middle', near(gainAt(pts, 1200), 1), String(gainAt(pts, 1200)))
+  check('and silent again at the end', near(gainAt(pts, 1800), 0), String(gainAt(pts, 1800)))
 }
 
 console.log(`\n${pass} of ${pass + fail} passed`)

@@ -238,3 +238,69 @@ export function gainAt(points, t) {
   }
   return last[1]
 }
+
+// ------------------------------------------------------------------- fades
+//
+// A transition needs two clips. A fade needs one: the clip comes up from
+// nothing at its own start, or goes away to nothing at its own end. It is the
+// first and last thing in almost every piece of video ever cut, and doing it by
+// hand means keyframing opacity twice at times you have to look up.
+//
+// Unlike the overlap, this cannot be read off the arrangement — a clip's edges
+// say when it starts, not how it starts — so it is the one thing here that is
+// actually stored: `fade: { in, out }`, in milliseconds.
+//
+// It fades *opacity*, not to a colour. That is the one behaviour that is right
+// everywhere: a lone clip fades to whatever the canvas is behind it, which for a
+// video export with no alpha is black; and a title over footage fades into the
+// footage instead of appearing under a black rectangle, which is what a veil
+// would do to it.
+
+export const hasFade = (l) => (l?.fade?.in > 0) || (l?.fade?.out > 0)
+
+/** The longest a fade may be: half the clip, so the two can never cross. */
+export const maxFade = (length) => Math.max(0, length / 2)
+
+/**
+ * What a clip's own fades do to it at `time`, as a multiplier.
+ *
+ * Both ends are considered and the smaller wins, so a clip short enough for its
+ * two fades to meet dips rather than doing something undefined in the middle.
+ */
+export function fadeAlphaAt(layer, time, asset) {
+  if (!hasFade(layer) || !layer.clip) return 1
+  const { start, end } = clipRange(layer, asset)
+  const fin = Math.max(0, layer.fade.in || 0)
+  const fout = Math.max(0, layer.fade.out || 0)
+  let a = 1
+  if (fin > 0 && time < start + fin) a = Math.min(a, (time - start) / fin)
+  if (fout > 0 && time > end - fout) a = Math.min(a, (end - time) / fout)
+  return Math.max(0, Math.min(1, a))
+}
+
+/** The same curve as points, for scheduling sound. */
+export function fadePoints(layer, asset) {
+  if (!hasFade(layer) || !layer.clip) return []
+  const { start, end } = clipRange(layer, asset)
+  const pts = []
+  if (layer.fade.in > 0) pts.push([start, 0], [start + layer.fade.in, 1])
+  if (layer.fade.out > 0) pts.push([end - layer.fade.out, 1], [end, 0])
+  return pts.sort((a, b) => a[0] - b[0])
+}
+
+/**
+ * Everything attenuating one clip's sound: its own fades and any transition it
+ * is part of, combined by taking whichever is quieter.
+ *
+ * Both are attenuations, so the smaller is the honest answer where they meet —
+ * a clip that is both fading in and dissolving in should not come out louder
+ * than either would give on its own.
+ */
+export function voiceGainPoints(layer, asset, pairs) {
+  const t = gainPointsFor(layer.id, pairs)
+  const f = fadePoints(layer, asset)
+  if (!t.length) return f
+  if (!f.length) return t
+  const times = [...new Set([...t, ...f].map((p) => p[0]))].sort((a, b) => a - b)
+  return times.map((x) => [x, Math.min(gainAt(t, x), gainAt(f, x))])
+}
