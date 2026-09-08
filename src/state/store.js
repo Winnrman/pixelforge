@@ -488,11 +488,26 @@ export const useStore = create((set, get) => ({
     // all of this, text simply never had a clip to do it with.
     const timeline = s0.doc.layers.some((l) => l.clip)
     const titleish = layer.type === 'text' || layer.type === 'shape' || layer.type === 'effect'
+
+    // An overlay covers what it was put over. A pixelate is usually there to
+    // hide something for as long as that shot is on screen, and a censor that
+    // expires three seconds in is worse than no censor at all — you find out by
+    // seeing the thing you were hiding. A title is different: three seconds is a
+    // title, and trimming it down is the common adjustment.
+    const under = s0.doc.layers
+      .filter((l) => l.clip && l.assetId)
+      .map((l) => ({ l, r: clipRange(l, getAsset(l.assetId)) }))
+      .filter(({ r }) => s0.time >= r.start && s0.time < r.end)
+      .sort((a, b) => b.r.length - a.r.length)[0]
+    const span = layer.type === 'effect' && under
+      ? { start: Math.round(under.r.start), out: Math.round(under.r.length) }
+      : { start: Math.round(s0.time), out: TITLE_MS }
+
     const withClip = timeline && titleish && !layer.clip
       ? {
         ...layer,
         track: trackCount(s0.doc.layers),
-        clip: { start: Math.round(s0.time), in: 0, out: TITLE_MS },
+        clip: { start: span.start, in: 0, out: span.out },
       }
       : layer
     set((s) => ({

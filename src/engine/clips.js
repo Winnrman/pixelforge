@@ -29,9 +29,15 @@ export const hasClip = (l) => !!l?.clip
 /** How long the source runs, for anything a clip can be made from. */
 export function sourceDuration(layer, asset) {
   if (asset?.duration > 0) return asset.duration
-  // A still, a title, a shape: no inherent length, so a clip over one is
-  // whatever length it was given.
-  return layer?.clip ? Math.max(MIN_CLIP_MS, layer.clip.out - layer.clip.in) : 0
+  // A still, a title, a pixelate: no inherent length at all. Zero means
+  // unbounded here, and every caller already reads it that way.
+  //
+  // It used to report the clip's *current* length, which sounds harmless and is
+  // not: trimming clamps the new length to the source length, so a thing with no
+  // source could be shortened and then never lengthened again. A censor placed
+  // over three seconds of a shot could not be dragged to cover the rest of it,
+  // which is a bad way to find out.
+  return 0
 }
 
 /** The clip's in/out resolved against the source, both clamped and ordered. */
@@ -117,6 +123,18 @@ export function trimTo(layer, edge, time, asset) {
   const { in: i, out: o } = sourceRange(layer, asset)
   const total = sourceDuration(layer, asset)
   const at = Math.max(0, Math.round(time))
+
+  // Nothing underneath to run out of: the edges simply go where they are put,
+  // and the length follows. A title or an overlay is as long as you want it.
+  if (!total) {
+    const end = (c.start || 0) + Math.max(MIN_CLIP_MS, (o - i) / speed)
+    if (edge === 'end') {
+      const len = Math.max(MIN_CLIP_MS, at - (c.start || 0))
+      return { ...c, in: 0, out: Math.round(len * speed) }
+    }
+    const start = Math.max(0, Math.min(at, end - MIN_CLIP_MS))
+    return { ...c, start: Math.round(start), in: 0, out: Math.round((end - start) * speed) }
+  }
 
   if (edge === 'end') {
     const maxLen = total ? (total - i) : Infinity

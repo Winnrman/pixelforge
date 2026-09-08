@@ -656,6 +656,18 @@ lands at the playhead, three seconds long, on a track above the picture, and tri
 ripples and joins like any other clip because it *is* any other clip. The context menu has the
 way back for the things that really do run throughout, a watermark or a border.
 
+**An overlay is as long as you need it.** A clip with no media underneath has no source to run
+out of — but trimming clamped a clip's new length to its "source length", and for such a clip
+that was reported as its *current* length. So it could be shortened and then never lengthened
+again. A pixelate placed over three seconds of a shot could not be dragged to cover the rest of
+it, and the thing being hidden came back into view, which is a bad way to find out about a bug.
+Zero now means unbounded, which is what every caller already assumed it meant.
+
+An overlay also arrives covering the clip it was put over rather than three seconds of it. A
+censor is normally there for as long as the shot is, and the default that fails safe is the one
+that covers too much rather than too little. A title still arrives at three seconds, because a
+title is three seconds and trimming it down is the common adjustment.
+
 **Ripple delete.** Deleting left a hole, and the only tool for holes closed *every* gap on the
 track including the ones put there on purpose. Shift+Delete closes the hole behind what it
 removed and nothing else. Each track closes over its own hole, by the length of what was
@@ -2359,12 +2371,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Forty-three browser suites (**989 checks**), two Electron suites (**70 checks** — the shell
+Forty-three browser suites (**995 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1458
+for the parts that are pure maths and deserve testing without a browser at all. **1464
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

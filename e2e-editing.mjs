@@ -352,6 +352,85 @@ console.log('full screen:', JSON.stringify(full))
 check('there is a way into full screen', full.found, full.title)
 check('and it says how to get out again', /Escape/i.test(full.title), full.title)
 
+// --- an overlay is as long as you need it ---------------------------------------------
+// A clip with no media underneath has no source to run out of, but the trim
+// clamped its new length to the "source length", which for such a clip was
+// reported as its *current* length. So it could be shortened and then never
+// lengthened again: a pixelate placed over three seconds of a shot could not be
+// dragged to cover the rest of it, and the thing being hidden came back into
+// view. That is a bad way to find out about a bug.
+const overlay = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.doc.layers.filter((l) => l.type !== 'image').forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 200))
+  window.__pfState().setTime(8000)
+  const { makeEffectLayer } = window.__pfStore
+  const fx = window.__pfState().addLayer(makeEffectLayer({
+    name: 'Pixelate', shape: 'rect', effect: 'pixelate', pixelSize: 20,
+    x: 40, y: 40, w: 120, h: 120,
+  }))
+  await new Promise((r) => setTimeout(r, 300))
+  const now = () => window.__pfState().doc.layers.find((l) => l.id === fx.id)
+  const len = () => now().clip.out - now().clip.in
+  const under = window.__pfState().doc.layers.find((l) => l.assetId && l.clip)
+  const underRange = window.__pfClips.clipRange(under, window.__pfAssets.getAsset(under.assetId))
+
+  const landed = { start: now().clip.start, len: len() }
+  window.__pfState().trimClip(fx.id, 'end', 12000)
+  await new Promise((r) => setTimeout(r, 150))
+  const short = len()
+  // The thing that could not be done: make it longer again.
+  window.__pfState().trimClip(fx.id, 'end', 26000)
+  await new Promise((r) => setTimeout(r, 150))
+  const long = len()
+  window.__pfState().trimClip(fx.id, 'start', 3000)
+  await new Promise((r) => setTimeout(r, 150))
+  return {
+    landed,
+    under: { start: Math.round(underRange.start), len: Math.round(underRange.length) },
+    short: Math.round(short),
+    long: Math.round(long),
+    afterLeft: { start: now().clip.start, len: Math.round(len()) },
+  }
+})
+console.log('a pixelate over a shot:', JSON.stringify(overlay))
+// A censor should arrive covering the shot it was put over, not three seconds
+// of it — the default is the one that fails safe.
+check('an overlay lands covering the clip it was put over',
+  Math.abs(overlay.landed.len - overlay.under.len) < 40
+  && Math.abs(overlay.landed.start - overlay.under.start) < 40,
+  `${JSON.stringify(overlay.landed)} against the shot ${JSON.stringify(overlay.under)}`)
+// Trimming puts the *edge* at that document time, so the length that comes out
+// is measured from wherever the clip starts — which is not zero here, because
+// the shot it landed on does not start the timeline.
+check('it can be shortened',
+  Math.abs(overlay.short - (12000 - overlay.landed.start)) < 40,
+  `${overlay.short}ms from a start of ${overlay.landed.start}`)
+check('and lengthened again past where it was',
+  Math.abs(overlay.long - (26000 - overlay.landed.start)) < 40 && overlay.long > overlay.short,
+  `${overlay.short}ms -> ${overlay.long}ms`)
+check('and its left edge can be dragged earlier',
+  overlay.afterLeft.start === 3000 && Math.abs(overlay.afterLeft.len - 23000) < 40,
+  JSON.stringify(overlay.afterLeft))
+
+// The same for a title, which has no media either.
+const stretched = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.setTime(2000)
+  const { makeTextLayer } = window.__pfStore
+  const l = st.addLayer(makeTextLayer({ text: 'A title', x: 10, y: 10, w: 200, h: 50 }))
+  await new Promise((r) => setTimeout(r, 300))
+  const now = () => window.__pfState().doc.layers.find((x) => x.id === l.id)
+  const before = now().clip.out - now().clip.in
+  window.__pfState().trimClip(l.id, 'end', 14000)
+  await new Promise((r) => setTimeout(r, 150))
+  return { before, after: Math.round(now().clip.out - now().clip.in) }
+})
+console.log('a title stretched:', JSON.stringify(stretched))
+check('a title starts at a readable length', stretched.before === 3000, `${stretched.before}ms`)
+check('and stretches to however long it is needed for',
+  Math.abs(stretched.after - 12000) < 40, `${stretched.before}ms -> ${stretched.after}ms`)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)
