@@ -259,11 +259,12 @@ export function gainAt(points, t) {
 // neighbour over it is an ordinary way to arrive at exactly that, so the
 // transition wins for as long as it lasts and the fade resumes outside it.
 //
-// It fades *opacity*, not to a colour. That is the one behaviour that is right
-// everywhere: a lone clip fades to whatever the canvas is behind it, which for a
-// video export with no alpha is black; and a title over footage fades into the
-// footage instead of appearing under a black rectangle, which is what a veil
-// would do to it.
+// It fades **to black**, which is not the same as fading to transparent.
+// Transparent shows whatever is behind, and at the start of a video that is
+// usually nothing, so the two look identical there — but a clip over other
+// footage faded *into the footage*, which is not what "fade to black" means
+// anywhere else. The black is composited onto the clip's own pixels only, so a
+// cutout fades without a black rectangle appearing around it.
 
 export const hasFade = (l) => (l?.fade?.in > 0) || (l?.fade?.out > 0)
 

@@ -7,7 +7,7 @@ import { resolveLayer, keyExtent, allKeyTimes } from './keyframes.js'
 import { resolveGroups, isGroup } from './groups.js'
 import { keyedFrame } from './matte.js'
 import { keyedFrameAI } from './aiMatte.js'
-import { frameAt as videoFrameAt, ensureDecoded, exactFrame } from './video.js'
+import { frameAt as videoFrameAt, ensureDecoded, exactFrame, indexAt } from './video.js'
 import { subjectFrame, stickerFrame } from './subject.js'
 import {
   assetTimeFor, visibleAt as clipVisibleAt, clipRange,
@@ -141,15 +141,48 @@ export function sourceFor(layer, time) {
   return asset.frames[frameIndexAt(asset, t)].bitmap
 }
 
-/** Asks every visible video layer to decode around `time`. Fire and forget. */
+/**
+ * Asks every visible video layer to decode around `time`. Fire and forget.
+ *
+ * Grouped by *asset*, which matters the moment two clips of one video overlap.
+ * A transition between two halves of the same clip needs two different frames of
+ * it at the same instant, and there is one decoder run per asset — a run that
+ * only goes forwards. Asking for each position in turn made them tear that run
+ * down and rebuild it by turns, every frame: hundreds of chunks decoded a second
+ * and nothing delivered, the picture black, the thumbnails starved, and the
+ * sound — which comes from somewhere else entirely — carrying on fine.
+ *
+ * So the positions wanted from one asset are collected first, and the run is
+ * started at the earliest and fed far enough forward to reach the latest. For a
+ * crossfade the two are adjacent in the source, so that span is the length of
+ * the overlap and sits inside the cache with room to spare.
+ */
 export function primeVideo(doc, time) {
+  const wants = new Map()
   for (const l of doc.layers) {
     if (l.type !== 'image' || l.visible === false) continue
     const a = getAsset(l.assetId)
     if (!a?.isVideo) continue
     if (!onScreen(l, time)) continue
-    const t = assetTime(l, time)
-    ensureDecoded(a, l.clip ? t : ((t % a.duration) + a.duration) % a.duration)
+    const t0 = assetTime(l, time)
+    const t = l.clip ? t0 : ((t0 % a.duration) + a.duration) % a.duration
+    const at = wants.get(a)
+    if (!at) wants.set(a, { lo: t, hi: t })
+    else {
+      if (t < at.lo) at.lo = t
+      if (t > at.hi) at.hi = t
+    }
+  }
+  for (const [a, { lo, hi }] of wants) {
+    // One position: leave the lookahead alone, so ordinary playback keeps the
+    // generous prefetch it was tuned with.
+    if (hi === lo) { ensureDecoded(a, lo); continue }
+    // Two: reach far enough to cover both, but never ask for more than the
+    // cache can hold — past that the far frames would evict the near ones as
+    // they arrive, and both clips would be served nothing instead of one being
+    // served its nearest.
+    const span = indexAt(a, hi) - indexAt(a, lo)
+    ensureDecoded(a, lo, Math.min(Math.max(8, a.cache.limit - 4), span + 8))
   }
 }
 
@@ -950,6 +983,45 @@ function withClone(ctx, l, draw) {
   ctx.drawImage(out, 0, 0)
 }
 
+/**
+ * Draws a clip on its way in or out of black.
+ *
+ * A fade dims the picture *to black*, which is not the same as making it
+ * transparent: transparent shows whatever is behind, and at the start of a video
+ * that is usually nothing at all, so it happened to look right — but a clip over
+ * other footage faded into the footage rather than to black, which is not what
+ * "fade to black" means anywhere else.
+ *
+ * The black lands only where the clip has pixels. It is composited `source-atop`
+ * inside a scratch surface holding the clip alone, so a cutout fades to black
+ * without a black rectangle appearing around it, and nothing under the clip is
+ * touched. Painting the layer's box would have been three lines and wrong for
+ * every layer that is not a full rectangle.
+ */
+function withDim(ctx, l, k, draw) {
+  if (k <= 0) { draw(ctx); return }
+  const w = ctx.canvas.width
+  const h = ctx.canvas.height
+  const sc = eraseScratch('dim', w, h)
+  const sx = sc.getContext('2d')
+  sx.setTransform(1, 0, 0, 1, 0, 0)
+  sx.globalAlpha = 1
+  sx.globalCompositeOperation = 'source-over'
+  sx.filter = 'none'
+  sx.clearRect(0, 0, w, h)
+
+  draw(sx)
+
+  sx.save()
+  sx.globalCompositeOperation = 'source-atop'
+  sx.globalAlpha = Math.min(1, k)
+  sx.fillStyle = '#000000'
+  sx.fillRect(0, 0, w, h)
+  sx.restore()
+
+  ctx.drawImage(sc, 0, 0)
+}
+
 function withMask(ctx, l, draw) {
   // A sticker has already folded the mask and the erase strokes into the shape
   // it grew its border from. Applying them a second time here would cut that
@@ -1170,11 +1242,13 @@ function renderDocumentInner(ctx, doc, time) {
     // as well leaves the pair summing to less than one and the picture goes
     // translucent. Fading a clip and then dragging its neighbour over it is an
     // ordinary way to arrive there.
-    const fade = mix || !hasFade(raw)
-      ? 1
-      : fadeAlphaAt(resolved, time, getAsset(raw.assetId))
-    if (fade <= 0) continue
-    const alpha = (resolved.opacity ?? 1) * groupAlpha * (draw ? draw.alpha : 1) * fade
+    //
+    // `dim` rather than alpha: this is a fade to black, and the difference shows
+    // the moment there is anything underneath.
+    const dim = mix || !hasFade(raw)
+      ? 0
+      : 1 - fadeAlphaAt(resolved, time, getAsset(raw.assetId))
+    const alpha = (resolved.opacity ?? 1) * groupAlpha * (draw ? draw.alpha : 1)
     const l = alpha === (resolved.opacity ?? 1)
       ? resolved
       : { ...resolved, opacity: alpha }
@@ -1198,20 +1272,22 @@ function renderDocumentInner(ctx, doc, time) {
       // Cinemagraph: the whole layer is painted at one frozen instant, then the
       // masked region alone is repainted live on top. Two ordinary draws — the
       // mask machinery and the frame sampling both already exist.
-      paintLayer(ctx, { ...l, mask: null }, l.freeze.time || 0)
-      ctx.filter = 'none'
-      ctx.globalAlpha = 1
-      ctx.globalCompositeOperation = 'source-over'
-      withMask(ctx, l, (c) => paintLayer(c, l, time))
+      withDim(ctx, l, dim, (c) => {
+        paintLayer(c, { ...l, mask: null }, l.freeze.time || 0)
+        c.filter = 'none'
+        c.globalAlpha = 1
+        c.globalCompositeOperation = 'source-over'
+        withMask(c, l, (cc) => paintLayer(cc, l, time))
+      })
     } else if (l.type === 'text' && l.outlineAbove && l.outlineWhole) {
       // Letters that something in front will hide are left out here and drawn
       // as complete outlines in the second pass, so a letter is never half
       // solid and half outline.
       const skip = hiddenSetFor(ctx, doc, l, time)
-      withMask(ctx, l, (c) => drawTextLayer(c, l, { skip }))
+      withDim(ctx, l, dim, (c) => withMask(c, l, (cc) => drawTextLayer(cc, l, { skip })))
     } else {
       if (l.trails?.on) drawTrails(ctx, raw, l, time, groupAlpha)
-      withMask(ctx, l, (c) => paintLayer(c, l, time))
+      withDim(ctx, l, dim, (c) => withMask(c, l, (cc) => paintLayer(cc, l, time)))
     }
     if (draw?.reveal) ctx.restore()
     ctx.filter = 'none'

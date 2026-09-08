@@ -385,13 +385,11 @@ export default function Inspector() {
         {l.clip && (
           <Section
             title="Fade"
-            info={'How long the clip takes to come up at its start and go away at its end. '
-              + 'Drag the square handles in the top corners of the clip on the timeline — the '
-              + 'ramp drawn on it is the fade. It fades opacity rather than to a colour, so a '
-              + 'clip on its own fades to whatever the canvas is behind it (black, in a video '
-              + 'export) and a title over footage fades into the footage instead of appearing '
-              + 'from under a black rectangle. Each is capped at half the clip so the two '
-              + 'cannot cross.'}
+            info={'How long the clip takes to come up from black at its start and go back to '
+              + 'black at its end. Drag the square handles in the top corners of the clip on '
+              + 'the timeline — the ramp drawn on it is the fade. The black lands only where '
+              + 'the clip has pixels, so a cutout fades without a black rectangle appearing '
+              + 'around it. Each is capped at half the clip so the two cannot cross.'}
             right={hasFade(l) && (
               <button className="mini" onClick={() => setFade(base.id, { in: 0, out: 0 })}>
                 Clear

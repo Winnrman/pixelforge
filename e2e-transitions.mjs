@@ -345,7 +345,7 @@ check('and fully up once the fade is done', bright(upFully) > 180, String(bright
 check('then on its way out at the far end',
   bright(quarterOut) < bright(upFully) * 0.4, `${bright(quarterOut)} against ${bright(upFully)}`)
 check('and gone on the last frame', bright(atEnd) < 12, JSON.stringify(atEnd))
-check('and the frame stays opaque the whole way — it fades, it does not vanish',
+check('and the frame stays opaque the whole way — it fades to black, it does not vanish',
   atStart.a > 250 && atEnd.a > 250, `${atStart.a}, ${atEnd.a}`)
 await page.screenshot({ path: path.join(OUT, '04-fade.png') })
 
@@ -373,8 +373,12 @@ const through = await page.evaluate(async (s) => {
 }, faded)
 const behind = await frameAt(0)
 console.log('with something underneath:', JSON.stringify(behind))
-check('fading out shows what is behind rather than painting over it',
-  behind.b > 150 && behind.r < 60, JSON.stringify(behind))
+// This is the difference between fading opacity and fading to black, and it only
+// shows when there is something under the clip. Opacity would reveal the blue
+// underneath; a fade to black goes black, which is what was asked for.
+check('a clip over other footage fades to black, not into the footage',
+  behind.r < 40 && behind.g < 40 && behind.b < 40, JSON.stringify(behind))
+check('and the frame is still solid', behind.a > 250, `alpha ${behind.a}`)
 
 // --- the handle is on the clip ------------------------------------------------------
 const handles = await page.evaluate(async () => {
@@ -482,7 +486,8 @@ console.log('pulled apart again:', JSON.stringify(restored), JSON.stringify(fadi
 check('the fade was never lost, only stood aside', restored.out === 300,
   JSON.stringify(restored))
 check('and it fades again once nothing is dissolving over it',
-  fadingAgain.a < 200, `alpha ${fadingAgain.a}`)
+  fadingAgain.r < 130 && fadingAgain.a > 250,
+  `${fadingAgain.r} red at alpha ${fadingAgain.a}`)
 
 // --- cutting a faded clip in two -----------------------------------------------------
 const cutInTwo = await page.evaluate(async () => {
@@ -515,6 +520,88 @@ const atTheCut = await frameAt(700)
 console.log('at the cut:', JSON.stringify(atTheCut))
 check('so the picture does not dip where the cut is', atTheCut.a > 250,
   `alpha ${atTheCut.a}`)
+
+// --- two clips of one video, overlapping --------------------------------------------
+// A transition between two halves of the same clip needs two different frames of
+// one video at the same instant, and there is one decoder run per asset that only
+// goes forwards. Asking for each position in turn made them tear that run down and
+// rebuild it by turns — on a big video, hundreds of chunks a second and nothing
+// delivered: black picture, no thumbnails, and sound carrying on fine because it
+// comes from somewhere else entirely.
+const sameAsset = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  await new Promise((r) => setTimeout(r, 300))
+  return true
+})
+await importAndPlace(page, 'public/test/longgop.mp4', { timeout: 40000 })
+await page.evaluate(() => { window.__pfState().setPlaying(false); window.__pfState().setTime(0) })
+await page.waitForTimeout(1500)
+
+const overlapped = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const a = window.__pfAssets.getAsset(st.doc.layers[0].assetId)
+  const at = Math.round(a.duration / 2)
+  st.setTime(at)
+  await new Promise((r) => setTimeout(r, 200))
+  window.__pfState().splitClips(at)
+  await new Promise((r) => setTimeout(r, 600))
+  const s2 = window.__pfState()
+  const first = s2.doc.layers[0]
+  const end = window.__pfClips.clipRange(first, window.__pfAssets.getAsset(first.assetId)).end
+  window.__pfState().slideClip(s2.doc.layers[1].id, end - 500)
+  await new Promise((r) => setTimeout(r, 700))
+  const s3 = window.__pfState()
+  const pairs = window.__pfTransitions.pairsIn(
+    s3.doc.layers, (l) => window.__pfAssets.getAsset(l.assetId))
+  return {
+    pairs: pairs.length,
+    mid: pairs[0] ? Math.round((pairs[0].start + pairs[0].end) / 2) : 0,
+    // Both clips come from one asset, which is the whole point.
+    assets: new Set(s3.doc.layers.map((l) => l.assetId)).size,
+  }
+})
+console.log('two halves of one video, lapped:', JSON.stringify(overlapped))
+check('two clips of one asset, overlapping', overlapped.pairs === 1 && overlapped.assets === 1,
+  JSON.stringify(overlapped))
+
+// The frame cache is sized by a pixel budget, so this 640x360 fixture fits in it
+// whole and never evicts anything — which is exactly why the fault does not show
+// on it. A 1080x1486 video gets about 59 frames, and two positions half a second
+// apart want more than that between them. Squeezing the cache to that size lets a
+// small fixture stand in for a big one; the alternative is shipping a 100MB video
+// to prove it.
+const squeeze = () => page.evaluate(() => {
+  const st = window.__pfState()
+  const a = window.__pfAssets.getAsset(st.doc.layers[0].assetId)
+  for (const v of a.cache.map.values()) v?.close?.()
+  a.cache.map.clear()
+  a.cache.limit = 24
+})
+await squeeze()
+
+const inside = await page.evaluate(async (mid) => {
+  window.__pfState().setTime(mid)
+  await new Promise((r) => setTimeout(r, 600))
+  const st = window.__pfState()
+  const c = document.createElement('canvas')
+  c.width = st.doc.width
+  c.height = st.doc.height
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  window.__pfRender.renderDocument(ctx, st.doc, mid)
+  const d = ctx.getImageData(0, 0, c.width, c.height).data
+  let lum = 0
+  let alpha = 0
+  for (let i = 0; i < d.length; i += 4) { lum += d[i] + d[i + 1] + d[i + 2]; alpha += d[i + 3] }
+  const n = d.length / 4
+  return { lum: Math.round(lum / n), a: Math.round(alpha / n) }
+}, overlapped.mid)
+console.log('the frame inside the overlap, on a squeezed cache:', JSON.stringify(inside))
+// The symptom reported: audio playing, picture black. Two clips of one asset
+// wanting two positions at once, with a cache too small to hold both, is what
+// produced it.
+check('there is a picture inside the overlap, not a black frame',
+  inside.a > 250 && inside.lum > 30, JSON.stringify(inside))
 
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()

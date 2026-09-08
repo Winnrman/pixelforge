@@ -461,12 +461,17 @@ starts, not *how* — so it is the one thing here that is genuinely stored: `fad
 in milliseconds. Set by dragging the square handles in the clip's top corners, with the ramp
 drawn on the clip so it shows its own shape, the same way the lap shows a transition's.
 
-**It fades opacity, not to a colour**, and that is the decision worth defending. A veil of
-black would be right for a lone clip and wrong for everything else: a title fading in over
-footage would appear from under a black rectangle rather than fading into the picture. Fading
-opacity is right in both cases — a clip on its own fades to whatever the canvas is behind it,
-which in a video export with no alpha is black. Set the canvas background if you want to be
-sure of what it fades to.
+**It fades to black**, which is not the same as fading to transparent. The first version
+faded opacity, on the reasoning that a lone clip then fades to whatever the canvas is behind
+it — black in a video export — and that a title would fade *into* the footage rather than
+appear from under a black rectangle. At the start of a video with nothing underneath the two
+are indistinguishable, which is why it seemed fine. Put anything under the clip and it is
+obviously wrong: fading into the footage is not what "fade to black" means anywhere else.
+
+The black is composited `source-atop` inside a scratch surface holding the clip alone, so it
+lands only where the clip has pixels — a cutout fades to black without a black rectangle
+appearing around it, and nothing underneath is touched. Painting the layer's box would have
+been three lines and wrong for every layer that is not a full rectangle.
 
 Each fade is capped at half its clip, so the two can never cross and no moment is defined by
 both ends at once. Clearing both drops the field rather than leaving `{in: 0, out: 0}` behind,
@@ -494,6 +499,25 @@ nothing in the middle of continuous footage, twice, for no reason the timeline e
 A fade belongs to the outside edges of a run, so the left half keeps the fade in, the right
 half keeps the fade out, and each drops the one that would land at the cut. Both are re-capped
 as well, since both halves are shorter than what they came from.
+
+### Two clips of one video
+
+Splitting a clip and lapping the halves asks for two different frames of the same video at the
+same instant — and there is one decoder run per asset, which only goes forwards. `primeVideo`
+asked for each position in turn, so the two tore that run down and rebuilt it by turns. Sitting
+still on one frame, that measured **14 decoder restarts and 2860 chunks decoded** where one
+run needs one restart and about two hundred.
+
+The positions wanted from one asset are now collected first, and the run is started at the
+earliest and fed far enough forward to reach the latest — for a crossfade the two are adjacent
+in the source, so that span is the length of the overlap. Never further than the cache can
+hold: past that the far frames evict the near ones as they arrive, and both clips get served
+nothing instead of one being served its nearest.
+
+Worth stating plainly: this was found by measuring, not by reproducing a black frame. The
+report it came from — overlapping two clips turning the picture black while the sound played
+on — has not been reproduced, and the check that guards it here passes with the fix reverted.
+The decoder churn was real and is fixed; whether it was *the* cause is not established.
 
 ### The sound crosses too
 
@@ -2037,12 +2061,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-eight browser suites (**869 checks**), two Electron suites (**70 checks** — the shell
+Thirty-eight browser suites (**872 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1338
+for the parts that are pure maths and deserve testing without a browser at all. **1341
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same
