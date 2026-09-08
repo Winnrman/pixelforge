@@ -15,7 +15,7 @@ import {
 import { suggestLoop } from '../engine/loop.js'
 import { cardInsets, layoutCollage, defaultCollage } from '../engine/collage.js'
 import { defaultBrush, newStroke, newRegion, docToLayer } from '../engine/erase.js'
-import { DEFAULT_KIND as DEFAULT_TRANSITION, maxFade } from '../engine/transitions.js'
+import { DEFAULT_KIND as DEFAULT_TRANSITION, maxFade, splitFade } from '../engine/transitions.js'
 import { cursorPath, smoothPath, autoZoomTracks } from '../engine/cursor.js'
 import { exactFrame } from '../engine/video.js'
 import {
@@ -1125,8 +1125,13 @@ export const useStore = create((set, get) => ({
       const hit = targets.find((t) => t.id === l.id)
       if (!hit) { layers.push(l); continue }
       const [a, b] = splitAt(l, at, getAsset(l.assetId))
-      const right = { ...clone(l), id: nid('l'), clip: b }
-      layers.push({ ...l, clip: a })
+      // A fade belongs to the outside edges of a run. Cloning the layer copied
+      // the whole thing to both halves, which put a fade to nothing at the cut
+      // — the picture dipped in the middle of continuous footage, twice.
+      const speed = Math.abs(l.speed || 1) || 1
+      const [fa, fb] = splitFade(l.fade, (a.out - a.in) / speed, (b.out - b.in) / speed)
+      const right = { ...clone(l), id: nid('l'), clip: b, fade: fb }
+      layers.push({ ...l, clip: a, fade: fa })
       layers.push(right)
       made.push(right.id)
     }

@@ -7,7 +7,8 @@
 import {
   pairsIn, stateAt, drawFor, revealRect, orderForTransitions,
   audioRamp, gainPointsFor, gainAt, kindOf, MIN_OVERLAP_MS, DEFAULT_KIND,
-  fadeAlphaAt, fadePoints, voiceGainPoints, hasFade, maxFade,
+  fadeAlphaAt, fadePoints, voiceGainPoints, hasFade, maxFade, windowsFor, inAny,
+  splitFade,
 } from './src/engine/transitions.js'
 
 let pass = 0
@@ -283,6 +284,81 @@ const assetOf = () => null
   check('silent as it dissolves in', near(gainAt(pts, 800), 0), String(gainAt(pts, 800)))
   check('full in the middle', near(gainAt(pts, 1200), 1), String(gainAt(pts, 1200)))
   check('and silent again at the end', near(gainAt(pts, 1800), 0), String(gainAt(pts, 1800)))
+}
+
+// --- a fade and a transition at the same edge --------------------------------------
+// Fade a clip, then drag its neighbour over it — an ordinary way to work, and the
+// two then attenuate the same clip over the same instants. Applying both does not
+// fade harder, it breaks the frame: a dissolve holds together only because the
+// outgoing clip stays solid, so dimming it as well leaves the pair summing to
+// less than one and the picture goes translucent. Measured on the canvas it was
+// alpha 198 of 255 through the middle of the overlap.
+{
+  const a = clip('a', 0, 1500, { fade: { in: 0, out: 300 } })
+  const b = clip('b', 1200, 1000)
+  const pairs = pairsIn([a, b], assetOf)
+  check('the overlap is found', pairs.length === 1 && pairs[0].start === 1200)
+  const w = windowsFor('a', pairs)
+  check('and the outgoing clip knows it is inside it',
+    inAny(w, 1350) === true && inAny(w, 1100) === false, JSON.stringify(w))
+  // The renderer suppresses the fade for exactly those instants; the fade curve
+  // itself is unchanged, which is what lets it resume if the clips are pulled
+  // apart again.
+  check('its own fade still says what it would do on its own',
+    near(fadeAlphaAt(a, 1350, null), 0.5), String(fadeAlphaAt(a, 1350, null)))
+}
+{
+  // The sound has to follow the same rule, or a crossfade dips.
+  const a = clip('a', 0, 1500, { fade: { in: 0, out: 300 } })
+  const b = clip('b', 1200, 1000)
+  const pairs = pairsIn([a, b], assetOf)
+  const pts = voiceGainPoints(a, null, pairs)
+  check('inside the overlap the sound follows the transition, not both',
+    near(gainAt(pts, 1350), 0.5), String(gainAt(pts, 1350)))
+  check('at the start of the overlap it is still full',
+    near(gainAt(pts, 1200), 1), String(gainAt(pts, 1200)))
+  check('and silent by the end of it', near(gainAt(pts, 1500), 0), String(gainAt(pts, 1500)))
+}
+{
+  // A fade at the far end, away from the transition, is left alone.
+  const a = clip('a', 0, 1000)
+  const b = clip('b', 800, 2000, { fade: { in: 0, out: 400 } })
+  const pairs = pairsIn([a, b], assetOf)
+  const w = windowsFor('b', pairs)
+  check('a fade away from the overlap is untouched',
+    inAny(w, 2600) === false && near(fadeAlphaAt(b, 2600, null), 0.5),
+    `${JSON.stringify(w)} / ${fadeAlphaAt(b, 2600, null)}`)
+  const pts = voiceGainPoints(b, null, pairs)
+  check('and its sound fades there too', near(gainAt(pts, 2600), 0.5), String(gainAt(pts, 2600)))
+}
+
+// --- cutting a faded clip in two -----------------------------------------------------
+{
+  // Cloning the layer copied the fade to both halves, so the left one faded out
+  // at the cut and the right one faded in there: a dip to nothing in the middle
+  // of continuous footage, which is not what cutting a clip means.
+  const [left, right] = splitFade({ in: 300, out: 400 }, 1000, 1200)
+  check('the left half keeps the fade in', left.in === 300 && left.out === 0,
+    JSON.stringify(left))
+  check('and the right half keeps the fade out', right.out === 400 && right.in === 0,
+    JSON.stringify(right))
+}
+{
+  const [left, right] = splitFade({ in: 0, out: 400 }, 1000, 1200)
+  check('a half with nothing left to do carries no fade at all', left === undefined,
+    JSON.stringify(left))
+  check('and the other still carries its own', right.out === 400)
+}
+{
+  // Both halves are shorter than what they came from, so the cap is re-applied.
+  const [left] = splitFade({ in: 900, out: 0 }, 1000, 1000)
+  check('a fade too long for its new half is cut down to fit', left.in === 500,
+    JSON.stringify(left))
+}
+{
+  check('a clip with no fade splits into two with none',
+    JSON.stringify(splitFade(null, 100, 100)) === '[null,null]'
+    || splitFade(null, 100, 100).every((x) => x === undefined))
 }
 
 console.log(`\n${pass} of ${pass + fail} passed`)

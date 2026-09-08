@@ -1374,11 +1374,20 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   pointer-events: none;
   z-index: 3;
 }
+/* A line across the corner and a light tint under it, not a black wash: the
+   first version was opaque enough to hide the thumbnails, which does not read as
+   "this fades in", it reads as a clip that failed to load. */
 .strip .clip-fade-ramp.start {
   left: 0;
-  background: linear-gradient(to right, rgba(0,0,0,0.82), rgba(0,0,0,0));
+  background:
+    linear-gradient(to top right,
+      transparent calc(50% - 0.8px), rgba(255,255,255,0.75) 50%, transparent calc(50% + 0.8px)),
+    linear-gradient(to right, rgba(0,0,0,0.45), rgba(0,0,0,0));
 }
 .strip .clip-fade-ramp.end {
   right: 0;
-  background: linear-gradient(to left, rgba(0,0,0,0.82), rgba(0,0,0,0));
+  background:
+    linear-gradient(to bottom right,
+      transparent calc(50% - 0.8px), rgba(255,255,255,0.75) 50%, transparent calc(50% + 0.8px)),
+    linear-gradient(to left, rgba(0,0,0,0.45), rgba(0,0,0,0));
 }

@@ -250,6 +250,15 @@ export function gainAt(points, t) {
 // say when it starts, not how it starts — so it is the one thing here that is
 // actually stored: `fade: { in, out }`, in milliseconds.
 //
+// A transition at an edge **supersedes** the fade at that edge. Both attenuate
+// the same clip over the same instants, and applying both is not "more fade" but
+// a broken frame: a crossfade only holds together because the outgoing clip
+// stays solid while the incoming comes up, so dimming the outgoing as well
+// leaves the pair summing to less than one and the picture goes translucent —
+// black, over a transparent canvas. Fading a clip and then dragging its
+// neighbour over it is an ordinary way to arrive at exactly that, so the
+// transition wins for as long as it lasts and the fade resumes outside it.
+//
 // It fades *opacity*, not to a colour. That is the one behaviour that is right
 // everywhere: a lone clip fades to whatever the canvas is behind it, which for a
 // video export with no alpha is black; and a title over footage fades into the
@@ -301,6 +310,42 @@ export function voiceGainPoints(layer, asset, pairs) {
   const f = fadePoints(layer, asset)
   if (!t.length) return f
   if (!f.length) return t
-  const times = [...new Set([...t, ...f].map((p) => p[0]))].sort((a, b) => a - b)
-  return times.map((x) => [x, Math.min(gainAt(t, x), gainAt(f, x))])
+  const w = windowsFor(layer.id, pairs)
+  const times = [...new Set([
+    ...t.map((p) => p[0]), ...f.map((p) => p[0]), ...w.flat(),
+  ])].sort((a, b) => a - b)
+  return times.map((x) => [x, inAny(w, x) ? gainAt(t, x) : gainAt(f, x)])
+}
+
+/** The overlap windows one clip is part of. */
+export function windowsFor(layerId, pairs) {
+  return pairs
+    .filter((p) => p.outId === layerId || p.inId === layerId)
+    .map((p) => [p.start, p.end])
+}
+
+/** Whether a moment falls inside any of them. */
+export const inAny = (windows, t) => windows.some(([a, b]) => t >= a && t <= b)
+
+/**
+ * How a fade is divided when its clip is cut in two.
+ *
+ * A fade belongs to the outside edges of a run, so the left half keeps the fade
+ * in and the right half keeps the fade out, and both lose the one that would now
+ * land at the cut. Copying the whole thing to both halves — which is what
+ * cloning the layer does, and did — puts a fade to nothing in the middle of
+ * continuous footage: the picture dips at the join, twice, for no reason the
+ * timeline explains.
+ *
+ * Each is re-capped as well, because both halves are shorter than what they came
+ * from and a fade may never be more than half its clip.
+ */
+export function splitFade(fade, leftLength, rightLength) {
+  if (!fade) return [undefined, undefined]
+  const fin = Math.min(Math.max(0, fade.in || 0), maxFade(leftLength))
+  const fout = Math.min(Math.max(0, fade.out || 0), maxFade(rightLength))
+  return [
+    fin > 0 ? { in: Math.round(fin), out: 0 } : undefined,
+    fout > 0 ? { in: 0, out: Math.round(fout) } : undefined,
+  ]
 }

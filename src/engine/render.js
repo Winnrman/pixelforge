@@ -1163,10 +1163,16 @@ function renderDocumentInner(ctx, doc, time) {
     // A clip that has faded all the way out is not drawn at all rather than
     // drawn at zero: an invisible layer still costs a video frame decode.
     if (draw && draw.alpha <= 0) continue
-    // A clip's own fade at its ends, on top of whatever a transition is doing —
-    // a clip can be dissolving into its neighbour and fading at its far end in
-    // the same breath, and the two multiply.
-    const fade = hasFade(raw) ? fadeAlphaAt(resolved, time, getAsset(raw.assetId)) : 1
+    // A clip's own fade at its ends — but not where a transition is already
+    // doing that job. Both attenuate the same clip over the same instants, and
+    // applying both does not fade harder, it breaks the frame: the dissolve
+    // holds together only because the outgoing clip stays solid, so dimming it
+    // as well leaves the pair summing to less than one and the picture goes
+    // translucent. Fading a clip and then dragging its neighbour over it is an
+    // ordinary way to arrive there.
+    const fade = mix || !hasFade(raw)
+      ? 1
+      : fadeAlphaAt(resolved, time, getAsset(raw.assetId))
     if (fade <= 0) continue
     const alpha = (resolved.opacity ?? 1) * groupAlpha * (draw ? draw.alpha : 1) * fade
     const l = alpha === (resolved.opacity ?? 1)

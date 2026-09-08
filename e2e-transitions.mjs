@@ -410,6 +410,112 @@ const cleared = await page.evaluate((s) => {
 check('clearing a fade leaves the clip as it was, not with zeroes on it',
   cleared === null, JSON.stringify(cleared))
 
+// --- fade a clip, then drag its neighbour over it ------------------------------------
+// The sequence that went black: split a clip, fade the first half, drag the
+// second onto it. The fade-out and the crossfade then cover the same instants,
+// and both were being applied — which does not fade harder, it breaks the frame.
+// A dissolve holds together only because the outgoing clip stays solid, so
+// dimming it as well left the pair summing to less than one and the picture went
+// translucent, which over a canvas with nothing behind it is black.
+const bothAtOnce = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  await new Promise((r) => setTimeout(r, 250))
+  const make = async (colour, name) => {
+    const c = document.createElement('canvas')
+    c.width = 200
+    c.height = 120
+    const x = c.getContext('2d')
+    x.fillStyle = colour
+    x.fillRect(0, 0, 200, 120)
+    const blob = await new Promise((r) => c.toBlob(r, 'image/png'))
+    return window.__pfAssets.loadImageFile(new File([blob], name, { type: 'image/png' }))
+  }
+  const red = await make('#c81414', 'r.png')
+  const blue = await make('#1414c8', 'b.png')
+  window.__pfState().placeMedia([red.id], { resizeDocToFirst: true })
+  await new Promise((r) => setTimeout(r, 350))
+  window.__pfState().placeMedia([blue.id])
+  await new Promise((r) => setTimeout(r, 350))
+  window.__pfState().setPlaying(false)
+  const st2 = window.__pfState()
+  const [a, b] = st2.doc.layers
+  st2.updateLayer(a.id, { track: 0, clip: { start: 0, in: 0, out: 1500 } })
+  window.__pfState().updateLayer(b.id, { track: 0, clip: { start: 1500, in: 0, out: 1500 } })
+  // Fade the first, exactly as a person would before dragging anything.
+  window.__pfState().setFade(a.id, { in: 0, out: 300 })
+  await new Promise((r) => setTimeout(r, 200))
+  // Then drag the second one back onto it.
+  window.__pfState().slideClip(b.id, 1200)
+  await new Promise((r) => setTimeout(r, 350))
+  const st3 = window.__pfState()
+  const assetOf = (l) => window.__pfAssets.getAsset(l.assetId)
+  return {
+    fade: st3.doc.layers.find((l) => l.id === a.id).fade,
+    pairs: window.__pfTransitions.pairsIn(st3.doc.layers, assetOf).length,
+  }
+})
+console.log('faded, then lapped:', JSON.stringify(bothAtOnce))
+check('the clip keeps its fade and gains a transition',
+  bothAtOnce.fade.out === 300 && bothAtOnce.pairs === 1, JSON.stringify(bothAtOnce))
+
+const mixing = [await frameAt(1200), await frameAt(1275), await frameAt(1350), await frameAt(1425)]
+console.log('through the overlap:', JSON.stringify(mixing))
+check('the picture stays solid right through the overlap',
+  mixing.every((f) => f.a > 250), mixing.map((f) => f.a).join(', '))
+check('and it is a dissolve, not a dip to nothing',
+  mixing[2].r > 40 && mixing[2].b > 40, JSON.stringify(mixing[2]))
+check('travelling from one clip to the other',
+  mixing[0].r > mixing[3].r && mixing[3].b > mixing[0].b,
+  `${mixing[0].r} -> ${mixing[3].r} red, ${mixing[0].b} -> ${mixing[3].b} blue`)
+
+// Pull them apart and the fade the user set is still there, doing its job again.
+const restored = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const b = st.doc.layers[1]
+  st.slideClip(b.id, 1500)
+  await new Promise((r) => setTimeout(r, 300))
+  return window.__pfState().doc.layers[0].fade
+})
+const fadingAgain = await frameAt(1350)
+console.log('pulled apart again:', JSON.stringify(restored), JSON.stringify(fadingAgain))
+check('the fade was never lost, only stood aside', restored.out === 300,
+  JSON.stringify(restored))
+check('and it fades again once nothing is dissolving over it',
+  fadingAgain.a < 200, `alpha ${fadingAgain.a}`)
+
+// --- cutting a faded clip in two -----------------------------------------------------
+const cutInTwo = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const id = st.doc.layers[0].id
+  st.setFade(id, { in: 300, out: 300 })
+  await new Promise((r) => setTimeout(r, 200))
+  window.__pfState().setTime(700)
+  const n = window.__pfState().splitClips(700, [id])
+  await new Promise((r) => setTimeout(r, 400))
+  const clips = window.__pfState().doc.layers.filter((l) => l.clip)
+  return {
+    n,
+    fades: clips.map((l) => (l.fade ? { in: l.fade.in, out: l.fade.out } : null)),
+  }
+})
+console.log('after cutting a faded clip:', JSON.stringify(cutInTwo))
+check('cutting a faded clip gives two clips', cutInTwo.n >= 1 && cutInTwo.fades.length >= 2,
+  JSON.stringify(cutInTwo))
+// Cloning the layer used to copy the whole fade to both halves, which put a dip
+// to nothing at the cut — in the middle of continuous footage.
+check('the first half keeps only its fade in',
+  cutInTwo.fades[0] && cutInTwo.fades[0].in === 300 && cutInTwo.fades[0].out === 0,
+  JSON.stringify(cutInTwo.fades[0]))
+check('and the second only its fade out',
+  cutInTwo.fades[1] && cutInTwo.fades[1].out === 300 && cutInTwo.fades[1].in === 0,
+  JSON.stringify(cutInTwo.fades[1]))
+
+const atTheCut = await frameAt(700)
+console.log('at the cut:', JSON.stringify(atTheCut))
+check('so the picture does not dip where the cut is', atTheCut.a > 250,
+  `alpha ${atTheCut.a}`)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

@@ -472,6 +472,29 @@ Each fade is capped at half its clip, so the two can never cross and no moment i
 both ends at once. Clearing both drops the field rather than leaving `{in: 0, out: 0}` behind,
 so a clip with no fades is the same document it was before anyone touched the handles.
 
+### When a fade and a transition meet
+
+Fade a clip, then drag its neighbour over it. Both now attenuate the same clip over the same
+instants — and applying both does not fade harder, it breaks the frame. A dissolve holds
+together only because the outgoing clip stays solid while the incoming comes up; dimming the
+outgoing as well leaves the pair summing to less than one, and the picture goes translucent,
+which over a canvas with nothing behind it is **black**. Measured on the canvas it was alpha
+191 of 255 through the middle of the overlap.
+
+So a transition supersedes the fade at that edge, for exactly as long as it lasts. The fade is
+not changed or cleared — pull the clips apart and it does its job again. The sound follows the
+same rule, or a crossfade dips.
+
+### Cutting a faded clip in two
+
+`splitClips` clones the layer for the right-hand half, which copied the whole fade to both:
+the left one then faded out at the cut and the right one faded in there, putting a dip to
+nothing in the middle of continuous footage, twice, for no reason the timeline explained.
+
+A fade belongs to the outside edges of a run, so the left half keeps the fade in, the right
+half keeps the fade out, and each drops the one that would land at the cut. Both are re-capped
+as well, since both halves are shorter than what they came from.
+
 ### The sound crosses too
 
 A picture that dissolves under a hard audio cut is the thing that sounds broken — it is the
@@ -2014,12 +2037,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-eight browser suites (**859 checks**), two Electron suites (**70 checks** — the shell
+Thirty-eight browser suites (**869 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1314
+for the parts that are pure maths and deserve testing without a browser at all. **1338
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same
