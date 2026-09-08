@@ -189,6 +189,65 @@ check('and the curve it follows is the one on the lane',
   Math.abs(scheduled.atStart - 0.2) < 0.01 && Math.abs(scheduled.atEnd - 1.6) < 0.01,
   `${scheduled.atStart} -> ${scheduled.atEnd}`)
 
+// --- the waveform has to show shape, not a ceiling ------------------------------------
+// A peak envelope is a true picture of a signal and a useless one for anything
+// mastered in the last thirty years: compressed hard enough that it touches the
+// ceiling from end to end, so it draws as a solid block that says nothing about
+// where the words are. The body — root mean square — is the loudness you hear.
+const shape = await page.evaluate(() => {
+  // Peaks pinned at full scale throughout, loudness halving partway: exactly
+  // what compression does, and what a peak-only waveform cannot show.
+  const ctx = new OfflineAudioContext(1, 44100 * 4, 44100)
+  const buf = ctx.createBuffer(1, 44100 * 4, 44100)
+  const d = buf.getChannelData(0)
+  for (let i = 0; i < d.length; i++) {
+    const loud = i < d.length / 2
+    d[i] = loud ? Math.sin((i / 44100) * 700) * 0.98 : ((i % 900) < 6 ? 0.98 : 0)
+  }
+  const asset = { audio: buf }
+  const W = window.__pfWave
+  const peak = [...W.columnsFor(asset, 0, 4000, 20, 'peak')]
+  const rms = [...W.columnsFor(asset, 0, 4000, 20, 'rms')]
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length
+  return {
+    peakFirst: mean(peak.slice(0, 9)),
+    peakLast: mean(peak.slice(11)),
+    rmsFirst: mean(rms.slice(0, 9)),
+    rmsLast: mean(rms.slice(11)),
+  }
+})
+console.log('peaks against body on compressed audio:', JSON.stringify(shape))
+check('the peak envelope really is flat on this — it is not a bad measurement',
+  Math.abs(shape.peakFirst - shape.peakLast) < 0.05,
+  `${shape.peakFirst.toFixed(2)} then ${shape.peakLast.toFixed(2)}`)
+check('and the body shows the drop the peaks hide',
+  shape.rmsFirst > shape.rmsLast * 2,
+  `${shape.rmsFirst.toFixed(2)} then ${shape.rmsLast.toFixed(2)}`)
+
+const drawnLane = await page.evaluate(() => {
+  const c = document.querySelector('.audio-clip canvas')
+  if (!c) return { none: true }
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  const d = ctx.getImageData(0, 0, c.width, c.height).data
+  // How tall the drawn wave is across the lane. A solid block is every column
+  // full height; a waveform is not.
+  const heights = []
+  for (let x = 2; x < c.width - 2; x += Math.max(1, Math.floor(c.width / 24))) {
+    let lit = 0
+    for (let y = 0; y < c.height; y++) if (d[(y * c.width + x) * 4 + 3] > 8) lit++
+    heights.push(lit / c.height)
+  }
+  return { heights, min: Math.min(...heights), max: Math.max(...heights) }
+})
+console.log('the lane as drawn:', JSON.stringify({ min: drawnLane.min, max: drawnLane.max }))
+// Only that there is a wave in the lane, not what shape it is. This fixture is a
+// test pattern with a steady tone under it, so a flat lane is the correct
+// drawing of it — asserting variation here would be asserting the fixture. The
+// pair above is where the shape is checked, against a signal built to have some.
+check('the lane draws the sound rather than filling itself',
+  drawnLane.max > 0.1 && drawnLane.min < 0.95,
+  `heights ${drawnLane.min?.toFixed(2)} to ${drawnLane.max?.toFixed(2)}`)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

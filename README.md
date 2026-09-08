@@ -607,6 +607,21 @@ silently skip frames or bring back ones that had been trimmed away. It refuses o
 says which of those it is, because "cannot join" on its own is a puzzle: a gap between them, an
 overlap (which is a transition, not a cut to undo), or a piece trimmed since the cut.
 
+## A waveform that is a picture of the sound
+
+The lane drew the peak envelope, which is a true picture of a signal and a useless one for
+anything mastered in the last thirty years. Modern audio is compressed hard enough that its
+peaks touch the ceiling from end to end, so the envelope of it is a **solid block** — correct,
+and no help at all in finding a word.
+
+Measured on a signal built to behave that way — peaks pinned at full scale throughout, loudness
+halving halfway through — the peak columns read 1.00 before and 1.00 after. The root-mean-square
+columns read 0.98 and 0.37.
+
+So the lane draws both: the body solid, the peaks as a faint outline around it. The reach of the
+sound and the weight of it. The old drawing was not wrong about the signal, it was answering a
+question nobody asks of a timeline.
+
 ## Sound on its own track
 
 Volume was a number in the inspector and a waveform painted behind the thumbnails on the video
@@ -654,9 +669,13 @@ mean exporting everything and trimming it afterwards. Crossing the marks drops t
 longer makes sense rather than refusing the drag, because a control that argues mid-gesture
 feels stuck. `I` still belongs to the eyedropper while the eyedropper is the tool in hand.
 
-**A frame at a time.** With nothing selected, the arrows step the playhead one frame — with
-something selected they nudge it, which is what they were always for. Cutting on an exact frame
-needs both this and the scroll-zoom.
+**Moving through the video.** The arrows skip and `,` `.` step a frame, which is what a video
+player does and therefore what the fingers already expect — a thirtieth of a second at a time is
+for landing a cut, and getting roughly to the right place first is a different job and a far
+more common one. A skip is five seconds, or a tenth of the timeline when that is less: five
+seconds through a two-second GIF is not a skip, it is the end of it. `Shift` makes the arrow
+fine for when you are nearly there, `Home` and `End` go to the ends, and with a layer selected
+the arrows still nudge it, which is what they were always for.
 
 **Speed and full screen.** A preview rate of 0.25x to 4x, which changes nothing about the edit,
 and `F` for the whole display. The rate scales the audio clock too: a clock that ignored it
@@ -2340,12 +2359,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Forty-three browser suites (**982 checks**), two Electron suites (**70 checks** — the shell
+Forty-three browser suites (**989 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1451
+for the parts that are pure maths and deserve testing without a browser at all. **1458
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

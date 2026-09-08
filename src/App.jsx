@@ -316,18 +316,39 @@ export default function App() {
         return
       }
 
-      // With nothing selected the arrows belong to the playhead. One frame at a
-      // time is how you land a cut on the right one, and there is nothing else
-      // for them to move.
-      if (!typing && e.key.startsWith('Arrow') && !s.selectedIds.length && s.duration > 0) {
+      // Moving through the video, the way a video player does it.
+      //
+      // Arrows skip, comma and full stop step a frame — which is what YouTube
+      // does and therefore what the fingers already expect. A frame at a time is
+      // for landing a cut; getting to roughly the right place first is a
+      // different job and much more common, and doing it a thirtieth of a second
+      // at a time is not doing it.
+      //
+      // Five seconds, or a tenth of the timeline when that is less: five seconds
+      // through a two-second GIF is not a skip, it is the end of it.
+      const seek = (ms) => {
+        s.setPlaying(false)
+        s.setTime(Math.max(0, Math.min(s.duration, s.time + ms)))
+      }
+      const frameMs = 1000 / (s.doc.fps || 30)
+      if (!typing && !mod && s.duration > 0 && (e.key === ',' || e.key === '.')) {
         e.preventDefault()
-        const fps = s.doc.fps || 30
-        const frame = 1000 / fps
-        const step = (e.shiftKey ? 10 : 1) * frame
+        seek(e.key === ',' ? -frameMs : frameMs)
+        return
+      }
+      if (!typing && !mod && s.duration > 0 && (e.key === 'Home' || e.key === 'End')) {
+        e.preventDefault()
+        s.setPlaying(false)
+        s.setTime(e.key === 'Home' ? 0 : s.duration)
+        return
+      }
+      if (!typing && e.key.startsWith('Arrow') && !s.selectedIds.length && s.duration > 0) {
         const dir = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0
         if (dir) {
-          s.setPlaying(false)
-          s.setTime(Math.max(0, Math.min(s.duration, s.time + dir * step)))
+          e.preventDefault()
+          // Shift is the fine one, for when you are nearly there.
+          const skip = Math.min(5000, Math.max(frameMs, s.duration / 10))
+          seek(dir * (e.shiftKey ? frameMs : skip))
         }
         return
       }

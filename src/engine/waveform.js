@@ -23,13 +23,14 @@ const cache = new WeakMap()
  * Computed on first ask and kept on the asset's behalf in a WeakMap, so it goes
  * away with the asset rather than pinning a decoded buffer alive.
  */
-export function peaksFor(asset) {
+function summaryFor(asset) {
   if (!asset?.audio) return null
   const hit = cache.get(asset.audio)
   if (hit) return hit
 
   const buf = asset.audio
-  const out = new Float32Array(BUCKETS)
+  const peak = new Float32Array(BUCKETS)
+  const rms = new Float32Array(BUCKETS)
   const per = Math.max(1, Math.floor(buf.length / BUCKETS))
   // A fixed number of samples per bucket rather than a fixed stride. A stride
   // wide relative to the bucket lands on whatever phase it happens to hit: on a
@@ -46,16 +47,47 @@ export function peaksFor(asset) {
     for (let b = 0; b < BUCKETS; b++) {
       const from = b * per
       const to = Math.min(d.length, from + per)
-      let peak = 0
+      let hi = 0
+      let sum = 0
+      let n = 0
       for (let i = from; i < to; i += stride) {
         const v = d[i] < 0 ? -d[i] : d[i]
-        if (v > peak) peak = v
+        if (v > hi) hi = v
+        sum += v * v
+        n++
       }
-      if (peak > out[b]) out[b] = peak
+      if (hi > peak[b]) peak[b] = hi
+      const r = n ? Math.sqrt(sum / n) : 0
+      if (r > rms[b]) rms[b] = r
     }
   }
+  const out = { peak, rms }
   cache.set(buf, out)
   return out
+}
+
+/**
+ * The peak envelope: how far the signal went, column by column.
+ *
+ * Kept because it is the outline of the sound, but it is not on its own a good
+ * picture of one. Anything mastered in the last thirty years is compressed hard
+ * enough that its peaks sit near maximum from end to end, and an envelope of
+ * that is a solid block — technically true and useless for finding a word in it.
+ */
+export function peaksFor(asset) {
+  return summaryFor(asset)?.peak ?? null
+}
+
+/**
+ * The body of the sound: how loud it actually is, column by column.
+ *
+ * Root mean square rather than peak, which is what separates a shout from a
+ * whisper when both clip the same ceiling. This is the shape you read a
+ * waveform for, and drawing it inside the peak outline gives both — the reach
+ * of the sound and the weight of it.
+ */
+export function bodyFor(asset) {
+  return summaryFor(asset)?.rms ?? null
 }
 
 /** Whether a summary exists already, without computing one. */
@@ -90,8 +122,8 @@ export function gainFor(asset) {
  * Returns null when there is nothing to draw, so a caller can leave the space
  * alone rather than painting a flat line that looks like silence.
  */
-export function columnsFor(asset, fromMs, toMs, width) {
-  const peaks = peaksFor(asset)
+export function columnsFor(asset, fromMs, toMs, width, which = 'peak') {
+  const peaks = which === 'rms' ? bodyFor(asset) : peaksFor(asset)
   if (!peaks || !(width > 0)) return null
   const total = asset.audio.duration * 1000
   if (!(total > 0)) return null

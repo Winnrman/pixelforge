@@ -221,29 +221,66 @@ await page.screenshot({ path: path.join(OUT, '02-export-range.png') })
 await page.keyboard.press('Escape')
 await page.waitForTimeout(300)
 
-// --- stepping a frame -------------------------------------------------------------------
+// --- moving through the video --------------------------------------------------------
+// The way a video player does it: arrows skip, comma and full stop step a frame.
+// A thirtieth of a second at a time is for landing a cut, not for getting to
+// roughly the right place, which is the far more common thing to want.
 const stepping = await page.evaluate(async () => {
   const st = window.__pfState()
   st.select([])
   st.setPlaying(false)
-  st.setTime(5000)
+  st.setTime(15000)
   await new Promise((r) => setTimeout(r, 200))
-  const fps = st.doc.fps || 30
-  return { fps, at: window.__pfState().time }
+  return {
+    fps: st.doc.fps || 30,
+    at: window.__pfState().time,
+    duration: window.__pfState().duration,
+  }
 })
+const frame = 1000 / stepping.fps
+const skip = Math.min(5000, Math.max(frame, stepping.duration / 10))
+
 await page.keyboard.press('ArrowRight')
 await page.waitForTimeout(150)
-const oneOn = await page.evaluate(() => Math.round(window.__pfState().time))
-await page.keyboard.press('ArrowLeft')
+const skipped = await page.evaluate(() => Math.round(window.__pfState().time))
+console.log('one press of the right arrow:', JSON.stringify({ from: stepping.at, skipped, skip: Math.round(skip) }))
+check('an arrow skips ahead by seconds, not by a frame',
+  Math.abs(skipped - (stepping.at + skip)) < 30, `${stepping.at} -> ${skipped}, expected +${Math.round(skip)}ms`)
+
 await page.keyboard.press('ArrowLeft')
 await page.waitForTimeout(150)
+const backAgain = await page.evaluate(() => Math.round(window.__pfState().time))
+check('and back the same distance', Math.abs(backAgain - stepping.at) < 30,
+  `${skipped} -> ${backAgain}`)
+
+await page.keyboard.press('.')
+await page.waitForTimeout(150)
+const oneFrame = await page.evaluate(() => Math.round(window.__pfState().time))
+await page.keyboard.press(',')
+await page.keyboard.press(',')
+await page.waitForTimeout(150)
 const twoBack = await page.evaluate(() => Math.round(window.__pfState().time))
-const frame = 1000 / stepping.fps
-console.log('stepping:', JSON.stringify({ from: stepping.at, oneOn, twoBack, frame: Math.round(frame) }))
-check('with nothing selected an arrow steps one frame',
-  Math.abs(oneOn - (stepping.at + frame)) < 2, `${stepping.at} -> ${oneOn}`)
-check('and back the other way', Math.abs(twoBack - (oneOn - 2 * frame)) < 2,
-  `${oneOn} -> ${twoBack}`)
+console.log('comma and full stop:', JSON.stringify({ oneFrame, twoBack, frame: Math.round(frame) }))
+check('a full stop steps one frame on', Math.abs(oneFrame - (backAgain + frame)) < 2,
+  `${backAgain} -> ${oneFrame}`)
+check('and a comma steps one back', Math.abs(twoBack - (oneFrame - 2 * frame)) < 2,
+  `${oneFrame} -> ${twoBack}`)
+
+await page.keyboard.press('Shift+ArrowRight')
+await page.waitForTimeout(150)
+const fine = await page.evaluate(() => Math.round(window.__pfState().time))
+check('shift makes the arrow fine, for when you are nearly there',
+  Math.abs(fine - (twoBack + frame)) < 2, `${twoBack} -> ${fine}`)
+
+await page.keyboard.press('Home')
+await page.waitForTimeout(150)
+const home = await page.evaluate(() => Math.round(window.__pfState().time))
+await page.keyboard.press('End')
+await page.waitForTimeout(150)
+const end = await page.evaluate(() => Math.round(window.__pfState().time))
+console.log('home and end:', JSON.stringify({ home, end, duration: Math.round(stepping.duration) }))
+check('home goes to the start and end to the end',
+  home === 0 && Math.abs(end - stepping.duration) < 2, `${home} and ${end}`)
 
 // With a layer selected the arrows still nudge it, because that is what they are
 // for when there is something to nudge.

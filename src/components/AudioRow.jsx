@@ -74,19 +74,29 @@ function AudioClip({ layer, duration }) {
       // The clip's own span in source time, the same window the filmstrip uses,
       // so the wave under the pictures and the wave on the lane are the same
       // sound at the same place.
-      const cols = columnsFor(
-        asset,
-        assetTimeFor(layer, range.start, asset),
-        assetTimeFor(layer, range.end, asset),
-        w,
-      )
-      if (!cols) return
-      // Bright, and mirrored about the middle: the lane is the sound, so the
-      // sound should be the thing you see in it rather than a tint under a line.
-      ctx.fillStyle = 'rgba(150, 232, 255, 0.85)'
-      for (let i = 0; i < cols.length; i++) {
-        const h = Math.max(1, cols[i] * (AUDIO_H - 8))
+      const from = assetTimeFor(layer, range.start, asset)
+      const to = assetTimeFor(layer, range.end, asset)
+      const peak = columnsFor(asset, from, to, w, 'peak')
+      const body = columnsFor(asset, from, to, w, 'rms')
+      if (!peak) return
+
+      // Two shapes, not one. The peak envelope alone is what everything mastered
+      // in the last thirty years looks like: compressed hard enough that it
+      // touches the ceiling from end to end, so it draws as a solid block that
+      // says nothing about where the words are. The body — root mean square — is
+      // the loudness you actually hear, and drawn solid inside the faint outline
+      // of the peaks it gives both the reach of the sound and the weight of it.
+      ctx.fillStyle = 'rgba(150, 232, 255, 0.28)'
+      for (let i = 0; i < peak.length; i++) {
+        const h = Math.max(1, peak[i] * (AUDIO_H - 8))
         ctx.fillRect(i, (AUDIO_H - h) / 2, 1, h)
+      }
+      if (body) {
+        ctx.fillStyle = 'rgba(150, 232, 255, 0.95)'
+        for (let i = 0; i < body.length; i++) {
+          const h = Math.max(1, body[i] * (AUDIO_H - 8))
+          ctx.fillRect(i, (AUDIO_H - h) / 2, 1, h)
+        }
       }
     })()
     return () => { cancelled = true }
