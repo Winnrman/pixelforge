@@ -633,7 +633,12 @@ export default function Inspector() {
 
         {l.type === 'effect' && (
           <Section title="Overlay effect"
-            info={'Effect layers read whatever is composited beneath them, so this tracks every frame of an animated GIF automatically.'}>
+            info={'Effect layers read whatever is composited beneath them, so this tracks '
+              + 'every frame of an animated GIF automatically. On a timeline an overlay '
+              + 'arrives covering the clip it was put over, and only that one — if the shot '
+              + 'has been cut into pieces it covers the piece under the playhead, and its '
+              + 'right edge drags across the rest. Worth knowing when the overlay is hiding '
+              + 'something: it ends where its clip ends.'}>
             <Row label="Effect">
               <Select value={l.effect} onChange={(effect) => { set({ effect }); commit() }} options={EFFECTS} />
             </Row>

@@ -668,6 +668,17 @@ censor is normally there for as long as the shot is, and the default that fails 
 that covers too much rather than too little. A title still arrives at three seconds, because a
 title is three seconds and trimming it down is the common adjustment.
 
+It covers the clip it was put over and **only that one** — if the shot has been cut into pieces
+it covers the piece under the playhead, and the right edge drags across the rest. That is worth
+knowing when the overlay is hiding something, so it is written on the effect panel rather than
+left to be discovered.
+
+**A kind of thing lives on one row.** All the pixelates on one, the blurs on the next, shapes on
+another, titles on another — because a new row per overlay turns ten censors into ten rows, and
+the timeline stops being readable at about the fourth. Two of the same kind over the same moment
+still get separate rows: clips lapping over each other on one track are read as a transition,
+which is right for two shots and wrong for two censors.
+
 **Ripple delete.** Deleting left a hole, and the only tool for holes closed *every* gap on the
 track including the ones put there on purpose. Shift+Delete closes the hole behind what it
 removed and nothing else. Each track closes over its own hole, by the length of what was
@@ -2371,12 +2382,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Forty-three browser suites (**995 checks**), two Electron suites (**70 checks** — the shell
+Forty-three browser suites (**1000 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1464
+for the parts that are pure maths and deserve testing without a browser at all. **1469
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

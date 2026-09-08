@@ -431,6 +431,60 @@ check('a title starts at a readable length', stretched.before === 3000, `${stret
 check('and stretches to however long it is needed for',
   Math.abs(stretched.after - 12000) < 40, `${stretched.before}ms -> ${stretched.after}ms`)
 
+// --- overlays of a kind share a track -------------------------------------------------
+// A new row per overlay turns ten censors into ten rows, and the timeline stops
+// being readable at about the fourth. A kind of thing belongs on the row that
+// kind of thing lives on — which is also how you find it again.
+const grouped = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.doc.layers.filter((l) => !l.assetId).forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 300))
+  const { makeEffectLayer, makeTextLayer, makeShapeLayer } = window.__pfStore
+  const add = async (make, t) => {
+    window.__pfState().setTime(t)
+    const l = window.__pfState().addLayer(make())
+    await new Promise((r) => setTimeout(r, 200))
+    return window.__pfState().doc.layers.find((x) => x.id === l.id)
+  }
+  const pix = () => makeEffectLayer({
+    name: 'Pix', shape: 'rect', effect: 'pixelate', pixelSize: 20, x: 10, y: 10, w: 80, h: 80,
+  })
+  const p1 = await add(pix, 1000)
+  const p2 = await add(pix, 7000)
+  const p3 = await add(pix, 13000)
+  const blur = await add(() => makeEffectLayer({
+    name: 'Blur', shape: 'rect', effect: 'blur', blurRadius: 8, x: 10, y: 10, w: 80, h: 80,
+  }), 1000)
+  const shape = await add(() => makeShapeLayer({
+    shape: 'rect', x: 10, y: 10, w: 60, h: 60, fill: '#ffffff',
+  }), 1000)
+  const t1 = await add(() => makeTextLayer({ text: 'Hi', x: 10, y: 10, w: 100, h: 40 }), 1000)
+  const t2 = await add(() => makeTextLayer({ text: 'There', x: 10, y: 10, w: 100, h: 40 }), 7000)
+  // And two of a kind over the same moment, which cannot share a row: two clips
+  // lapping over each other on one track is a transition, which is right for two
+  // shots and wrong for two censors.
+  const clash = await add(pix, 1200)
+  return {
+    pixelates: [p1.track, p2.track, p3.track],
+    blur: blur.track,
+    shape: shape.track,
+    texts: [t1.track, t2.track],
+    clash: clash.track,
+  }
+})
+console.log('where each landed:', JSON.stringify(grouped))
+check('pixelates share a track', new Set(grouped.pixelates).size === 1,
+  JSON.stringify(grouped.pixelates))
+check('a different effect gets its own', grouped.blur !== grouped.pixelates[0],
+  `blur on ${grouped.blur}, pixelate on ${grouped.pixelates[0]}`)
+check('and shapes and titles get theirs',
+  grouped.shape !== grouped.blur && grouped.texts[0] !== grouped.shape,
+  JSON.stringify({ shape: grouped.shape, text: grouped.texts[0] }))
+check('two titles share a track like anything else',
+  grouped.texts[0] === grouped.texts[1], JSON.stringify(grouped.texts))
+check('but two of a kind at the same moment do not, because that would be a transition',
+  grouped.clash !== grouped.pixelates[0], `${grouped.clash} against ${grouped.pixelates[0]}`)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

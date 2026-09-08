@@ -503,10 +503,40 @@ export const useStore = create((set, get) => ({
       ? { start: Math.round(under.r.start), out: Math.round(under.r.length) }
       : { start: Math.round(s0.time), out: TITLE_MS }
 
+    // Which track it lands on: one shared with its own kind, if there is room.
+    //
+    // A track a piece is added to should be the track that kind of thing lives
+    // on — all the pixelates on one row, the shapes on another, the titles on a
+    // third — because that is how you find them again. A new row per overlay
+    // turns ten censors into ten rows, and the timeline stops being readable at
+    // about the fourth.
+    //
+    // Room means not overlapping: two overlays on one row that lap over each
+    // other are read as a transition, which is right for two shots and wrong for
+    // two censors. When the shared row is busy at that moment, a new one.
+    const kindOf = (l) => (l.type === 'effect' ? `effect:${l.effect || 'plain'}` : l.type)
+    const wantKind = kindOf(layer)
+    const laid = { start: span.start, end: span.start + span.out }
+    const assetOf = (l) => getAsset(l.assetId)
+    const byTrackKind = new Map()
+    for (const l of s0.doc.layers) {
+      if (!l.clip) continue
+      const t = l.track || 0
+      const cur = byTrackKind.get(t) || { kinds: new Set(), spans: [] }
+      cur.kinds.add(kindOf(l))
+      cur.spans.push(clipRange(l, assetOf(l)))
+      byTrackKind.set(t, cur)
+    }
+    const home = [...byTrackKind.entries()]
+      .filter(([, v]) => v.kinds.size === 1 && v.kinds.has(wantKind))
+      .filter(([, v]) => !v.spans.some((r) => laid.start < r.end && r.start < laid.end))
+      .map(([t]) => t)
+      .sort((a, b) => a - b)[0]
+
     const withClip = timeline && titleish && !layer.clip
       ? {
         ...layer,
-        track: trackCount(s0.doc.layers),
+        track: home ?? trackCount(s0.doc.layers),
         clip: { start: span.start, in: 0, out: span.out },
       }
       : layer
