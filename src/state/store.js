@@ -45,6 +45,7 @@ import {
   resolveLayer, valueAt, keyExtent, isAnimatable, trackOf, setTrackKey,
   enableGroup, disableGroup, addGroupKey, removeGroupKey, moveGroupKey,
   setGroupEase, applyToAllKeys, seedTrack, groupKeyTimes, GROUP_OF, GROUP_BY_ID,
+  KEY_SNAP,
 } from '../engine/keyframes.js'
 
 let uid = 0
@@ -2626,6 +2627,45 @@ export const useStore = create((set, get) => ({
     s.pushHistory()
     s.updateLayer(id, { tracks: addGroupKey(l, groupId, t ?? s.time) })
     s.recomputeDuration()
+  },
+
+  /**
+   * A volume point: a keyframe with a value, set from a position on a lane.
+   *
+   * The group actions key whatever the property is *now*, which is right for a
+   * diamond in the inspector and useless for dragging a point up and down — the
+   * whole gesture is choosing the value. `from` names the point being moved, so
+   * a drag is one action rather than a remove and an add, and one entry in the
+   * history rather than two per pointer move.
+   */
+  setVolumePoint: (id, t, v, { from = null, commit = true } = {}) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === id)
+    if (!l) return
+    if (commit) s.pushHistory()
+    const at = Math.round(t)
+    const value = Math.max(0, Math.min(2, v))
+    let keys = [...(l.tracks?.volume || [])]
+    if (from != null) keys = keys.filter((k) => Math.abs(k.t - from) > KEY_SNAP)
+    const i = keys.findIndex((k) => Math.abs(k.t - at) <= KEY_SNAP)
+    if (i >= 0) keys[i] = { ...keys[i], t: at, v: value }
+    else keys.push({ t: at, v: value, ease: 'linear' })
+    keys.sort((a, b) => a.t - b.t)
+    s.updateLayer(id, { tracks: { ...(l.tracks || {}), volume: keys } })
+  },
+
+  /** Takes one away. The last one takes the track with it, so a clip with no
+   *  points is the same document it was before any were put on. */
+  removeVolumePoint: (id, t) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === id)
+    if (!l?.tracks?.volume) return
+    s.pushHistory()
+    const keys = l.tracks.volume.filter((k) => Math.abs(k.t - t) > KEY_SNAP)
+    const tracks = { ...l.tracks }
+    if (keys.length) tracks.volume = keys
+    else delete tracks.volume
+    s.updateLayer(id, { tracks: Object.keys(tracks).length ? tracks : undefined })
   },
 
   removeKeyframe: (id, groupId, t) => {

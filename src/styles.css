@@ -1497,3 +1497,79 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   gap: 10px;
   justify-items: start;
 }
+
+/* ------------------------------------------------------------ audio tracks */
+/* Sound on its own rows under the pictures. The whole height of a lane is the
+   volume, so a point has somewhere to be and the line between points is the
+   shape of the fade being drawn — none of which is possible when the waveform is
+   painted behind thumbnails on the video track. */
+.audio-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin-top: 4px;
+}
+.audio-lane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: rgba(20,32,44,0.55);
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.audio-clip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(24,52,74,0.85);
+  border: 1px solid rgba(120,200,255,0.35);
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: crosshair;
+}
+.audio-clip.sel { border-color: rgba(78,161,255,0.9); }
+.audio-clip.muted { opacity: 0.45; }
+.audio-clip canvas { display: block; width: 100%; }
+.audio-name {
+  position: absolute;
+  left: 5px;
+  top: 3px;
+  font-size: 9.5px;
+  color: rgba(255,255,255,0.65);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.audio-level {
+  position: absolute;
+  right: 5px;
+  top: 3px;
+  font-size: 9.5px;
+  color: rgba(255,255,255,0.55);
+  pointer-events: none;
+}
+.audio-curve {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.audio-curve polyline {
+  fill: none;
+  stroke: #ffd166;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.audio-point {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: #ffd166;
+  border: 1px solid rgba(0,0,0,0.65);
+  cursor: grab;
+}
+.audio-point:hover { background: #fff; }
+.audio-point:active { cursor: grabbing; }

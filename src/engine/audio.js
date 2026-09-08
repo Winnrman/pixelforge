@@ -21,6 +21,7 @@
 
 import { clipRange, sourceRange } from './clips.js'
 import { pairsIn, voiceGainPoints, gainAt } from './transitions.js'
+import { valueAt, trackOf } from './keyframes.js'
 
 let ctx = null
 
@@ -140,18 +141,39 @@ export function buildGraph(context, doc, assetOf, {
     const vol = Math.max(0, Math.min(2, layer.muted ? 0 : (layer.volume == null ? 1 : layer.volume)))
     g.connect(gain)
 
+    // Two things move a voice's gain: what the layer's volume is doing, which is
+    // an ordinary keyframe track, and what a transition or fade is doing to it,
+    // which is a multiplier. They are independent and they multiply — turning a
+    // clip down and fading it out should give something quieter than either.
     const points = voiceGainPoints(layer, asset, pairs)
-    if (!points.length) {
+    const keys = layer.muted ? [] : trackOf(layer, 'volume')
+    const level = (ms) => (keys.length
+      ? Math.max(0, Math.min(2, valueAt(layer, 'volume', ms) ?? 1))
+      : vol)
+
+    if (!points.length && !keys.length) {
       g.gain.value = vol
     } else {
+      // Every time either curve has something to say, plus a sample through each
+      // volume segment: keyframes ease, and a straight ramp between two keys
+      // would flatten an ease-in-out into a line.
+      const marks = new Set([from, ...points.map((p) => p[0])])
+      for (let i = 0; i < keys.length; i++) {
+        marks.add(keys[i].t)
+        const next = keys[i + 1]
+        if (!next) continue
+        const step = Math.max(40, (next.t - keys[i].t) / 8)
+        for (let t = keys[i].t + step; t < next.t; t += step) marks.add(t)
+      }
+      const times = [...marks].filter((t) => t >= from).sort((a, b) => a - b)
+
       // Starting the graph in the middle of a transition is ordinary — the
       // playhead was dropped there — so the curve is picked up at its current
-      // value rather than restarted from the top, and only the points still
-      // ahead are scheduled.
-      g.gain.setValueAtTime(vol * gainAt(points, from), at)
-      for (const [ms, mult] of points) {
+      // value rather than restarted from the top.
+      g.gain.setValueAtTime(level(from) * gainAt(points, from), at)
+      for (const ms of times) {
         if (ms <= from) continue
-        g.gain.linearRampToValueAtTime(vol * mult, at + (ms - from) / 1000)
+        g.gain.linearRampToValueAtTime(level(ms) * gainAt(points, ms), at + (ms - from) / 1000)
       }
     }
 

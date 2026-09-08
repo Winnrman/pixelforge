@@ -21,6 +21,11 @@ export const TRACK_GROUPS = [
   { id: 'crop', label: 'Crop', props: ['cropT', 'cropR', 'cropB', 'cropL'] },
   { id: 'zoom', label: 'Zoom', props: ['zoom'] },
   { id: 'pan', label: 'Pan', props: ['panX', 'panY'] },
+  // Volume is keyed like anything else, so a point dragged on an audio lane is
+  // an ordinary keyframe: it undoes, eases, copies with the layer, saves into
+  // the project and shows in the Keyframes tab beside position and opacity. A
+  // second, parallel system for "audio points" would have been none of that.
+  { id: 'volume', label: 'Volume', props: ['volume'] },
 ]
 
 export const GROUP_BY_ID = Object.fromEntries(TRACK_GROUPS.map((g) => [g.id, g]))

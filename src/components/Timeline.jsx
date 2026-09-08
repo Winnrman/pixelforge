@@ -4,6 +4,7 @@ import { getAsset } from '../engine/assets.js'
 import { hasTracks, activeGroups, groupKeyTimes, keyTimeNear } from '../engine/keyframes.js'
 import { stripLayers } from '../engine/filmstrip.js'
 import Filmstrip from './Filmstrip.jsx'
+import AudioRows from './AudioRow.jsx'
 import { byTrack, trackCount } from '../engine/clips.js'
 
 /**
@@ -558,6 +559,11 @@ export default function Timeline() {
               />
             )}
             {used.map((row) => renderRow(row))}
+            {/* Sound gets its own rows under the pictures. It used to be a
+                number in the inspector and a shape drawn behind the thumbnails,
+                which makes "bring this down while she is talking" a thing you
+                cannot do at all. */}
+            <AudioRows duration={duration} />
           </div>
           {loose.length > 0 && (
             <p className="tl-note">

@@ -422,6 +422,32 @@ it drew in the wrong place, and a test that counts layers cannot tell the differ
 bin now occupying that strip the same point lands on the bin and the drag is swallowed. The
 test reads the geometry at the moment it clicks now, which is what it should always have done.
 
+## Sound on its own track
+
+Volume was a number in the inspector and a waveform painted behind the thumbnails on the video
+clip. That is enough to see that there *is* sound and no use at all for doing anything to it:
+there is nowhere to put a point, and anything drawn over the pictures fights them. "Bring this
+down while she is talking" was not a thing you could do.
+
+Sound now gets its own rows under the video ones, one per track. The whole height of a lane is
+the volume, so a point has somewhere to be and the line between points is the shape of the fade
+you are drawing. Half height is normal, so putting it back is the middle rather than a number
+to remember. Click the lane to put a point there, drag one to move it, double-click one to take
+it away — and the last one takes the track with it, so a clip with no points is the document it
+was before any were put on.
+
+**The points are keyframes.** `volume` became an animatable property like `x` or `opacity`,
+which means a point dragged on a lane undoes, eases, copies with the layer, saves into the
+project, and shows up in the Keyframes tab beside position and rotation — because it *is* one
+of those. A second, parallel system for "audio points" would have been none of that, and would
+have needed all of it written again.
+
+The audio graph follows the curve by scheduling it onto each voice's gain node, sampled through
+every eased segment so an ease-in-out does not come out as a straight line. Two things move a
+voice's gain — what the volume track is doing, and what a transition or fade is doing to it —
+and they multiply, because turning a clip down *and* fading it out should be quieter than
+either alone.
+
 ## Transitions
 
 Every editor makes this a thing you go and fetch: a bin of effects, a drag onto a cut, a
@@ -2089,12 +2115,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Thirty-eight browser suites (**872 checks**), two Electron suites (**70 checks** — the shell
+Forty browser suites (**891 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1341
+for the parts that are pure maths and deserve testing without a browser at all. **1360
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same
