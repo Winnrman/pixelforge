@@ -151,6 +151,10 @@ function KeyLane({ layer, group, duration, time }) {
 const DEFAULT_SHARE = 0.52
 const MIN_H = 120
 
+/** Things on the transport bar that are controls in their own right, and must
+ *  not be read as "scrub to here". */
+const CONTROLS = '.play, .tl-audio, .tl-readout'
+
 export default function Timeline() {
   const [tab, setTab] = useState('keys')
   // Remembered across sessions, because how much room you want depends on what
@@ -425,13 +429,22 @@ export default function Timeline() {
       )}
       <div
         className="tl-main"
+        // The whole bar scrubs, so that clicking the space around the track
+        // works as well as the track itself — but the *controls* on that bar are
+        // not the bar. Only the play button was excluded, which meant dragging
+        // the volume slider also scrubbed the playhead to wherever the pointer
+        // happened to be along the window: turning the sound down jumped the
+        // video, usually to the end, because the slider lives at the right-hand
+        // side. Changing the volume must not move the picture, ever.
         onPointerDown={(e) => {
-          if (e.button !== 0 || e.target.closest('.play')) return
+          if (e.button !== 0 || e.target.closest(CONTROLS)) return
           e.currentTarget.setPointerCapture(e.pointerId)
           setPlaying(false)
           scrub(e)
         }}
-        onPointerMove={(e) => { if (e.buttons === 1 && !e.target.closest('.play')) scrub(e) }}
+        onPointerMove={(e) => {
+          if (e.buttons === 1 && !e.target.closest(CONTROLS)) scrub(e)
+        }}
       >
         <button className="play" onClick={() => setPlaying(!playing)} title="Play / pause (Space)">
           {playing ? '❚❚' : '▶'}

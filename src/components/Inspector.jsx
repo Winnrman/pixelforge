@@ -1054,19 +1054,27 @@ export default function Inspector() {
                 + 'on top of it, and puts a second copy of the same image above the text with the '
                 + 'mask on — the model only runs once because both copies share the frame.'}
             >
-              <Row label="">
+              <Row
+                label=""
+                info={'Works from either kind of cut-out: a removed background, or a lasso '
+                  + 'mask. With the lasso there is a Text behind button right on the outline '
+                  + 'bar, so AI select then Text behind is two clicks.'}
+              >
                 <button
                   className="btn"
                   disabled={!l.bgRemove?.on && !(l.mask?.points?.length >= 3)}
                   onClick={() => textBehindSubject(base.id)}
                 >Put text behind the subject</button>
               </Row>
-              <p className="hint">
-                Works from either kind of cut-out: a removed background, or a lasso mask.
-                With the lasso there is a <b>Text behind</b> button right on the outline bar,
-                so AI select → Text behind is two clicks.
-              </p>
-              <Row label="">
+              <Row
+                label=""
+                info={'Leaves the subject exactly where it is on screen but makes the layer '
+                  + 'only as big as the subject — so the handles, snapping and rotation work '
+                  + 'on the thing you can see instead of a mostly-empty rectangle. The same '
+                  + 'non-destructive crop as everything else, so undo brings the whole frame '
+                  + 'back. On a clip it measures several frames and keeps the box big enough '
+                  + 'for all of them.'}
+              >
                 <button
                   className="btn"
                   disabled={!l.bgRemove?.on}
@@ -1074,14 +1082,6 @@ export default function Inspector() {
                   onClick={() => trimToSubject(base.id)}
                 >Trim the layer to the subject</button>
               </Row>
-              <p className="hint">
-                Trimming leaves the subject exactly where it is on screen but makes the
-                layer only as big as the subject — so the handles, snapping and rotation all
-                work on the thing you can see instead of a mostly-empty rectangle. It uses
-                the same non-destructive crop as everything else, so undo brings the whole
-                frame back. On a clip it measures several frames and keeps the box big
-                enough for all of them.
-              </p>
               {!l.bgRemove?.on && !(l.mask?.points?.length >= 3) && (
                 <p className="hint">Nothing is cut out yet — remove the background, or lasso the subject and Mask.</p>
               )}

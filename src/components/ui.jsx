@@ -70,7 +70,7 @@ export function Section({ title, children, right, info }) {
  * `anim` turns on the keyframe stopwatch: {active, onToggle}. Clicking it starts
  * or stops a track for that property, so each property animates independently.
  */
-export function Row({ label, children, wide, anim }) {
+export function Row({ label, children, wide, anim, info }) {
   return (
     <label className={'row' + (wide ? ' wide' : '') + (anim?.active ? ' animated' : '')}>
       {anim && (
@@ -81,7 +81,16 @@ export function Row({ label, children, wide, anim }) {
           onClick={(e) => { e.preventDefault(); anim.onToggle() }}
         >◆</button>
       )}
-      {label && <span className="row-label">{label}</span>}
+      {label && (
+        <span className="row-label">
+          {label}
+          {info && <Info>{info}</Info>}
+        </span>
+      )}
+      {/* A control with something to explain and no label to hang it off — the
+          explanation still belongs behind an (i) rather than in a paragraph
+          taking up the panel. */}
+      {!label && info && <Info>{info}</Info>}
       <span className="row-control">{children}</span>
     </label>
   )

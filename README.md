@@ -394,6 +394,23 @@ the document but never recomputed the timeline length**. Nothing showed it while
 document's length could not really change, but with clips every bar was suddenly drawn
 against a stale scale — a clip at 720ms rendering at the far left of a 720ms timeline.
 
+## Turning the sound down moved the picture
+
+The transport bar scrubs wherever you press it, so that the space around the track works as
+well as the track itself. The controls sitting *on* that bar are not the bar, and only the play
+button was excluded — so dragging the volume slider was read as a scrub to wherever the pointer
+happened to be along the window. The slider lives at the right-hand end, so turning the volume
+down jumped the video to near the end of the timeline and stopped it. Measured: 1022ms to
+4067ms, in one frame.
+
+The mute button and the clock had the same problem. All three are controls now, and the bar
+still scrubs everywhere else.
+
+It is the kind of bug that reads as something deep — the renderer resetting, the audio graph
+restarting — and is neither. The clue was that the playhead landed at 4067ms on a 4000ms
+timeline: the playback clock wraps with `% duration` and cannot produce that, but a scrub to an
+x-position past the end can.
+
 ## One room
 
 The editor was a canvas with a timeline tucked underneath it and the media behind a tab. That
@@ -403,7 +420,9 @@ whole screen change sat in the middle of that loop.
 
 It is now one room. The bin is beside the picture, the tracks run along the bottom under the
 full width of the window rather than under the canvas column, and the inspector stays where it
-was. Media drags straight from the bin onto a track, or double-clicks onto the canvas. The
+was. **The bin appears when there is something in it** — an empty bin is a place to grab from
+with nothing to grab, and its Import button led to the Media tab anyway, which is a button
+press to arrive where the other button already goes. Media drags straight from the bin onto a track, or double-clicks onto the canvas. The
 Media tab stays, because browsing a hundred photographs and picking one to work on is a
 different job that deserves the whole window — it is the image editor's front door now, not
 the only way to reach your own footage.
@@ -2160,12 +2179,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Forty-one browser suites (**907 checks**), two Electron suites (**70 checks** — the shell
+Forty-two browser suites (**918 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1376
+for the parts that are pure maths and deserve testing without a browser at all. **1387
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

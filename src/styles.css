@@ -41,7 +41,10 @@ button:disabled { opacity: 0.35; cursor: default; }
 .workspace {
   flex: 1;
   display: grid;
-  grid-template-columns: auto var(--pool-w, 232px) minmax(0, 1fr) auto;
+  /* The bin's column is sized by its content, so when there is no bin there is
+     no column — the picture takes the space rather than a strip of nothing
+     sitting where the bin would be. */
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   grid-template-rows: minmax(0, 1fr) auto;
   min-height: 0;
 }
@@ -1412,6 +1415,7 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
    look at the shot, drag it onto a track, look again, and a whole screen change
    in the middle of that loop is what made the media tab the wrong home for it. */
 .pool {
+  width: 232px;
   display: flex;
   flex-direction: column;
   min-height: 0;

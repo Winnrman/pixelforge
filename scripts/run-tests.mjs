@@ -55,9 +55,9 @@ const OWNERS = [
   ['src/engine/cursor.js', ['test-cursor']],
   ['src/engine/trace.js', ['test-trace', 'e2e-magnet']],
   ['src/components/Filmstrip.jsx', ['e2e-clips', 'e2e-tracks', 'e2e-filmstrip', 'e2e-transitions', 'e2e-join']],
-  ['src/components/Timeline.jsx', ['e2e-keyframes', 'e2e-keysel', 'e2e-clips', 'e2e-tracks', 'e2e-audiotrack']],
+  ['src/components/Timeline.jsx', ['e2e-keyframes', 'e2e-keysel', 'e2e-clips', 'e2e-tracks', 'e2e-audiotrack', 'e2e-transport']],
   ['src/components/AudioRow.jsx', ['e2e-audiotrack']],
-  ['src/components/MediaPool.jsx', ['e2e-media', 'e2e']],
+  ['src/components/MediaPool.jsx', ['e2e-media', 'e2e', 'e2e-transport']],
   ['src/components/MediaView.jsx', ['e2e-media', 'e2e-mount']],
   ['src/components/ExportDialog.jsx', ['e2e-print', 'e2e-batch', 'e2e']],
   ['src/components/LassoBar.jsx', ['e2e-lasso', 'e2e-wand', 'e2e-tools2']],
@@ -85,7 +85,7 @@ const BROWSER = [
   'e2e-canvas', 'e2e-print', 'e2e-videoperf', 'e2e-clips', 'e2e-audio',
   'e2e-tracks', 'e2e-mount', 'e2e-cropimage', 'e2e-magnet', 'e2e-eyedrop',
   'e2e-wand', 'e2e-clone', 'e2e-tools2', 'e2e-clipboard', 'e2e-transitions',
-  'e2e-audiotrack', 'e2e-join', 'test-edges',
+  'e2e-audiotrack', 'e2e-join', 'e2e-transport', 'test-edges',
 ]
 
 const fileFor = (name) => `${name}.mjs`

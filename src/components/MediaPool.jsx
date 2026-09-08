@@ -89,6 +89,12 @@ export default function MediaPool() {
   const items = media.map((id) => getAsset(id)).filter(Boolean)
   const onCanvas = new Set(layers.map((l) => l.assetId).filter(Boolean))
 
+  // Nothing imported: no bin. An empty bin is a place to grab from with nothing
+  // to grab, and its Import button led to the Media tab anyway — a second way to
+  // reach the one door, which is a button press to arrive where the other button
+  // already goes. The bin earns its column the moment there is something in it.
+  if (!items.length) return null
+
   return (
     <div className="pool">
       <div className="pool-head">
@@ -116,25 +122,16 @@ export default function MediaPool() {
         onChange={(e) => { addImages(e.target.files, { place: false }); e.target.value = '' }}
       />
 
-      {items.length === 0 ? (
-        <div className="pool-empty">
-          <p>Nothing imported yet.</p>
-          <button className="btn" onClick={() => inputRef.current?.click()}>
-            Import media
-          </button>
-        </div>
-      ) : (
-        <div className="pool-grid">
-          {items.map((asset) => (
-            <PoolCard
-              key={asset.id}
-              asset={asset}
-              used={onCanvas.has(asset.id)}
-              onOpen={() => placeMedia([asset.id], { resizeDocToFirst: layers.length === 0 })}
-            />
-          ))}
-        </div>
-      )}
+      <div className="pool-grid">
+        {items.map((asset) => (
+          <PoolCard
+            key={asset.id}
+            asset={asset}
+            used={onCanvas.has(asset.id)}
+            onOpen={() => placeMedia([asset.id], { resizeDocToFirst: layers.length === 0 })}
+          />
+        ))}
+      </div>
     </div>
   )
 }
