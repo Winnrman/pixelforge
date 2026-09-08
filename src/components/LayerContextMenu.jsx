@@ -65,6 +65,21 @@ export default function LayerContextMenu() {
     { label: 'Rename…', act: () => window.dispatchEvent(
       new CustomEvent('pf-rename-layer', { detail: layer.id })) },
     ...(layer.mask ? [{ label: 'Remove mask', act: () => s.clearMask(layer.id) }] : []),
+    // What a clip can do that a layer cannot. Only shown on clips, because a
+    // menu that lists things which do not apply is a menu you have to read.
+    ...(layer.clip ? [
+      { sep: true },
+      { label: 'Cut at playhead', hint: 'Ctrl+K', act: () => s.splitClips(null, ids) },
+      ...(many ? [{
+        label: `Join ${ids.length} clips`,
+        act: () => {
+          const r = s.joinClips(ids)
+          s.setNotice(r.ok ? { kind: 'ok', text: r.text } : { kind: 'warn', text: r.reason })
+        },
+      }] : []),
+      { label: layer.muted ? 'Unmute' : 'Mute',
+        act: () => { s.pushHistory(); s.updateLayer(layer.id, { muted: !layer.muted }) } },
+    ] : []),
     { sep: true },
     { label: many ? `Delete ${ids.length} layers` : 'Delete', hint: 'Del', danger: true,
       act: () => s.removeLayers(ids) },

@@ -149,6 +149,129 @@ if (subject.found) {
 }
 await page.screenshot({ path: path.join(OUT, '02-subject.png') })
 
+// --- the bin's poster is a picture, not a sliver ------------------------------------
+// The poster is drawn at the canvas's measured width, and the canvas measures
+// zero while the editor is hidden — which is exactly when a card first appears,
+// because importing takes you to the Media tab. It drew a one-pixel-wide poster
+// and, having no reason to run again, kept it: a thin white line where the
+// picture should be.
+const poster = await page.evaluate(async () => {
+  window.__pfState().setWorkspace('editor')
+  await new Promise((r) => setTimeout(r, 1200))
+  const c = document.querySelector('.pool-card canvas')
+  if (!c) return { found: false }
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  const d = ctx.getImageData(0, 0, c.width, c.height).data
+  let lit = 0
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 8) lit++
+  return {
+    found: true,
+    w: c.width,
+    h: c.height,
+    lit: Math.round((lit / (d.length / 4)) * 100),
+  }
+})
+console.log('the poster in the bin:', JSON.stringify(poster))
+check('the bin draws a poster wider than a line', poster.found && poster.w > 40,
+  `${poster.w}px wide`)
+check('and there is a picture in it', poster.lit > 50, `${poster.lit}% covered`)
+
+// --- resizing the viewer must not move the picture ------------------------------------
+// The bar scrubs on any held-button move that passes over it, and dragging the
+// split handle downwards sweeps the pointer straight across the transport.
+//
+// The handle only exists when the panel has something to expand into, so the
+// Video tab comes first.
+await page.evaluate(async () => {
+  const b = [...document.querySelectorAll('.tl-tabs button')].find((x) => /^Video/.test(x.textContent))
+  if (b) b.click()
+  await new Promise((r) => setTimeout(r, 900))
+  window.__pfState().setPlaying(false)
+  window.__pfState().setTime(1500)
+})
+await page.waitForTimeout(300)
+const split = await page.locator('.tl-split').boundingBox()
+const beforeResize = await page.evaluate(() => Math.round(window.__pfState().time))
+await page.mouse.move(split.x + split.width / 2, split.y + split.height / 2)
+await page.mouse.down()
+await page.mouse.move(split.x + split.width / 2, split.y + 120, { steps: 8 })
+await page.mouse.up()
+await page.waitForTimeout(250)
+const afterResize = await page.evaluate(() => Math.round(window.__pfState().time))
+console.log('dragging the viewer taller:', JSON.stringify({ beforeResize, afterResize }))
+check('resizing the viewer leaves the playhead alone', beforeResize === afterResize,
+  `${beforeResize} -> ${afterResize}`)
+
+// --- scrolling scales the tracks ---------------------------------------------------------
+const lane = () => page.evaluate(() => {
+  const clip = document.querySelector('.track-row:not(.empty) .strip')
+  const rows = document.querySelector('.track-rows')
+  return {
+    clip: Math.round(clip?.getBoundingClientRect().width || 0),
+    scrollW: Math.round(rows?.scrollWidth || 0),
+    left: Math.round(rows?.scrollLeft || 0),
+  }
+})
+const rest = await lane()
+console.log('tracks at rest:', JSON.stringify(rest))
+check('there is a clip on the timeline', rest.clip > 100, `${rest.clip}px`)
+
+const rowsBox = await page.locator('.track-rows').boundingBox()
+await page.mouse.move(rowsBox.x + rowsBox.width * 0.5, rowsBox.y + rowsBox.height * 0.5)
+for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, -120); await page.waitForTimeout(140) }
+const zoomed = await lane()
+console.log('after scrolling up:', JSON.stringify(zoomed))
+// A second of a long clip is four pixels at rest, which is not a thing you can
+// cut on. Scrolling up makes it wider.
+check('scrolling up makes the tracks longer', zoomed.clip > rest.clip * 1.8,
+  `${rest.clip}px -> ${zoomed.clip}px`)
+check('and they scroll sideways once they are wider than the window',
+  zoomed.scrollW > rest.scrollW, `${rest.scrollW} -> ${zoomed.scrollW}`)
+check('keeping what was under the pointer near it', zoomed.left > 0, `scrolled ${zoomed.left}px`)
+await page.screenshot({ path: path.join(OUT, '03-zoom.png') })
+
+for (let i = 0; i < 9; i++) { await page.mouse.wheel(0, 120); await page.waitForTimeout(140) }
+const back = await lane()
+console.log('after scrolling back down:', JSON.stringify(back))
+check('scrolling down brings them back', Math.abs(back.clip - rest.clip) < 40,
+  `${back.clip}px against ${rest.clip}px`)
+check('and no further than the window, which is the whole timeline',
+  Math.abs(back.scrollW - rest.scrollW) < 40, `${back.scrollW} against ${rest.scrollW}`)
+
+// --- right-clicking a clip ------------------------------------------------------------------
+const menu = await page.evaluate(async () => {
+  const strip = document.querySelector('.track-row:not(.empty) .strip')
+  const r = strip.getBoundingClientRect()
+  strip.dispatchEvent(new MouseEvent('contextmenu', {
+    bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+  }))
+  await new Promise((x) => setTimeout(x, 300))
+  const el = document.querySelector('.ctx-menu')
+  return {
+    open: !!el,
+    items: el ? [...el.querySelectorAll('.ctx-item')].map((b) => b.textContent.replace(/\s+/g, ' ').trim()) : [],
+  }
+})
+console.log('right-clicking a clip:', JSON.stringify(menu.items))
+check('right-clicking a clip opens a menu', menu.open)
+for (const want of ['Duplicate', 'Hide', 'Delete', 'Cut at playhead', 'Mute']) {
+  check(`with ${want} on it`, menu.items.some((t) => t.startsWith(want)),
+    menu.items.join(' | ').slice(0, 90))
+}
+await page.screenshot({ path: path.join(OUT, '04-menu.png') })
+
+const acted = await page.evaluate(async () => {
+  const before = window.__pfState().doc.layers.length
+  const b = [...document.querySelectorAll('.ctx-item')].find((x) => x.textContent.startsWith('Duplicate'))
+  b?.click()
+  await new Promise((x) => setTimeout(x, 400))
+  return { before, after: window.__pfState().doc.layers.length, closed: !document.querySelector('.ctx-menu') }
+})
+console.log('using it:', JSON.stringify(acted))
+check('and the items do what they say', acted.after === acted.before + 1,
+  `${acted.before} -> ${acted.after} layers`)
+check('closing the menu afterwards', acted.closed)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

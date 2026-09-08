@@ -394,6 +394,33 @@ the document but never recomputed the timeline length**. Nothing showed it while
 document's length could not really change, but with clips every bar was suddenly drawn
 against a stale scale — a clip at 720ms rendering at the far left of a 720ms timeline.
 
+## Scrolling scales the tracks
+
+At 1x, a second of a ninety-second clip is four pixels, and no amount of care with a mouse
+lands on the frame you want. Scroll over the tracks and they stretch; scroll back and they
+shrink. There is no zoom control to find because the gesture is the control, and whatever was
+under the pointer stays under it — zooming about the left edge slides the thing you were
+looking at off the side.
+
+The lanes are sized in pixels and the rows scroll together inside one scroller, so clip
+positions stay percentages of their lane and follow without knowing anything about it. The drop
+row lives inside that scroller too: a drop target that does not move with the tracks points at
+the wrong time the moment they are zoomed.
+
+The listener is attached by hand rather than as an `onWheel` prop, because React registers
+wheel listeners as passive — `preventDefault` inside one does nothing and the panel scrolls
+away underneath the zoom.
+
+## Right-clicking a clip
+
+The layer context menu already had duplicate, hide, lock, rename and delete; it just could not
+be reached from the timeline. Now it can, from a clip or from its audio lane, and it grows the
+things only a clip can do: cut at the playhead, join a multiple selection, and mute. Only on
+clips — a menu listing things that do not apply is a menu you have to read.
+
+Right-clicking something outside the selection acts on that thing; inside it, on the whole
+selection, which is what makes "join these four" one gesture.
+
 ## Turning the sound down moved the picture
 
 The transport bar scrubs wherever you press it, so that the space around the track works as
@@ -405,6 +432,11 @@ down jumped the video to near the end of the timeline and stopped it. Measured: 
 
 The mute button and the clock had the same problem. All three are controls now, and the bar
 still scrubs everywhere else.
+
+There was a second half to it, found by dragging the panel taller: the bar scrubbed on *any*
+held-button move that passed over it, wherever the drag began. Dragging the split handle sweeps
+the pointer straight across the transport, so making the viewer bigger moved the playhead. A
+scrub now has to have *started* on the bar.
 
 It is the kind of bug that reads as something deep — the renderer resetting, the audio graph
 restarting — and is neither. The clue was that the playhead landed at 4067ms on a 4000ms
@@ -420,7 +452,12 @@ whole screen change sat in the middle of that loop.
 
 It is now one room. The bin is beside the picture, the tracks run along the bottom under the
 full width of the window rather than under the canvas column, and the inspector stays where it
-was. **The bin appears when there is something in it** — an empty bin is a place to grab from
+was. The bin's poster used to be a thin white line. It is drawn at the canvas's measured width, and
+the canvas measures zero while the editor is hidden — which is exactly when a card first
+appears, because importing takes you to the Media tab. It drew a one-pixel-wide poster and,
+having no reason to run again, kept it. It watches its own box now.
+
+**The bin appears when there is something in it** — an empty bin is a place to grab from
 with nothing to grab, and its Import button led to the Media tab anyway, which is a button
 press to arrive where the other button already goes. Media drags straight from the bin onto a track, or double-clicks onto the canvas. The
 Media tab stays, because browsing a hundred photographs and picking one to work on is a
@@ -2179,12 +2216,12 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Forty-two browser suites (**918 checks**), two Electron suites (**70 checks** — the shell
+Forty-two browser suites (**935 checks**), two Electron suites (**70 checks** — the shell
 itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
 suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
 `test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
 `test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1387
+for the parts that are pure maths and deserve testing without a browser at all. **1404
 checks** in total.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same

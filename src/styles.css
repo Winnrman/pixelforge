@@ -1321,7 +1321,23 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
 /* The label column's width, shared by the row labels and the snapping guide so
    the two cannot drift apart. */
 .strips.tracks { --track-label: 116px; }
-.track-rows { position: relative; }
+.track-rows {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* One scroller for every row, so the labels stay put and the lanes move
+   together — rows scrolling independently would be unreadable. */
+.track-rows > * { min-width: max-content; }
+/* Zoomed by scrolling: a lane is the visible width times the zoom, and every row
+   inside the scroller takes that width so they stay lined up with each other.
+   Clip positions are percentages of their lane, so they follow without knowing
+   anything about it. */
+.track-rows .track-lane,
+.track-rows .audio-lane {
+  flex: 0 0 var(--lane-w, auto);
+  width: var(--lane-w, auto);
+}
 .snap-guide {
   position: absolute;
   top: 0;

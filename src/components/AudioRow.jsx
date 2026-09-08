@@ -38,6 +38,7 @@ function AudioClip({ layer, duration }) {
   const selected = useStore((s) => s.selectedIds.includes(layer.id))
   const setPoint = useStore((s) => s.setVolumePoint)
   const removePoint = useStore((s) => s.removeVolumePoint)
+  const setContextMenu = useStore((s) => s.setContextMenu)
   // Subscribed as a string so the lane repaints when a point moves: an array
   // would be a new reference every render and never compare equal.
   const keySig = useStore((s) => {
@@ -137,6 +138,12 @@ function AudioClip({ layer, duration }) {
       style={{ left: `${left}%`, width: `${width}%` }}
       title={`${layer.name} — click the line to add a volume point, drag one to move it,`
         + ' double-click one to take it away'}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!selected) select([layer.id])
+        setContextMenu({ x: e.clientX, y: e.clientY, layerId: layer.id })
+      }}
       onPointerDown={(e) => {
         if (e.button !== 0) return
         // Anywhere on the lane that is not already a point adds one there. No

@@ -325,6 +325,76 @@ export default function Timeline() {
     return a?.isVideo && (a.audio || a.audio === undefined)
   })
 
+  const scrubbing = useRef(false)
+
+  /**
+   * How much wider than the window the tracks are drawn.
+   *
+   * Scrolling over the tracks scales them, which is what makes a cut on a
+   * particular frame possible: at 1x a second of a ninety-second clip is four
+   * pixels, and no amount of care with a mouse lands on the right one. There is
+   * no zoom control to find, because the gesture is the control.
+   */
+  const [zoom, setZoom] = useState(() => {
+    try { return Math.max(1, Number(localStorage.getItem('pf-tl-zoom')) || 1) } catch { return 1 }
+  })
+  const rowsRef = useRef(null)
+  const [laneW, setLaneW] = useState(0)
+
+  // The visible width, watched rather than measured once: the panel is resizable
+  // and the window is too.
+  //
+  // Attached by a callback ref rather than an effect, because the rows only
+  // exist while the Video tab is open — an effect that runs at mount finds
+  // nothing there and never looks again, which left every lane two pixels wide.
+  const roRef = useRef(null)
+  const offWheel = useRef(null)
+  const attachRows = useCallback((node) => {
+    roRef.current?.disconnect()
+    roRef.current = null
+    offWheel.current?.()
+    offWheel.current = null
+    rowsRef.current = node
+    if (!node) return
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(([entry]) => setLaneW(Math.round(entry.contentRect.width)))
+      ro.observe(node)
+      roRef.current = ro
+    }
+    // Attached by hand rather than as an onWheel prop: React registers wheel
+    // listeners as passive, so preventDefault inside one does nothing and the
+    // panel scrolls away underneath the zoom. The handler is read through a ref
+    // so this listener never has to be torn down and rebuilt to see fresh state.
+    const fire = (ev) => wheelRef.current?.(ev)
+    node.addEventListener('wheel', fire, { passive: false })
+    offWheel.current = () => node.removeEventListener('wheel', fire)
+  }, [])
+
+  const wheelRef = useRef(null)
+  const onWheel = (e) => {
+    // Only when the gesture is a zoom: a plain vertical wheel over a tall
+    // timeline should still scroll it.
+    if (e.ctrlKey || e.metaKey) return
+    const el = rowsRef.current
+    if (!el) return
+    e.preventDefault()
+    const step = e.deltaY < 0 ? 1.18 : 1 / 1.18
+    const next = Math.max(1, Math.min(60, zoom * step))
+    if (next === zoom) return
+    // Keep whatever is under the pointer under the pointer. Zooming about the
+    // left edge means the thing you were looking at slides away from you.
+    const label = 116
+    const x = e.clientX - el.getBoundingClientRect().left + el.scrollLeft - label
+    const at = x / Math.max(1, (laneW - label) * zoom)
+    setZoom(next)
+    requestAnimationFrame(() => {
+      const width = Math.max(1, (laneW - label) * next)
+      el.scrollLeft = Math.max(0, at * width - (e.clientX - el.getBoundingClientRect().left - label))
+    })
+    try { localStorage.setItem('pf-tl-zoom', String(next)) } catch { /* private mode */ }
+  }
+  wheelRef.current = onWheel
+
   if (duration <= 0 && !keyed.length) return null
 
   const animated = layers.filter((l) => l.type === 'image' && getAsset(l.assetId)?.animated)
@@ -350,6 +420,8 @@ export default function Timeline() {
     ? Math.max(MIN_H, Math.min(height || Math.round(colH * DEFAULT_SHARE), colH - 140))
     : undefined
 
+  // Whether the press that began this drag landed on the transport bar. A
+  // pointer that merely arrives over it mid-drag is not scrubbing.
   const startResize = (e) => {
     if (e.button !== 0) return
     e.preventDefault()
@@ -365,6 +437,7 @@ export default function Timeline() {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', up)
+      scrubbing.current = false
       try { localStorage.setItem('pf-timeline-h', String(heightRef.current)) } catch { /* private mode */ }
     }
     window.addEventListener('pointermove', move)
@@ -439,12 +512,19 @@ export default function Timeline() {
         onPointerDown={(e) => {
           if (e.button !== 0 || e.target.closest(CONTROLS)) return
           e.currentTarget.setPointerCapture(e.pointerId)
+          scrubbing.current = true
           setPlaying(false)
           scrub(e)
         }}
+        // A scrub has to have *started* here. Held-button moves that merely pass
+        // over the bar are somebody else's drag: dragging the split handle to
+        // make the viewer taller sweeps the pointer straight across the
+        // transport, and resizing a panel was moving the playhead.
         onPointerMove={(e) => {
-          if (e.buttons === 1 && !e.target.closest(CONTROLS)) scrub(e)
+          if (e.buttons === 1 && scrubbing.current) scrub(e)
         }}
+        onPointerUp={() => { scrubbing.current = false }}
+        onPointerCancel={() => { scrubbing.current = false }}
       >
         <button className="play" onClick={() => setPlaying(!playing)} title="Play / pause (Space)">
           {playing ? '❚❚' : '▶'}
@@ -581,13 +661,20 @@ export default function Timeline() {
               Close gaps
             </button>
           </div>
-          {renderRow(dropRow)}
-          <div className="track-rows">
+          <div
+            className="track-rows"
+            ref={attachRows}
+            style={{ '--lane-w': laneW ? `${Math.round((laneW - 116) * zoom)}px` : undefined }}
+          >
+            {/* Inside the scroller with everything else: a drop target that does
+                not move with the tracks is pointing at the wrong time the
+                moment they are zoomed. */}
+            {renderRow(dropRow)}
             {snapAt != null && duration > 0 && (
               <div
                 className="snap-guide"
                 style={{
-                  left: `calc(var(--track-label) + (100% - var(--track-label)) * ${snapAt / duration})`,
+                  left: `calc(var(--track-label) + var(--lane-w, 100% - var(--track-label)) * ${snapAt / duration})`,
                 }}
               />
             )}

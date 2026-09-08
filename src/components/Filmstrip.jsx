@@ -45,6 +45,7 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
   const slideClip = useStore((s) => s.slideClip)
   const setClipTrack = useStore((s) => s.setClipTrack)
   const toggleSelect = useStore((s) => s.toggleSelect)
+  const setContextMenu = useStore((s) => s.setContextMenu)
   const setFade = useStore((s) => s.setFade)
   const setSnapAt = useStore((s) => s.setSnapAt)
   const trimClip = useStore((s) => s.trimClip)
@@ -268,6 +269,15 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
         if (e.shiftKey) { toggleSelect(layer.id); return }
         select([layer.id])
         scrub(e)
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        // A right-click on something outside the selection is about that thing;
+        // on something inside it, the menu acts on the whole selection, which is
+        // what makes "join these four" one gesture.
+        if (!selected) select([layer.id])
+        setContextMenu({ x: e.clientX, y: e.clientY, layerId: layer.id })
       }}
     >
       <canvas ref={canvasRef} style={{ width: '100%', height: THUMB_H }} />

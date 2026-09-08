@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
 import { thumbAt } from '../engine/filmstrip.js'
@@ -15,11 +15,28 @@ const POSTER_H = 46
  */
 function PoolCard({ asset, used, onOpen }) {
   const ref = useRef(null)
+  // The poster is drawn at the canvas's measured width, and the canvas measures
+  // zero while the editor is hidden — which is exactly when a card first
+  // appears, because importing takes you to the Media tab. It drew a
+  // one-pixel-wide poster and, having no reason to run again, kept it: a thin
+  // white line where the picture should be. Watching the box means it is drawn
+  // when there is something to draw it into, and redrawn if the bin is resized.
+  const [w, setW] = useState(0)
+
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas || typeof ResizeObserver === 'undefined') return undefined
+    const ro = new ResizeObserver(([entry]) => {
+      setW(Math.round(entry.contentRect.width))
+    })
+    ro.observe(canvas)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     let cancelled = false
     const canvas = ref.current
-    if (!canvas) return undefined
+    if (!canvas || w < 8) return undefined
     ;(async () => {
       // A quarter in, like the Media tab: clips that open on black or a fade
       // make a poster that identifies nothing.
@@ -32,8 +49,6 @@ function PoolCard({ asset, used, onOpen }) {
       }
       if (cancelled || !thumb || !ref.current) return
       const dpr = Math.min(2, window.devicePixelRatio || 1)
-      const box = ref.current.getBoundingClientRect()
-      const w = Math.max(1, Math.round(box.width))
       ref.current.width = Math.round(w * dpr)
       ref.current.height = Math.round(POSTER_H * dpr)
       const ctx = ref.current.getContext('2d')
@@ -45,7 +60,7 @@ function PoolCard({ asset, used, onOpen }) {
       ctx.drawImage(thumb, (w - dw) / 2, (POSTER_H - dh) / 2, dw, dh)
     })()
     return () => { cancelled = true }
-  }, [asset])
+  }, [asset, w])
 
   return (
     <div
