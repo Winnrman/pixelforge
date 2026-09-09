@@ -19,6 +19,11 @@
 /** Tools that paint with a round brush, so they want a size and a hardness. */
 export const BRUSH_TOOLS = new Set(['erase', 'mask', 'clone'])
 
+// One note on the icons: they are single paths stroked with round caps, and the
+// rail gives every one of them the same treatment. A dash array is not available
+// to a shared path, so the mask's dashed box is written out as twelve segments —
+// three to a side, with the corners left solid, which is what stops it reading
+// as the crop tool's brackets.
 export const TOOLS = [
   // Bounding box deliberately centred on the 24x24 viewBox (x 5.5-18.5,
   // y 2.5-22): the original arrow measured 4-15 by 2-19, which sat visibly
@@ -29,7 +34,7 @@ export const TOOLS = [
   { id: 'lasso', key: 'L', digit: '4', label: 'Lasso select — click to plot points, or drag to trace', icon: 'M4 14 C2 9 6 3 12 3 C18 3 21 8 18 12 C16 15 10 15 9 18 C8 20 10 21 11 20' },
   { id: 'shape', key: 'S', digit: '5', label: 'Shape', icon: 'M3 3 H12 V12 H3 Z M9 9 A6 6 0 1 0 21 9 A6 6 0 1 0 9 9' },
   { id: 'text', key: 'T', digit: '6', label: 'Text', icon: 'M4 4 H20 M12 4 V20 M8 20 H16' },
-  { id: 'mask', key: 'B', digit: '7', label: 'Mask — brush the cut-out edge, or edit its outline', icon: 'M12 2.5 a9.5 9.5 0 0 1 0 19 z M12 2.5 a9.5 9.5 0 0 0 0 19 M4.2 6 l15.6 12 M6 3.6 l12 16.8 M2.8 9.4 l18.4 5.2' },
+  { id: 'mask', key: 'B', digit: '7', label: 'Mask — brush the cut-out edge, or edit its outline', icon: 'M3.5 3.5 H7.2 M10.2 3.5 H13.8 M16.8 3.5 H20.5 M20.5 3.5 V7.2 M20.5 10.2 V13.8 M20.5 16.8 V20.5 M20.5 20.5 H16.8 M13.8 20.5 H10.2 M7.2 20.5 H3.5 M3.5 20.5 V16.8 M3.5 13.8 V10.2 M3.5 7.2 V3.5' },
   { id: 'erase', key: 'E', digit: '8', label: 'Erase — paint away part of a layer', icon: 'M8.5 20 H20 M3.6 16.4 l8-8 a1.5 1.5 0 0 1 2.1 0 l4.9 4.9 a1.5 1.5 0 0 1 0 2.1 l-4.6 4.6 H9.2 l-5.6 -5.6 a1.5 1.5 0 0 1 0 -2.1 Z' },
   { id: 'clone', key: 'K', digit: '9', label: 'Clone stamp — copy one part of a picture over another', icon: 'M9 3 h6 a2 2 0 0 1 2 2 v1 a3 3 0 0 0 3 3 v2 H4 V9 a3 3 0 0 0 3 -3 V5 a2 2 0 0 1 2 -2 z M9 11 v4 a3 3 0 0 0 3 3 v3' },
   { id: 'wand', key: 'W', digit: '0', label: 'Select by colour', icon: 'M4 20 L14 10 M12.5 8.5 l3 3 M17 3 l1 2.2 l2.2 1 l-2.2 1 l-1 2.2 l-1 -2.2 l-2.2 -1 l2.2 -1 z M6 4 l0.6 1.4 l1.4 0.6 l-1.4 0.6 l-0.6 1.4 l-0.6 -1.4 l-1.4 -0.6 l1.4 -0.6 z' },
