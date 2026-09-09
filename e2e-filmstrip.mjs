@@ -79,8 +79,10 @@ const waitForStrip = async (n = 10, timeout = 60000) => {
 // --- the tab itself -----------------------------------------------------------
 await load('public/test/motion.gif')
 
+// The tabs themselves — the split toggle shares the row with them but is not one
+// of them, so it is not counted here.
 const tabsBefore = await page.evaluate(() =>
-  [...document.querySelectorAll('.tl-tabs button')].map((b) => b.textContent.trim()))
+  [...document.querySelectorAll('.tl-tabs button:not(.tl-both)')].map((b) => b.textContent.trim()))
 console.log('tabs:', JSON.stringify(tabsBefore))
 check('the timeline grows a tab bar', tabsBefore.length === 2, tabsBefore.join(' | '))
 check('and a Video tab is offered', tabsBefore.some((t) => /^Video/.test(t)), tabsBefore.join(' | '))

@@ -145,6 +145,88 @@ function KeyLane({ layer, group, duration, time }) {
   )
 }
 
+/** The fixed column on the left of each pane, and the buttons pinned to the
+ *  right of a keyframe lane. Kept in step with the stylesheet, which lays them
+ *  out — a lane drawn wider than the room it has scrolls the pane at rest. */
+const TRACK_LABEL = 116
+const KEY_LABEL = 116
+const KEY_ACTIONS = 76
+
+/**
+ * A pane whose contents are scaled by scrolling over them.
+ *
+ * At 1x a second of a ninety-second clip is four pixels, and no amount of care
+ * with a mouse lands on the right frame — which is as true of a keyframe as it
+ * is of a cut, so both panes want this and neither wants a zoom control to find.
+ * The gesture is the control.
+ *
+ * `label` is the width of the fixed column on the left, so the point under the
+ * pointer stays under the pointer; `reserve` is everything the lane does not get
+ * — the label plus whatever is pinned to the right of it.
+ */
+function useZoomPane(zoom, setZoom, { label, reserve = label }) {
+  const nodeRef = useRef(null)
+  const [width, setWidth] = useState(0)
+  const roRef = useRef(null)
+  const offRef = useRef(null)
+  const wheelRef = useRef(null)
+
+  // Attached by a callback ref rather than an effect, because a pane only exists
+  // while its tab is open — an effect that runs at mount finds nothing there and
+  // never looks again, which left every lane two pixels wide.
+  const attach = useCallback((node) => {
+    roRef.current?.disconnect()
+    roRef.current = null
+    offRef.current?.()
+    offRef.current = null
+    nodeRef.current = node
+    if (!node) return
+    // The visible width, watched rather than measured once: the panel is
+    // resizable, the split moves, and so does the window.
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)))
+      ro.observe(node)
+      roRef.current = ro
+    }
+    // Attached by hand rather than as an onWheel prop: React registers wheel
+    // listeners as passive, so preventDefault inside one does nothing and the
+    // pane scrolls away underneath the zoom. The handler is read through a ref
+    // so this listener never has to be torn down and rebuilt to see fresh state.
+    const fire = (ev) => wheelRef.current?.(ev)
+    node.addEventListener('wheel', fire, { passive: false })
+    offRef.current = () => node.removeEventListener('wheel', fire)
+  }, [])
+
+  wheelRef.current = (e) => {
+    // Only when the gesture is a zoom: a plain vertical wheel over a tall pane
+    // should still scroll it.
+    if (e.ctrlKey || e.metaKey) return
+    const el = nodeRef.current
+    if (!el) return
+    e.preventDefault()
+    const step = e.deltaY < 0 ? 1.18 : 1 / 1.18
+    const next = Math.max(1, Math.min(60, zoom * step))
+    if (next === zoom) return
+    // Keep whatever is under the pointer under the pointer. Zooming about the
+    // left edge means the thing you were looking at slides away from you.
+    const x = e.clientX - el.getBoundingClientRect().left + el.scrollLeft - label
+    const at = x / Math.max(1, (width - reserve) * zoom)
+    setZoom(next)
+    requestAnimationFrame(() => {
+      const w = Math.max(1, (width - reserve) * next)
+      el.scrollLeft = Math.max(0, at * w - (e.clientX - el.getBoundingClientRect().left - label))
+    })
+    try { localStorage.setItem('pf-tl-zoom', String(next)) } catch { /* private mode */ }
+  }
+
+  return {
+    attach,
+    node: nodeRef,
+    lanePx: Math.max(1, (width - reserve) * zoom),
+    laneW: width ? `${Math.round((width - reserve) * zoom)}px` : undefined,
+  }
+}
+
 /** How tall the timeline opens at, as a fraction of the editor column. Editing
  *  is what the panel is for, so it gets the room; the canvas is a preview of the
  *  thing being edited, not the thing itself. */
@@ -157,6 +239,20 @@ const CONTROLS = '.play, .tl-audio, .tl-readout, .tl-marks, .tl-rate'
 
 export default function Timeline() {
   const [tab, setTab] = useState('keys')
+  // Side by side rather than one at a time. Animating a property *against* the
+  // shot it happens over means looking at both, and a tab is the one arrangement
+  // that guarantees you cannot.
+  const [split, setSplit] = useState(() => {
+    try { return localStorage.getItem('pf-tl-split') === '1' } catch { return false }
+  })
+  // Where the divider sits, as the keyframe pane's share of the width.
+  const [pane, setPane] = useState(() => {
+    const saved = Number(localStorage.getItem('pf-tl-pane'))
+    return Number.isFinite(saved) && saved > 0.15 && saved < 0.85 ? saved : 0.5
+  })
+  const panesRef = useRef(null)
+  const paneRef = useRef(pane)
+  paneRef.current = pane
   // Remembered across sessions, because how much room you want depends on what
   // you are doing and it is annoying to set twice.
   const [height, setHeight] = useState(() => {
@@ -344,62 +440,49 @@ export default function Timeline() {
   const [zoom, setZoom] = useState(() => {
     try { return Math.max(1, Number(localStorage.getItem('pf-tl-zoom')) || 1) } catch { return 1 }
   })
-  const rowsRef = useRef(null)
-  const [laneW, setLaneW] = useState(0)
-
-  // The visible width, watched rather than measured once: the panel is resizable
-  // and the window is too.
+  // Both panes zoom, and they zoom together: side by side they are the same
+  // time axis twice, and two axes at different scales would be a lie.
   //
-  // Attached by a callback ref rather than an effect, because the rows only
-  // exist while the Video tab is open — an effect that runs at mount finds
-  // nothing there and never looks again, which left every lane two pixels wide.
-  const roRef = useRef(null)
-  const offWheel = useRef(null)
-  const attachRows = useCallback((node) => {
-    roRef.current?.disconnect()
-    roRef.current = null
-    offWheel.current?.()
-    offWheel.current = null
-    rowsRef.current = node
-    if (!node) return
-    if (typeof ResizeObserver !== 'undefined') {
-      const ro = new ResizeObserver(([entry]) => setLaneW(Math.round(entry.contentRect.width)))
-      ro.observe(node)
-      roRef.current = ro
-    }
-    // Attached by hand rather than as an onWheel prop: React registers wheel
-    // listeners as passive, so preventDefault inside one does nothing and the
-    // panel scrolls away underneath the zoom. The handler is read through a ref
-    // so this listener never has to be torn down and rebuilt to see fresh state.
-    const fire = (ev) => wheelRef.current?.(ev)
-    node.addEventListener('wheel', fire, { passive: false })
-    offWheel.current = () => node.removeEventListener('wheel', fire)
-  }, [])
+  // The keyframe pane keeps its per-lane buttons pinned to the right, so what a
+  // lane gets is the width less the label *and* those.
+  const rows = useZoomPane(zoom, setZoom, { label: TRACK_LABEL })
+  const keys = useZoomPane(zoom, setZoom, { label: KEY_LABEL, reserve: KEY_LABEL + KEY_ACTIONS })
 
-  const wheelRef = useRef(null)
-  const onWheel = (e) => {
-    // Only when the gesture is a zoom: a plain vertical wheel over a tall
-    // timeline should still scroll it.
-    if (e.ctrlKey || e.metaKey) return
-    const el = rowsRef.current
-    if (!el) return
-    e.preventDefault()
-    const step = e.deltaY < 0 ? 1.18 : 1 / 1.18
-    const next = Math.max(1, Math.min(60, zoom * step))
-    if (next === zoom) return
-    // Keep whatever is under the pointer under the pointer. Zooming about the
-    // left edge means the thing you were looking at slides away from you.
-    const label = 116
-    const x = e.clientX - el.getBoundingClientRect().left + el.scrollLeft - label
-    const at = x / Math.max(1, (laneW - label) * zoom)
-    setZoom(next)
-    requestAnimationFrame(() => {
-      const width = Math.max(1, (laneW - label) * next)
-      el.scrollLeft = Math.max(0, at * width - (e.clientX - el.getBoundingClientRect().left - label))
-    })
-    try { localStorage.setItem('pf-tl-zoom', String(next)) } catch { /* private mode */ }
-  }
-  wheelRef.current = onWheel
+  // Both panes can be open at once, and the split only means anything when
+  // there is something on each side of it.
+  const splittable = keyed.length > 0 && strips.length > 0
+  const bothOpen = split && splittable
+  const showKeys = (bothOpen || tab === 'keys') && keyed.length > 0
+  // Not gated on `strips`, which lists the clips worth drawing a filmstrip for
+  // and misses the rest: a still on a track has no thumbnails to build and still
+  // has a row, a fade and a pair of handles. The Video pane is the tracks, not
+  // the pictures on them.
+  const showVideo = bothOpen || tab === 'video'
+
+  // Side by side they are the same time axis twice, so they scroll as one.
+  // Their lanes are different widths — the panes are — so what is carried across
+  // is how far along the axis you are, not how many pixels.
+  useEffect(() => {
+    if (!bothOpen) return undefined
+    const a = keys.node.current
+    const b = rows.node.current
+    if (!a || !b) return undefined
+    let lock = false
+    const follow = (from, to, fromPx, toPx) => () => {
+      if (lock) return
+      lock = true
+      to.scrollLeft = (from.scrollLeft / fromPx) * toPx
+      requestAnimationFrame(() => { lock = false })
+    }
+    const onA = follow(a, b, keys.lanePx, rows.lanePx)
+    const onB = follow(b, a, rows.lanePx, keys.lanePx)
+    a.addEventListener('scroll', onA)
+    b.addEventListener('scroll', onB)
+    return () => {
+      a.removeEventListener('scroll', onA)
+      b.removeEventListener('scroll', onB)
+    }
+  }, [bothOpen, keys.lanePx, rows.lanePx])
 
   if (duration <= 0 && !keyed.length) return null
 
@@ -415,10 +498,9 @@ export default function Timeline() {
     setTime(Math.max(0, Math.min(duration, t)))
   }
 
-  // Only the editing panes are worth giving height to. With neither open the
+  // Only a pane with something in it is worth giving height to. With neither the
   // timeline is just the transport bar and should stay out of the way.
-  const expandable = (tab === 'keys' && keyed.length > 0)
-    || (tab === 'video' && strips.length > 0)
+  const expandable = showKeys || (showVideo && strips.length > 0)
   // A dragged height wins; otherwise a share of the column. Undefined until the
   // column has been measured, so the panel opens at its natural size rather
   // than flashing a guessed one.
@@ -652,11 +734,34 @@ export default function Timeline() {
           >
             Video{strips.length > 0 && <span className="dim"> {strips.length}</span>}
           </button>
+          {/* Not a third tab — a toggle that says both of the other two at once,
+              which is why it sits apart from them and stays pressed. */}
+          <button
+            className={'tl-both' + (bothOpen ? ' on' : '')}
+            disabled={!splittable}
+            aria-pressed={bothOpen}
+            onClick={() => {
+              const next = !split
+              setSplit(next)
+              try { localStorage.setItem('pf-tl-split', next ? '1' : '0') } catch { /* private mode */ }
+            }}
+            title={splittable
+              ? 'Show the keyframes and the clips side by side'
+              : 'Needs something animated and something on a track'}
+          >
+            <span className="tl-both-icon" aria-hidden="true" />
+            Split
+          </button>
         </div>
       )}
 
-      {tab === 'keys' && keyed.length > 0 && (
-        <div className="lanes" ref={lanesRef} onPointerDown={startMarquee}>
+      <div className={'tl-panes' + (bothOpen ? ' split' : '')} ref={panesRef}
+        style={bothOpen ? { '--pane': pane } : undefined}>
+
+      {showKeys && (
+        <div className="lanes" ref={(n) => { lanesRef.current = n; keys.attach(n) }}
+          style={{ '--lane-w': keys.laneW }}
+          onPointerDown={startMarquee}>
           {marquee && (
             <div
               className="key-marquee"
@@ -679,14 +784,38 @@ export default function Timeline() {
         </div>
       )}
 
-      {tab === 'keys' && !keyed.length && strips.length > 0 && (
+      {bothOpen && (
+        <div
+          className="pane-split"
+          title="Drag to resize"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return
+            e.preventDefault()
+            e.currentTarget.setPointerCapture(e.pointerId)
+            const box = panesRef.current.getBoundingClientRect()
+            const move = (ev) => {
+              const f = (ev.clientX - box.left) / Math.max(1, box.width)
+              setPane(Math.max(0.2, Math.min(0.8, f)))
+            }
+            const up = () => {
+              window.removeEventListener('pointermove', move)
+              window.removeEventListener('pointerup', up)
+              try { localStorage.setItem('pf-tl-pane', String(paneRef.current)) } catch { /* private mode */ }
+            }
+            window.addEventListener('pointermove', move)
+            window.addEventListener('pointerup', up)
+          }}
+        />
+      )}
+
+      {!bothOpen && tab === 'keys' && !keyed.length && strips.length > 0 && (
         <p className="tl-empty">
           Nothing is animated yet. Turn on animation for a property in the inspector,
           or switch to Video to see the clips.
         </p>
       )}
 
-      {tab === 'video' && (
+      {showVideo && (
         <div className="strips tracks">
           <div className="clip-bar-tools">
             <button
@@ -726,8 +855,8 @@ export default function Timeline() {
           </div>
           <div
             className="track-rows"
-            ref={attachRows}
-            style={{ '--lane-w': laneW ? `${Math.round((laneW - 116) * zoom)}px` : undefined }}
+            ref={rows.attach}
+            style={{ '--lane-w': rows.laneW }}
           >
             {/* Inside the scroller with everything else: a drop target that does
                 not move with the tracks is pointing at the wrong time the
@@ -766,6 +895,7 @@ export default function Timeline() {
           ))}
         </div>
       )}
+      </div>
     </div>
   )
 }

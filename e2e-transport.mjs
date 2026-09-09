@@ -314,6 +314,116 @@ console.log('the poster across its card:', JSON.stringify(cover))
 check('a poster reaches both edges of its card rather than sitting letterboxed',
   cover.found && cover.left && cover.right && cover.centre, JSON.stringify(cover))
 
+// --- keyframes and clips, side by side -------------------------------------------------------
+// Animating a property means animating it *over* something: the shot it happens
+// on, at the frame it has to hit. Tabs are the one arrangement that guarantees
+// you cannot see both, so there is a toggle that says both at once.
+await page.evaluate(() => {
+  const st = window.__pfState()
+  const l = st.doc.layers.find((x) => x.clip && x.assetId)
+  st.select([l.id])
+  st.enableTrack(l.id, 'position')
+  st.enableTrack(l.id, 'opacity')
+  st.addKeyframe(l.id, 'position', 0)
+  st.addKeyframe(l.id, 'position', 1500)
+  st.addKeyframe(l.id, 'opacity', 800)
+})
+await page.waitForTimeout(500)
+const oneUp = await page.evaluate(() => ({
+  panes: [...document.querySelectorAll('.tl-panes > .lanes, .tl-panes > .strips')].length,
+  toggle: !!document.querySelector('.tl-both'),
+  enabled: !document.querySelector('.tl-both')?.disabled,
+}))
+check('the split toggle turns up once there is something on both sides',
+  oneUp.toggle && oneUp.enabled, JSON.stringify(oneUp))
+check('and one pane is open before it is pressed', oneUp.panes === 1, JSON.stringify(oneUp))
+
+await page.click('.tl-both')
+await page.waitForTimeout(500)
+const side = await page.evaluate(() => {
+  const L = document.querySelector('.lanes')?.getBoundingClientRect()
+  const S = document.querySelector('.strips')?.getBoundingClientRect()
+  return L && S ? {
+    lanesX: Math.round(L.x), lanesR: Math.round(L.right), stripsX: Math.round(S.x),
+    lanesW: Math.round(L.width), stripsW: Math.round(S.width),
+    sameTop: Math.abs(L.y - S.y) < 2,
+    tall: Math.round(Math.min(L.height, S.height)),
+  } : { none: true }
+})
+console.log('the two panes:', JSON.stringify(side))
+check('pressing it puts them beside each other, not above one another',
+  side.stripsX >= side.lanesR - 8 && side.sameTop, JSON.stringify(side))
+check('each getting real room and real height',
+  side.lanesW > 150 && side.stripsW > 150 && side.tall > 80, JSON.stringify(side))
+
+// --- the keyframes zoom too ------------------------------------------------------------------
+// The same reason the clips do: at rest a second of a long project is a few
+// pixels, and a key has to land on a frame.
+const keyLane = () => page.evaluate(() => {
+  const el = document.querySelector('.lanes')
+  const t = document.querySelector('.lane-track')
+  return {
+    lane: Math.round(t.getBoundingClientRect().width),
+    scrollW: Math.round(el.scrollWidth),
+    left: Math.round(el.scrollLeft),
+    rows: Math.round(document.querySelector('.track-rows').scrollLeft),
+    rowLane: Math.round(document.querySelector('.track-lane').getBoundingClientRect().width),
+  }
+})
+const keysRest = await keyLane()
+const lanesBox = await page.locator('.lanes').boundingBox()
+await page.mouse.move(lanesBox.x + lanesBox.width * 0.6, lanesBox.y + lanesBox.height * 0.3)
+for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, -120); await page.waitForTimeout(140) }
+const keysZoom = await keyLane()
+console.log('keyframe lanes, at rest then scrolled:',
+  JSON.stringify(keysRest), JSON.stringify(keysZoom))
+check('scrolling over the keyframes makes their lanes longer',
+  keysZoom.lane > keysRest.lane * 1.8, `${keysRest.lane}px -> ${keysZoom.lane}px`)
+check('and they scroll sideways once they are wider than the pane',
+  keysZoom.scrollW > keysRest.scrollW && keysZoom.left > 0,
+  `${keysRest.scrollW} -> ${keysZoom.scrollW}, at ${keysZoom.left}`)
+// Side by side they are the same time axis twice. Two axes at different scales,
+// or at the same scale but different offsets, would be a lie.
+check('the clips zoom with them, being the same time axis',
+  keysZoom.rowLane > keysRest.rowLane * 1.8, `${keysRest.rowLane}px -> ${keysZoom.rowLane}px`)
+check('and the two panes stay at the same place along it',
+  Math.abs((keysZoom.left / keysZoom.lane) - (keysZoom.rows / keysZoom.rowLane)) < 0.02,
+  `${(keysZoom.left / keysZoom.lane).toFixed(3)} against ${(keysZoom.rows / keysZoom.rowLane).toFixed(3)}`)
+
+// The label of a lane is not a thing to go looking for once it has scrolled off.
+const pinned = await page.evaluate(() => {
+  const at = (el) => { const r = el.getBoundingClientRect(); return Math.round(r.left) }
+  const pane = document.querySelector('.lanes').getBoundingClientRect()
+  const rows = document.querySelector('.track-rows').getBoundingClientRect()
+  const name = document.querySelector('.lane-name')
+  const track = [...document.querySelectorAll('.track-rows .track-name')].find((e) => e.textContent.trim())
+  return {
+    name: at(name) - Math.round(pane.left),
+    track: at(track) - Math.round(rows.left),
+    // What is actually painted where the label is: the label, not the picture
+    // that ran underneath it.
+    onTop: document.elementFromPoint(at(track) + 4,
+      track.getBoundingClientRect().top + track.getBoundingClientRect().height / 2)?.className,
+  }
+})
+console.log('pinned labels:', JSON.stringify(pinned))
+check('a property keeps its name when the lane is scrolled away',
+  pinned.name >= 0 && pinned.name < 30, `${pinned.name}px from the pane edge`)
+check('and a track keeps its number, drawn over the clips rather than under them',
+  pinned.track >= 0 && pinned.track < 30 && pinned.onTop === 'track-name', JSON.stringify(pinned))
+
+await page.screenshot({ path: path.join(OUT, '05-split.png') })
+
+// Off again, back to one pane at a time.
+await page.click('.tl-both')
+await page.waitForTimeout(400)
+const off = await page.evaluate(() => ({
+  panes: [...document.querySelectorAll('.tl-panes > .lanes, .tl-panes > .strips')].length,
+  divider: !!document.querySelector('.pane-split'),
+}))
+check('pressing it again goes back to one at a time',
+  off.panes === 1 && !off.divider, JSON.stringify(off))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

@@ -190,8 +190,32 @@ button:disabled { opacity: 0.35; cursor: default; }
    it scrolls, so the cap has to go — otherwise the height set by dragging is
    silently clamped back to 40%. */
 .timeline.tall { max-height: 82%; min-height: 120px; }
+.tl-panes { display: flex; flex-direction: column; min-height: 0; }
+.timeline.tall .tl-panes { flex: 1; }
 .timeline.tall .lanes,
 .timeline.tall .strips { flex: 1; min-height: 0; }
+
+/* Side by side. The keyframes and the shot they happen over are the same time
+   axis twice, and until now the only way to see one was to hide the other. */
+.tl-panes.split { flex-direction: row; align-items: stretch; }
+.tl-panes.split > .lanes {
+  flex: 0 0 calc(var(--pane, 0.5) * 100%);
+  min-width: 0;
+  border-top: 1px solid var(--line-soft);
+}
+.tl-panes.split > .strips { flex: 1 1 auto; min-width: 0; }
+/* The grab strip between them. Wider than it looks, because a 1px line is a
+   target you have to aim at. */
+.pane-split {
+  flex: none;
+  width: 7px;
+  margin: 0 -3px;
+  cursor: ew-resize;
+  z-index: 3;
+  border-left: 1px solid var(--line);
+  box-sizing: border-box;
+}
+.pane-split:hover { background: var(--accent, #4ea1ff); opacity: 0.5; }
 
 /* The grab strip along the top edge. Wider than it looks, because a 1px border
    is a target you have to aim at. */
@@ -498,10 +522,45 @@ kbd {
 .lanes {
   border-top: 1px solid var(--line-soft);
   padding: 5px 14px 8px;
-  overflow-y: auto;
+  /* Scrolls both ways: zoomed in, a lane is wider than the pane. */
+  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+/* One scroller for every lane, so they stay lined up with each other — lanes
+   scrolling independently would be unreadable. */
+.lanes > * { min-width: max-content; }
+/* A lane is the visible width times the zoom, less what the label and the
+   buttons take. Keyframe positions are percentages of their lane, so they
+   follow without knowing anything about it. */
+/* The fallback is the pane, not `auto`: a lane holds nothing but absolutely
+   positioned diamonds, so `auto` measures it as empty and collapses it to
+   nothing. Until the pane has been measured — a frame, or for ever in a browser
+   with no ResizeObserver — a lane is simply the width it always used to be. */
+.lanes .lane-track {
+  flex: 0 0 var(--lane-w, 100%);
+  width: var(--lane-w, 100%);
+  min-width: 0;
+}
+/* Zoomed in, the ends of a lane are off the side of the pane. The name of the
+   property and the buttons that act on it are not things to go looking for, so
+   they stay put while the lane runs under them. */
+.lanes .lane-name,
+.lanes .lane-layer {
+  position: sticky; left: 0; z-index: 2; background: var(--panel);
+  /* The pane is padded and the lane runs on underneath that padding, so without
+     this the line reappears in the margin beside the pinned label. A shadow with
+     no blur is a solid block of the panel colour — and unlike a pseudo-element it
+     is not clipped away by the `overflow: hidden` these labels use to ellipsise. */
+  box-shadow: -20px 0 0 var(--panel);
+}
+/* A block would be as wide as the lane and have nowhere to stick to. */
+.lanes .lane-layer { width: max-content; padding-right: 10px; }
+.lanes .lane-actions {
+  position: sticky; right: 0; z-index: 2;
+  background: var(--panel); padding-left: 6px;
+  box-shadow: 20px 0 0 var(--panel);
 }
 
 .lane-group { margin-bottom: 4px; }
@@ -847,6 +906,31 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
 .tl-tabs button.on { color: #e7e7f0; border-bottom-color: var(--accent, #4ea1ff); }
 .tl-tabs button:disabled { opacity: 0.35; cursor: default; }
 .tl-tabs .dim { opacity: 0.5; font-weight: 500; }
+/* The split toggle is not a third tab — it says both of the other two at once —
+   so it sits away from them and reads as pressed rather than selected. */
+.tl-tabs .tl-both {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 6px;
+  border-bottom-color: transparent;
+}
+.tl-tabs .tl-both.on { color: #e7e7f0; border-bottom-color: transparent; }
+.tl-both-icon {
+  width: 13px; height: 11px;
+  border: 1px solid currentColor; border-radius: 2px;
+  opacity: 0.75;
+  position: relative;
+}
+/* Two panes, drawn: the divider down the middle, and the left one filled in
+   when the split is on. */
+.tl-both-icon::after {
+  content: ''; position: absolute; top: -1px; bottom: -1px; left: 5px;
+  width: 1px; background: currentColor;
+}
+.tl-tabs .tl-both.on .tl-both-icon { opacity: 1; }
+.tl-tabs .tl-both.on .tl-both-icon::before {
+  content: ''; position: absolute; top: 1px; bottom: 1px; left: 1px; right: 7px;
+  background: currentColor; opacity: 0.55;
+}
 
 .tl-empty {
   margin: 0;
@@ -1353,14 +1437,36 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
 /* One scroller for every row, so the labels stay put and the lanes move
    together — rows scrolling independently would be unreadable. */
 .track-rows > * { min-width: max-content; }
+/* Zoomed in, the front of the timeline is off the left of the pane and the row
+   labels went with it — which row a clip is on is not something to go looking
+   for. Pinned, with a solid block of the panel colour behind them so the lane
+   does not show through as they run underneath. */
+.track-rows .track-name {
+  position: sticky; left: 0; z-index: 4;
+  /* Stretched to the row, so the backdrop below covers the row and not just the
+     line of text — otherwise the thumbnails carry on above and below the words. */
+  align-self: stretch;
+  display: flex; align-items: center; justify-content: flex-end;
+}
+/* The backdrop is a pseudo-element rather than the label's own background,
+   because the label is a line of text in a sixty-pixel row: its own box covers
+   the words and leaves the thumbnails showing above and below them. This covers
+   the row, and reaches left across the pane's padding. */
+.track-rows .track-name::before {
+  content: '';
+  position: absolute; top: 0; bottom: 0; left: -20px; right: 0;
+  background: var(--panel);
+  z-index: -1;
+}
 /* Zoomed by scrolling: a lane is the visible width times the zoom, and every row
    inside the scroller takes that width so they stay lined up with each other.
    Clip positions are percentages of their lane, so they follow without knowing
    anything about it. */
 .track-rows .track-lane,
 .track-rows .audio-lane {
-  flex: 0 0 var(--lane-w, auto);
-  width: var(--lane-w, auto);
+  flex: 0 0 var(--lane-w, 100%);
+  width: var(--lane-w, 100%);
+  min-width: 0;
 }
 .snap-guide {
   position: absolute;
