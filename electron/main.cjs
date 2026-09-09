@@ -193,16 +193,38 @@ ipcMain.handle('pf:ready', () => {
 
 // A second launch — double-clicking another project while this one is open —
 // is handed to the window already running rather than starting a second app.
+/**
+ * Brings a window to the front, and means it.
+ *
+ * Windows refuses focus to a process that is not the one the user is already
+ * working in, which is the right rule almost everywhere and exactly wrong here:
+ * launching the app *is* the user asking for it. A bare `focus()` from the
+ * background flashes the taskbar button and does nothing else, so double-clicking
+ * the shortcut while a copy is already running looks like the app failing to
+ * start — no window, no error, nothing.
+ *
+ * Briefly claiming always-on-top is the way past it: the window is raised as a
+ * property of itself rather than by asking for focus, and the claim is dropped
+ * again immediately so it does not sit over everything else afterwards.
+ */
+function surface(w) {
+  if (!w || w.isDestroyed()) return
+  if (w.isMinimized()) w.restore()
+  if (!w.isVisible()) w.show()
+  const wasOnTop = w.isAlwaysOnTop()
+  w.setAlwaysOnTop(true)
+  w.show()
+  w.setAlwaysOnTop(wasOnTop)
+  w.focus()
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv) => {
     const file = projectArg(argv)
     if (file) { pendingOpen = file; flushOpen() }
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    }
+    surface(win)
   })
 }
 

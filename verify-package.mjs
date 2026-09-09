@@ -10,6 +10,7 @@ import { _electron as electron } from 'playwright-core'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { spawn } from 'child_process'
 
 const EXE = path.resolve('release/win-unpacked/PixelForge.exe')
 if (!fs.existsSync(EXE)) {
@@ -123,6 +124,51 @@ const fixtures = await page.evaluate(async () => {
 console.log('fixture probe:', JSON.stringify(fixtures))
 check('test fixtures were left out of the package', fixtures.gif === false,
   JSON.stringify(fixtures))
+
+// --- launching it again while it is already running -----------------------------------
+// The lock stops a second copy and asks the first to come forward. On Windows a
+// background process cannot take focus — the rule that stops adverts stealing
+// your keyboard — so a bare focus() flashes the taskbar button and does nothing
+// else: double-clicking the shortcut looks like the app failing to start. No
+// window, no error, nothing.
+//
+// Minimised first, because that is the state the failure is legible in. If the
+// second launch is heard at all, the window comes back.
+// Minimised from the main process rather than through the window's own control,
+// so the test is putting the window away rather than testing the button that
+// does — and so a failure here means what it says.
+await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.minimize())
+await new Promise((r) => setTimeout(r, 800))
+const wasHidden = await app.evaluate(({ BrowserWindow }) =>
+  BrowserWindow.getAllWindows()[0]?.isMinimized() ?? false)
+
+const second = spawn(EXE, [], {
+  env: { ...process.env, PF_USER_DATA: PROFILE, PF_NO_CONFIRM: '1' },
+  stdio: 'ignore',
+  detached: false,
+})
+const secondExit = await Promise.race([
+  new Promise((res) => second.on('exit', (code) => res(code ?? 0))),
+  new Promise((res) => setTimeout(() => res('still running'), 12000)),
+])
+await new Promise((r) => setTimeout(r, 800))
+const after = await app.evaluate(({ BrowserWindow }) => {
+  const w = BrowserWindow.getAllWindows()[0]
+  return w
+    ? { minimized: w.isMinimized(), visible: w.isVisible(), onTop: w.isAlwaysOnTop(), focused: w.isFocused() }
+    : null
+})
+if (secondExit === 'still running') { try { second.kill() } catch { /* gone */ } }
+console.log('second launch:', JSON.stringify({ wasHidden, secondExit, after }))
+check('the window was out of the way to begin with', wasHidden === true)
+check('a second launch does not open a second copy', secondExit !== 'still running',
+  String(secondExit))
+check('it brings the running window back instead of doing nothing silently',
+  after?.minimized === false && after?.visible === true, JSON.stringify(after))
+// Raised by claiming always-on-top for an instant. Keeping the claim would leave
+// the editor sitting over everything else for the rest of the session.
+check('and does not leave it pinned over everything else', after?.onTop === false,
+  String(after?.onTop))
 
 await page.screenshot({ path: 'shots-desktop/02-packaged.png' }).catch(() => {})
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')

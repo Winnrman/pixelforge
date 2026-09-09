@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { Info } from './ui.jsx'
+import { backupFolder } from '../engine/backup.js'
 
 function Thumb({ blob }) {
   const [url, setUrl] = useState(null)
@@ -33,6 +34,12 @@ export default function OpenDialog({ onClose }) {
   const refreshBackups = useStore((s) => s.refreshBackups)
   const restoreBackup = useStore((s) => s.restoreBackup)
   const [showBackups, setShowBackups] = useState(false)
+  // Where this copy of the app is keeping things. Two people looking at two
+  // empty lists cannot tell whether they are looking at the same empty place —
+  // and the desktop app and the browser genuinely are different places, which is
+  // exactly the confusion this ends.
+  const [where, setWhere] = useState(null)
+  useEffect(() => { backupFolder().then(setWhere).catch(() => setWhere(null)) }, [])
   const openSaved = useStore((s) => s.openSavedProject)
   const openFile = useStore((s) => s.openProject)
   const deleteSaved = useStore((s) => s.deleteSavedProject)
@@ -109,6 +116,15 @@ export default function OpenDialog({ onClose }) {
                   <Info>
                     So an exported PNG is never the only copy. The most recent are kept;
                     older ones are dropped as new ones arrive.
+                  </Info>
+                </p>
+                <p className="hint">
+                  {where ? <code className="path">{where}</code> : 'Kept in this browser.'}
+                  <Info>
+                    The desktop app writes backups to a folder on disk; the browser keeps
+                    them in its own storage and cannot reach that folder. Two copies of the
+                    app pointed at different places show different lists, which is worth
+                    being able to check rather than guess at.
                   </Info>
                 </p>
                 {!backups.length && <p className="hint">No backups yet.</p>}
