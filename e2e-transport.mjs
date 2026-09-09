@@ -236,7 +236,11 @@ check('there is a clip on the timeline', rest.clip > 100, `${rest.clip}px`)
 
 const rowsBox = await page.locator('.track-rows').boundingBox()
 await page.mouse.move(rowsBox.x + rowsBox.width * 0.5, rowsBox.y + rowsBox.height * 0.5)
+// Shift to scale. The bare wheel belongs to scrolling — see the pair of checks
+// further down.
+await page.keyboard.down('Shift')
 for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, -120); await page.waitForTimeout(140) }
+await page.keyboard.up('Shift')
 const zoomed = await lane()
 console.log('after scrolling up:', JSON.stringify(zoomed))
 // A second of a long clip is four pixels at rest, which is not a thing you can
@@ -248,13 +252,126 @@ check('and they scroll sideways once they are wider than the window',
 check('keeping what was under the pointer near it', zoomed.left > 0, `scrolled ${zoomed.left}px`)
 await page.screenshot({ path: path.join(OUT, '03-zoom.png') })
 
+await page.keyboard.down('Shift')
 for (let i = 0; i < 9; i++) { await page.mouse.wheel(0, 120); await page.waitForTimeout(140) }
+await page.keyboard.up('Shift')
 const back = await lane()
 console.log('after scrolling back down:', JSON.stringify(back))
 check('scrolling down brings them back', Math.abs(back.clip - rest.clip) < 40,
   `${back.clip}px against ${rest.clip}px`)
 check('and no further than the window, which is the whole timeline',
   Math.abs(back.scrollW - rest.scrollW) < 40, `${back.scrollW} against ${rest.scrollW}`)
+
+// --- the bare wheel scrolls, shift scales -----------------------------------------------------
+// A project with a dozen tracks is taller than the pane, and the bare wheel is
+// the only gesture for "show me the rest of them". Scaling is the rarer of the
+// two, so it took the modifier.
+const manyTracks = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const l = st.doc.layers.find((x) => x.clip && x.assetId)
+  const a = window.__pfAssets.getAsset(l.assetId)
+  for (let i = 1; i < 14; i++) window.__pfState().insertClip(a.id, { track: i, at: i * 300 })
+  await new Promise((r) => setTimeout(r, 900))
+  const rows = document.querySelector('.track-rows')
+  return {
+    rows: document.querySelectorAll('.track-row').length,
+    reachable: Math.round(rows.scrollHeight - rows.clientHeight),
+  }
+})
+console.log('a project taller than its pane:', JSON.stringify(manyTracks))
+// The tracks past the tenth used to be squashed out of sight with the overflow
+// hidden — not merely off screen, but unreachable by any gesture at all.
+check('tracks that do not fit can be reached',
+  manyTracks.rows > 10 && manyTracks.reachable > 100, JSON.stringify(manyTracks))
+
+const wheelState = () => page.evaluate(() => {
+  const rows = document.querySelector('.track-rows')
+  return {
+    down: Math.round(rows.scrollTop),
+    zoom: document.querySelector('.tl-zoom')?.textContent,
+    lane: Math.round(document.querySelector('.track-lane').getBoundingClientRect().width),
+  }
+})
+const wheelBox = await page.locator('.track-rows').boundingBox()
+await page.mouse.move(wheelBox.x + wheelBox.width * 0.5, wheelBox.y + wheelBox.height * 0.5)
+// Scaled in first, and deliberately. At 1x a wheel *down* is already at the
+// bottom of the range and changes nothing, so a bare wheel that had gone on
+// scaling would look exactly like one that correctly did not.
+await page.keyboard.down('Shift')
+for (let i = 0; i < 4; i++) { await page.mouse.wheel(0, -120); await page.waitForTimeout(130) }
+await page.keyboard.up('Shift')
+await page.waitForTimeout(200)
+const atTop = await wheelState()
+for (let i = 0; i < 4; i++) { await page.mouse.wheel(0, 120); await page.waitForTimeout(110) }
+const scrolled = await wheelState()
+console.log('after a bare wheel:', JSON.stringify(atTop), '->', JSON.stringify(scrolled))
+check('a bare wheel scrolls down to the other tracks',
+  scrolled.down > atTop.down + 40, `${atTop.down} -> ${scrolled.down}`)
+check('and does not scale anything on the way',
+  scrolled.lane === atTop.lane && scrolled.zoom === atTop.zoom,
+  `${atTop.zoom}/${atTop.lane}px -> ${scrolled.zoom}/${scrolled.lane}px`)
+
+await page.keyboard.down('Shift')
+for (let i = 0; i < 3; i++) { await page.mouse.wheel(0, -120); await page.waitForTimeout(130) }
+await page.keyboard.up('Shift')
+const shifted = await wheelState()
+console.log('after a shift-wheel:', JSON.stringify(shifted))
+check('shift scales further', shifted.lane > scrolled.lane * 1.4,
+  `${scrolled.lane}px -> ${shifted.lane}px`)
+check('and leaves you looking at the same tracks', shifted.down === scrolled.down,
+  `${scrolled.down} -> ${shifted.down}`)
+
+// A mouse holding shift reports its notches on X, because to a browser that
+// gesture is horizontal scrolling.
+const onX = await page.evaluate(async ([x, y]) => {
+  const el = document.querySelector('.track-rows')
+  const before = Math.round(document.querySelector('.track-lane').getBoundingClientRect().width)
+  for (let i = 0; i < 3; i++) {
+    el.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true, cancelable: true, shiftKey: true, deltaX: -120, deltaY: 0, clientX: x, clientY: y,
+    }))
+    await new Promise((r) => setTimeout(r, 120))
+  }
+  return { before, after: Math.round(document.querySelector('.track-lane').getBoundingClientRect().width) }
+}, [wheelBox.x + wheelBox.width * 0.5, wheelBox.y + wheelBox.height * 0.5])
+console.log('shift-wheel reported sideways:', JSON.stringify(onX))
+check('a wheel that reports shift-scroll sideways scales just the same',
+  onX.after > onX.before * 1.4, `${onX.before}px -> ${onX.after}px`)
+
+// --- the readout ------------------------------------------------------------------------------
+// The zoom is a gesture with no control to look at, so without this the only way
+// to know you are at six times is that everything is enormous.
+const readout = await page.evaluate(() => {
+  const el = document.querySelector('.tl-zoom')
+  return { text: el?.textContent, lit: el?.classList.contains('on'), title: el?.title || '' }
+})
+console.log('the readout:', JSON.stringify(readout))
+check('the zoom level is written down', /^\d+%$/.test(readout.text || '') && readout.text !== '100%',
+  String(readout.text))
+check('and lit up while it is not 1x', readout.lit === true)
+check('and says how to work it', /[Ss]hift-scroll/.test(readout.title), readout.title)
+
+await page.click('.tl-zoom')
+await page.waitForTimeout(300)
+const reset = await page.evaluate(() => ({
+  text: document.querySelector('.tl-zoom')?.textContent,
+  lit: document.querySelector('.tl-zoom')?.classList.contains('on'),
+  lane: Math.round(document.querySelector('.track-lane').getBoundingClientRect().width),
+  down: Math.round(document.querySelector('.track-rows').scrollTop),
+}))
+console.log('after clicking it:', JSON.stringify(reset))
+check('clicking it goes back to the whole project', reset.text === '100%' && !reset.lit,
+  JSON.stringify(reset))
+check('without throwing away where you were looking', reset.down === shifted.down,
+  `${shifted.down} -> ${reset.down}`)
+
+// Put the board back for whatever comes next.
+await page.evaluate(async () => {
+  const st = window.__pfState()
+  const clips = st.doc.layers.filter((l) => l.clip && l.assetId)
+  for (const l of clips.slice(1)) st.removeLayers([l.id])
+  await new Promise((r) => setTimeout(r, 400))
+})
 
 // --- right-clicking a clip ------------------------------------------------------------------
 const menu = await page.evaluate(async () => {
@@ -373,7 +490,9 @@ const keyLane = () => page.evaluate(() => {
 const keysRest = await keyLane()
 const lanesBox = await page.locator('.lanes').boundingBox()
 await page.mouse.move(lanesBox.x + lanesBox.width * 0.6, lanesBox.y + lanesBox.height * 0.3)
+await page.keyboard.down('Shift')
 for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, -120); await page.waitForTimeout(140) }
+await page.keyboard.up('Shift')
 const keysZoom = await keyLane()
 console.log('keyframe lanes, at rest then scrolled:',
   JSON.stringify(keysRest), JSON.stringify(keysZoom))
@@ -448,7 +567,9 @@ await page.evaluate(async () => {
 // times the width of the window has most of itself off the side of the screen.
 const rowsAt1x = await page.locator('.track-rows').boundingBox()
 await page.mouse.move(rowsAt1x.x + rowsAt1x.width * 0.5, rowsAt1x.y + rowsAt1x.height * 0.5)
+await page.keyboard.down('Shift')
 for (let i = 0; i < 12; i++) { await page.mouse.wheel(0, 120); await page.waitForTimeout(90) }
+await page.keyboard.up('Shift')
 await page.waitForTimeout(300)
 
 /** The row holding the clip, the clip on it, and a point on bare track. */

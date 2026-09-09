@@ -153,12 +153,16 @@ const KEY_LABEL = 116
 const KEY_ACTIONS = 76
 
 /**
- * A pane whose contents are scaled by scrolling over them.
+ * A pane whose contents are scaled by shift-scrolling over them.
  *
  * At 1x a second of a ninety-second clip is four pixels, and no amount of care
  * with a mouse lands on the right frame — which is as true of a keyframe as it
  * is of a cut, so both panes want this and neither wants a zoom control to find.
  * The gesture is the control.
+ *
+ * Shift, and not the bare wheel, because a project with a dozen tracks is taller
+ * than the pane and the bare wheel is the only gesture for "show me the rest of
+ * them". Scaling is the rarer of the two and takes the modifier.
  *
  * `label` is the width of the fixed column on the left, so the point under the
  * pointer stays under the pointer; `reserve` is everything the lane does not get
@@ -198,13 +202,21 @@ function useZoomPane(zoom, setZoom, { label, reserve = label }) {
   }, [])
 
   wheelRef.current = (e) => {
-    // Only when the gesture is a zoom: a plain vertical wheel over a tall pane
-    // should still scroll it.
-    if (e.ctrlKey || e.metaKey) return
+    // Shift to zoom, everything else scrolls. A plain wheel used to zoom, which
+    // reads well until there are more tracks than fit — and then the one gesture
+    // for "show me the rest of them" was spent on scaling instead.
+    //
+    // Ctrl and Cmd are left to the browser, which is already zooming the page
+    // with them.
+    if (!e.shiftKey || e.ctrlKey || e.metaKey) return
     const el = nodeRef.current
     if (!el) return
+    // Shift plus a wheel is horizontal scrolling to a browser, so a mouse that
+    // reports its notches on Y arrives here reporting them on X instead.
+    const delta = e.deltaY || e.deltaX
+    if (!delta) return
     e.preventDefault()
-    const step = e.deltaY < 0 ? 1.18 : 1 / 1.18
+    const step = delta < 0 ? 1.18 : 1 / 1.18
     const next = Math.max(1, Math.min(60, zoom * step))
     if (next === zoom) return
     // Keep whatever is under the pointer under the pointer. Zooming about the
@@ -751,20 +763,37 @@ export default function Timeline() {
       {(keyed.length > 0 || strips.length > 0) && (
         <div className="tl-tabs">
           <button
-            className={tab === 'keys' ? 'on' : ''}
+            className={'tl-tab' + (tab === 'keys' ? ' on' : '')}
             onClick={() => setTab('keys')}
           >
             Keyframes{keyed.length > 0 && <span className="dim"> {keyed.length}</span>}
             {keyCount > 1 && <span className="dim"> · {keyCount} selected</span>}
           </button>
           <button
-            className={tab === 'video' ? 'on' : ''}
+            className={'tl-tab' + (tab === 'video' ? ' on' : '')}
             disabled={!strips.length}
             onClick={() => setTab('video')}
             title={strips.length ? 'Thumbnails for every clip on the timeline' : 'No clips on the timeline'}
           >
             Video{strips.length > 0 && <span className="dim"> {strips.length}</span>}
           </button>
+          {/* How far in the panes are scaled. Worth saying out loud: the zoom
+              is a gesture with no control to look at, so without this the only
+              way to know you are at six times is that everything is enormous.
+              Clicking it is the way back, which is a use for something that had
+              to be on screen anyway rather than another button. */}
+          <button
+            className={'tl-zoom' + (zoom > 1.005 ? ' on' : '')}
+            title={zoom > 1.005
+              ? `Scaled to ${Math.round(zoom * 100)}% — click to go back to the whole project.`
+                + ' Shift-scroll over a pane to zoom.'
+              : 'The whole project fits. Shift-scroll over a pane to zoom in.'}
+            onClick={() => {
+              setZoom(1)
+              try { localStorage.setItem('pf-tl-zoom', '1') } catch { /* private mode */ }
+            }}
+          >{Math.round(zoom * 100)}%</button>
+
           {/* Not a third tab — a toggle that says both of the other two at once,
               which is why it sits apart from them and stays pressed. */}
           <button

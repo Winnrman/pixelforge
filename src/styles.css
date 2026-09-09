@@ -908,8 +908,14 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
 .tl-tabs .dim { opacity: 0.5; font-weight: 500; }
 /* The split toggle is not a third tab — it says both of the other two at once —
    so it sits away from them and reads as pressed rather than selected. */
-.tl-tabs .tl-both {
+.tl-zoom {
   margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  border-bottom-color: transparent !important;
+  opacity: 0.5;
+}
+.tl-zoom.on { opacity: 1; color: var(--accent, #4ea1ff); }
+.tl-tabs .tl-both {
   display: flex; align-items: center; gap: 6px;
   border-bottom-color: transparent;
 }
@@ -1431,8 +1437,12 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
 .strips.tracks { --track-label: 116px; }
 .track-rows {
   position: relative;
-  overflow-x: auto;
-  overflow-y: hidden;
+  /* Both ways. Sideways because a zoomed lane is wider than the pane, and
+     downwards because a project with a dozen tracks is taller than it — squashed
+     to fit with the overflow hidden, the tracks past the tenth were not merely
+     off screen, they were unreachable. */
+  overflow: auto;
+  min-height: 0;
 }
 /* One scroller for every row, so the labels stay put and the lanes move
    together — rows scrolling independently would be unreadable. */
