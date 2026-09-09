@@ -1,0 +1,143 @@
+{
+  "width": 1400,
+  "height": 800,
+  "background": "#0e0f13",
+  "duration": 1200,
+  "layers": [
+    {
+      "type": "shape",
+      "name": "Panel",
+      "shape": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 520,
+      "h": 800,
+      "fill": "#3a1c71",
+      "fill2": "#d76d77",
+      "fillAngle": 115,
+      "stroke": "none",
+      "strokeWidth": 0
+    },
+    {
+      "type": "shape",
+      "name": "Rule",
+      "shape": "rect",
+      "x": 80,
+      "y": 300,
+      "w": 120,
+      "h": 6,
+      "radius": 3,
+      "fill": "#ffffff",
+      "stroke": "none",
+      "strokeWidth": 0,
+      "tracks": {
+        "x": [
+          {
+            "t": 0,
+            "v": 10,
+            "ease": "ease-out"
+          },
+          {
+            "t": 500,
+            "v": 80,
+            "ease": "linear"
+          }
+        ],
+        "opacity": [
+          {
+            "t": 0,
+            "v": 0,
+            "ease": "linear"
+          },
+          {
+            "t": 400,
+            "v": 1,
+            "ease": "linear"
+          }
+        ]
+      }
+    },
+    {
+      "type": "text",
+      "name": "Heading",
+      "text": "RENDERED\nFROM A FILE",
+      "x": 80,
+      "y": 340,
+      "w": 400,
+      "h": 220,
+      "size": 66,
+      "weight": 900,
+      "lineHeight": 1.05,
+      "color": "#ffffff",
+      "strokeWidth": 0,
+      "autoSize": false,
+      "tracks": {
+        "x": [
+          {
+            "t": 120,
+            "v": 10,
+            "ease": "ease-out"
+          },
+          {
+            "t": 620,
+            "v": 80,
+            "ease": "linear"
+          }
+        ],
+        "opacity": [
+          {
+            "t": 120,
+            "v": 0,
+            "ease": "linear"
+          },
+          {
+            "t": 520,
+            "v": 1,
+            "ease": "linear"
+          }
+        ]
+      }
+    },
+    {
+      "type": "text",
+      "name": "Sub",
+      "text": "no editor open",
+      "x": 80,
+      "y": 590,
+      "w": 380,
+      "h": 40,
+      "size": 24,
+      "weight": 500,
+      "color": "#ffffff",
+      "colorAlpha": 0.65,
+      "strokeWidth": 0,
+      "autoSize": false,
+      "tracks": {
+        "x": [
+          {
+            "t": 240,
+            "v": 10,
+            "ease": "ease-out"
+          },
+          {
+            "t": 740,
+            "v": 80,
+            "ease": "linear"
+          }
+        ],
+        "opacity": [
+          {
+            "t": 240,
+            "v": 0,
+            "ease": "linear"
+          },
+          {
+            "t": 640,
+            "v": 1,
+            "ease": "linear"
+          }
+        ]
+      }
+    }
+  ]
+}

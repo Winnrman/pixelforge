@@ -64,6 +64,8 @@
     "test:audiotrack": "node e2e-audiotrack.mjs",
     "test:join": "node e2e-join.mjs",
     "test:transport": "node e2e-transport.mjs",
+    "render": "node pf.mjs",
+    "test:cli": "node test-cli.mjs",
     "test:snap-units": "node test-snap.mjs",
     "test:richtext": "node test-richtext.mjs",
     "test:groups-units": "node test-groups.mjs",

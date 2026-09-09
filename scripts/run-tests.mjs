@@ -51,6 +51,8 @@ const OWNERS = [
   ['src/engine/aiMatte.js', ['e2e-ai', 'e2e-subject']],
   ['src/engine/keyframes.js', ['e2e-keyframes', 'e2e-keysel', 'e2e-framing', 'e2e-identity', 'e2e-audiotrack']],
   ['src/engine/exporters.js', ['e2e-editing', 'e2e-print', 'e2e-batch']],
+  ['pf.mjs', ['test-cli']],
+  ['scripts/headless-entry.js', ['test-cli']],
   ['src/engine/text.js', ['e2e-text']],
   ['src/engine/richtext.js', ['test-richtext', 'e2e-text']],
   ['src/engine/collage.js', ['e2e-mount', 'test-collage']],
@@ -94,7 +96,7 @@ const BROWSER = [
   'e2e-tracks', 'e2e-mount', 'e2e-cropimage', 'e2e-magnet', 'e2e-eyedrop',
   'e2e-wand', 'e2e-clone', 'e2e-tools2', 'e2e-clipboard', 'e2e-transitions',
   'e2e-audiotrack', 'e2e-join', 'e2e-transport', 'e2e-editing', 'e2e-gradient',
-  'e2e-maskedit', 'e2e-tint', 'test-edges',
+  'e2e-maskedit', 'e2e-tint', 'test-edges', 'test-cli',
 ]
 
 const fileFor = (name) => `${name}.mjs`

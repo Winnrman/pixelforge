@@ -68,9 +68,15 @@ const ui = await page.evaluate(() => ({
 console.log('ui:', JSON.stringify(ui))
 check('the interface rendered', ui.canvas && ui.buttons > 5, `${ui.buttons} buttons`)
 
-// The dev-only test handles must NOT be in a shipped build.
-const handles = await page.evaluate(() => typeof window.__pfState)
-check('and the dev test handles are stripped', handles === 'undefined', handles)
+// The dev-only test handles must NOT be in a shipped build. Nor must the
+// headless bundle the command line uses: it puts the whole engine on a page
+// under a name of its own, which is exactly the surface this build is supposed
+// not to have, and it is built separately for that reason.
+const handles = await page.evaluate(() => [
+  typeof window.__pfState, typeof window.__pfHeadless, typeof window.__pfRender,
+].join())
+check('and the dev test handles are stripped',
+  handles === 'undefined,undefined,undefined', handles)
 
 // The ONNX runtime asks for these by absolute path at load time — the one thing
 // most likely to be missing from a package, and it fails silently until someone
