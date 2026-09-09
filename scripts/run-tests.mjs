@@ -33,6 +33,7 @@ import os from 'os'
 const OWNERS = [
   ['src/engine/transitions.js', ['e2e-transitions', 'test-transitions', 'e2e-clips', 'e2e-tracks']],
   ['src/engine/clips.js', ['e2e-clips', 'e2e-tracks', 'e2e-transitions', 'test-clips', 'e2e-filmstrip', 'e2e-join']],
+  ['src/engine/gradient.js', ['e2e-gradient', 'test-gradient', 'e2e-text']],
   ['src/engine/erase.js', ['e2e-erase', 'e2e-sticker', 'e2e-tools2', 'e2e-lasso']],
   ['src/engine/clone.js', ['e2e-clone']],
   ['src/engine/wand.js', ['e2e-wand']],
@@ -61,6 +62,7 @@ const OWNERS = [
   ['src/components/MediaPool.jsx', ['e2e-media', 'e2e', 'e2e-transport']],
   ['src/components/MediaView.jsx', ['e2e-media', 'e2e-mount']],
   ['src/components/ExportDialog.jsx', ['e2e-print', 'e2e-batch', 'e2e', 'e2e-editing']],
+  ['src/components/Inspector.jsx', ['e2e-gradient', 'e2e-keyframes', 'e2e-text', 'e2e-subject']],
   ['src/components/LassoBar.jsx', ['e2e-lasso', 'e2e-wand', 'e2e-tools2']],
   ['src/components/ToolRail.jsx', ['e2e-clone', 'e2e-wand', 'e2e-eyedrop', 'e2e-lasso', 'e2e-erase']],
   ['src/components/OpenDialog.jsx', ['e2e-project', 'e2e-backup']],
@@ -75,7 +77,7 @@ const ALWAYS = ['e2e']
 // What matters for scheduling is what a suite costs, not what it is called.
 const UNITS = [
   'test-retro', 'test-loop', 'test-cursor', 'test-collage', 'test-trace',
-  'test-dpi', 'test-clips', 'test-transitions',
+  'test-dpi', 'test-clips', 'test-transitions', 'test-gradient',
 ]
 
 const BROWSER = [
@@ -86,7 +88,8 @@ const BROWSER = [
   'e2e-canvas', 'e2e-print', 'e2e-videoperf', 'e2e-clips', 'e2e-audio',
   'e2e-tracks', 'e2e-mount', 'e2e-cropimage', 'e2e-magnet', 'e2e-eyedrop',
   'e2e-wand', 'e2e-clone', 'e2e-tools2', 'e2e-clipboard', 'e2e-transitions',
-  'e2e-audiotrack', 'e2e-join', 'e2e-transport', 'e2e-editing', 'test-edges',
+  'e2e-audiotrack', 'e2e-join', 'e2e-transport', 'e2e-editing', 'e2e-gradient',
+  'test-edges',
 ]
 
 const fileFor = (name) => `${name}.mjs`

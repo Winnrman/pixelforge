@@ -16,6 +16,7 @@ import { Section, Row, Slider, Num, CommitNum, Select, Color, Toggle, Segmented 
 import { RETRO_PRESETS, RETRO_CONTROLS, retroDefaults } from '../engine/retro.js'
 import { defaultSticker, defaultTrails } from '../engine/subject.js'
 import { availableFonts } from '../engine/fonts.js'
+import { seedStop } from '../engine/gradient.js'
 
 const SHAPES = [
   { value: 'ellipse', label: 'Ellipse' },
@@ -52,6 +53,54 @@ const PRESETS = {
 const mountStyle = (l) => (l.frame?.on
   ? (l.frame.insets?.b > (l.frame.insets?.t || 0) * 1.5 ? 'polaroid' : 'border')
   : 'none')
+
+/**
+ * The switch that turns a colour into a gradient, on that colour's own row.
+ *
+ * One control for both directions rather than a button to add and a cross to
+ * take away, and it is painted with the gradient it turns on — the thing it
+ * switches is the thing it looks like.
+ */
+function GradientChip({ from, to, angle, onChange, commit }) {
+  const on = !!to
+  return (
+    <button
+      type="button"
+      className={'grad-chip' + (on ? ' on' : '')}
+      // CSS angles start pointing up and ours starts pointing right, so the
+      // chip is drawn a quarter turn round from the number.
+      style={on ? { background: `linear-gradient(${(angle ?? 90) + 90}deg, ${from}, ${to})` } : undefined}
+      title={on ? 'Back to one flat colour' : 'Fade this into a second colour'}
+      onClick={(e) => {
+        e.preventDefault()
+        onChange(on ? { to: null } : { to: seedStop(from) })
+        commit()
+      }}
+    />
+  )
+}
+
+/** The second stop and the angle, under the colour they belong to. */
+function GradientRows({ to, angle, onChange, commit, anim }) {
+  if (!to) return null
+  return (
+    <>
+      <Row label="To">
+        <Color value={to} onChange={(v) => onChange({ to: v })} onCommit={commit} />
+      </Row>
+      <Row label="Angle" anim={anim}>
+        <Slider
+          value={Math.round(angle ?? 90)}
+          min={0}
+          max={360}
+          onChange={(v) => onChange({ angle: v })}
+          onCommit={commit}
+          suffix="°"
+        />
+      </Row>
+    </>
+  )
+}
 
 export default function Inspector() {
   const doc = useStore((s) => s.doc)
@@ -136,6 +185,17 @@ export default function Inspector() {
       onToggle: () => (active ? disableTrack(base.id, groupId) : enableTrack(base.id, groupId)),
     }
   }
+
+  // A gradient edit is a patch of "the second stop" and "the angle", named
+  // differently on the two layer types that have one.
+  const setFill = (g) => set({
+    ...(g.to !== undefined ? { fill2: g.to } : {}),
+    ...(g.angle !== undefined ? { fillAngle: g.angle } : {}),
+  })
+  const setTextColor = (g) => set({
+    ...(g.to !== undefined ? { color2: g.to } : {}),
+    ...(g.angle !== undefined ? { colorAngle: g.angle } : {}),
+  })
 
   // Live edits are transient; history is pushed once, on the first change of a
   // gesture, via `begin()`.
@@ -1224,7 +1284,13 @@ export default function Inspector() {
             <Row label="Shape">
               <Select value={l.shape} onChange={(shape) => { set({ shape }); commit() }} options={SHAPES} />
             </Row>
-            <Row label="Fill"><Color value={l.fill} onChange={(fill) => set({ fill })} onCommit={commit} /></Row>
+            <Row label="Fill">
+              <Color value={l.fill} onChange={(fill) => set({ fill })} onCommit={commit} />
+              <GradientChip from={l.fill} to={l.fill2} angle={l.fillAngle}
+                onChange={setFill} commit={commit} />
+            </Row>
+            <GradientRows to={l.fill2} angle={l.fillAngle}
+              onChange={setFill} commit={commit} anim={animFor('fillAngle')} />
             <Row label="Stroke"><Color value={l.stroke} onChange={(stroke) => set({ stroke })} onCommit={commit} /></Row>
             <Row label="Width">
               <Slider value={l.strokeWidth} min={0} max={80}
@@ -1292,7 +1358,13 @@ export default function Inspector() {
                 ? 'The box follows the text as you type or change the size. Resizing it by hand switches to a fixed width.'
                 : 'Text wraps at the box width; the height still follows the number of lines.'}
             </p>
-            <Row label="Color"><Color value={l.color} onChange={(color) => set({ color })} onCommit={commit} /></Row>
+            <Row label="Color">
+              <Color value={l.color} onChange={(color) => set({ color })} onCommit={commit} />
+              <GradientChip from={l.color} to={l.color2} angle={l.colorAngle}
+                onChange={setTextColor} commit={commit} />
+            </Row>
+            <GradientRows to={l.color2} angle={l.colorAngle}
+              onChange={setTextColor} commit={commit} anim={animFor('colorAngle')} />
             <Row label="Outline"><Color value={l.stroke} onChange={(stroke) => set({ stroke })} onCommit={commit} /></Row>
             <Row label="Outline w">
               <Slider value={l.strokeWidth} min={0} max={30}

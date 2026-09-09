@@ -26,6 +26,12 @@ export const TRACK_GROUPS = [
   // the project and shows in the Keyframes tab beside position and opacity. A
   // second, parallel system for "audio points" would have been none of that.
   { id: 'volume', label: 'Volume', props: ['volume'] },
+  // A shape's fill angle and a text layer's colour angle, in one group: a layer
+  // has one or the other, never both, and `enableGroup` skips a property the
+  // layer has no number for. Animating it sweeps the gradient across the thing,
+  // which is most of what anyone wants a gradient to do that a flat colour
+  // cannot.
+  { id: 'gradient', label: 'Gradient', props: ['fillAngle', 'colorAngle'] },
 ]
 
 export const GROUP_BY_ID = Object.fromEntries(TRACK_GROUPS.map((g) => [g.id, g]))

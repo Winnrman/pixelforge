@@ -312,6 +312,12 @@ export function makeShapeLayer(partial = {}) {
     rotation: 0,
     radius: 0,
     fill: '#ff2d78',
+    // The second stop of the fill. Null is a flat shape — there is no gradient
+    // mode to turn on, only a colour that is or is not there.
+    fill2: null,
+    // Degrees, clockwise from left-to-right, so 90 runs top to bottom. A plain
+    // number so it keyframes like rotation does.
+    fillAngle: 90,
     stroke: '#ffffff',
     strokeWidth: 0,
     opacity: 1,
@@ -348,6 +354,10 @@ export function makeTextLayer(partial = {}) {
     outlineWhole: false,
     outlineThreshold: 0.35,
     color: '#ffffff',
+    // The second stop, and the angle in degrees clockwise from left-to-right.
+    // Null is flat text, the same as a shape with one colour.
+    color2: null,
+    colorAngle: 90,
     stroke: '#000000',
     strokeWidth: 0,
     opacity: 1,

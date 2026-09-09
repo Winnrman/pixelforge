@@ -2,7 +2,10 @@ import { getAsset } from './assets.js'
 import { applyEffectLayer } from './effects.js'
 import { pairsIn, stateAt, drawFor, revealRect, veilBox, orderForTransitions, fadeAlphaAt, hasFade }
   from './transitions.js'
-import { addShapePath, addMaskPath, hasMask, cropInsets, rad, toLocal, fromLocal } from './shapes.js'
+import {
+  addShapePath, addMaskPath, hasMask, cropInsets, rad, toLocal, fromLocal, layerCenter,
+} from './shapes.js'
+import { paintFor } from './gradient.js'
 import { resolveLayer, keyExtent, allKeyTimes } from './keyframes.js'
 import { resolveGroups, isGroup } from './groups.js'
 import { keyedFrame } from './matte.js'
@@ -671,7 +674,14 @@ function drawShapeLayer(ctx, l) {
   ctx.beginPath()
   addShapePath(ctx, l)
   if (l.fill && l.fill !== 'none') {
-    ctx.fillStyle = l.fill
+    // The path built its own transform and put it back, so the context here is
+    // the document — the gradient has to be placed on the shape rather than
+    // around the origin, and turned with it.
+    const c = layerCenter(l)
+    ctx.fillStyle = paintFor(ctx, {
+      from: l.fill, to: l.fill2, angle: l.fillAngle,
+      w: l.w, h: l.h, cx: c.x, cy: c.y, rotation: l.rotation,
+    })
     ctx.fill()
   }
   if (l.strokeWidth > 0) {
@@ -832,6 +842,14 @@ function drawTextLayer(ctx, l, { outlineOnly = false, only = null, skip = null }
   const startY = -l.h / 2
   const ax = l.align === 'center' ? 0 : l.align === 'right' ? l.w / 2 : -l.w / 2
 
+  // Worked out once for the whole layer rather than per line or per glyph: the
+  // gradient runs across the text box, so a letter that happens to be drawn on
+  // its own still takes the colour that belongs to where it sits. The context is
+  // already centred and rotated on the box, so the line goes about the origin.
+  const fill = paintFor(ctx, {
+    from: l.color || '#fff', to: l.color2, angle: l.colorAngle, w: l.w, h: l.h,
+  })
+
   const paint = (text, x, y) => {
     if (outlineOnly) {
       ctx.strokeStyle = l.outlineColor || l.color || '#fff'
@@ -846,7 +864,7 @@ function drawTextLayer(ctx, l, { outlineOnly = false, only = null, skip = null }
       ctx.lineJoin = 'round'
       ctx.strokeText(text, x, y)
     }
-    ctx.fillStyle = l.color || '#fff'
+    ctx.fillStyle = fill
     ctx.fillText(text, x, y)
   }
 

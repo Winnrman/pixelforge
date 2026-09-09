@@ -399,12 +399,28 @@ select { flex: 1; width: 100%; padding: 4px 6px; }
 textarea { width: 100%; resize: vertical; font-size: 12px; line-height: 1.4; }
 input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 
-.color-field { display: flex; align-items: center; gap: 6px; flex: 1; }
+.color-field { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
 .color-field input[type='color'] {
   width: 26px; height: 22px; padding: 0; flex: none;
   border: 1px solid var(--line); border-radius: 5px; background: none;
 }
-.color-field .hex { flex: 1; font-variant-numeric: tabular-nums; }
+/* `min-width: 0` because an input carries an intrinsic minimum width that
+   `flex: 1` will not shrink past — without it the field holds the row open at
+   its natural size and whatever comes after it is pushed off the panel. */
+.color-field .hex { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+
+/* The gradient switch, on the colour's own row. Painted with the gradient it
+   turns on, so the control looks like what it does; a dim swatch split down the
+   middle when it is off, which is the same picture with nothing in it yet. */
+.grad-chip {
+  width: 26px; height: 22px; flex: none;
+  border: 1px solid var(--line); border-radius: 5px;
+  background: linear-gradient(90deg, #3a3a44 0 50%, #1a1a20 50% 100%);
+  cursor: pointer;
+  padding: 0;
+}
+.grad-chip:hover { border-color: var(--dim); }
+.grad-chip.on { border-color: rgba(78, 161, 255, 0.65); }
 
 .toggle {
   border: 1px solid var(--line);
