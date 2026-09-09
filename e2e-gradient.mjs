@@ -441,6 +441,109 @@ check('the box handle under a stop is still a box handle',
 check('and dragging it left the stops alone',
   afterResize.stop === 0 && afterResize.stop2 === 1, JSON.stringify(afterResize))
 
+// --- one gradient across a group -------------------------------------------------
+// A title is often two text layers, and each measuring itself means the ramp
+// restarts on the second word instead of running through the pair. Measured as
+// the colour down a column crossing both, because "the fields were set" cannot
+// tell a shared ramp from two identical ones.
+const spanned = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.setPlaying(false)
+  st.doc.layers.forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 300))
+  const { makeShapeLayer } = window.__pfStore
+  const mk = (y) => makeShapeLayer({
+    shape: 'rect', x: 100, y, w: 300, h: 150, fill: '#ff0000', fill2: '#0000ff',
+    fillAngle: 90, stroke: 'none', strokeWidth: 0, radius: 0,
+  })
+  const a = window.__pfState().addLayer(mk(100))
+  const b = window.__pfState().addLayer(mk(250))
+  window.__pfState().groupLayers([a.id, b.id])
+  await new Promise((r) => setTimeout(r, 400))
+
+  const down = () => {
+    const s2 = window.__pfState()
+    const c = document.createElement('canvas')
+    c.width = s2.doc.width
+    c.height = s2.doc.height
+    const ctx = c.getContext('2d', { willReadFrequently: true })
+    window.__pfRender.renderDocument(ctx, s2.doc, 0)
+    // Red down the middle of the pair: one ramp falls all the way, two ramps
+    // climb back up in the middle.
+    return [110, 240, 260, 390].map((y) => ctx.getImageData(250, y, 1, 1).data[0])
+  }
+  const perLayer = down()
+  const id = window.__pfState().doc.layers.find((l) => l.id === a.id)
+  window.__pfState().select([a.id])
+  for (const x of [a.id, b.id]) window.__pfState().updateLayer(x, { gradientSpan: 'group' })
+  await new Promise((r) => setTimeout(r, 400))
+  const perGroup = down()
+  return { grouped: !!id.parentId, perLayer, perGroup, first: a.id }
+})
+console.log('red down the pair:', JSON.stringify(spanned))
+check('the two shapes really are in a group', spanned.grouped === true)
+// The complaint this is for: the second word starts over at the first colour.
+check('measuring each layer restarts the ramp on the second one',
+  spanned.perLayer[2] > spanned.perLayer[1] + 100,
+  `${spanned.perLayer.join(' -> ')}`)
+check('measuring the group runs one ramp through both',
+  spanned.perGroup[0] > spanned.perGroup[1]
+  && spanned.perGroup[1] > spanned.perGroup[2]
+  && spanned.perGroup[2] > spanned.perGroup[3],
+  `${spanned.perGroup.join(' -> ')}`)
+check('reaching the first colour at the top of the first',
+  spanned.perGroup[0] > 230, String(spanned.perGroup[0]))
+check('and the second at the bottom of the second',
+  spanned.perGroup[3] < 25, String(spanned.perGroup[3]))
+
+// The bar on the canvas has to agree with the paint, or the knobs lie about
+// where the colours change.
+const spanBar = await page.evaluate((id) => {
+  const st = window.__pfState()
+  const l = st.doc.layers.find((x) => x.id === id)
+  const G = window.__pfGradient
+  const members = st.doc.layers.filter((x) => x.parentId === l.parentId && x.type !== 'group')
+  const own = G.gradientAxis(l)
+  const across = G.gradientAxis(l, G.gradientBox(l, members))
+  return {
+    own: Math.round(Math.abs(own.p1.y - own.p0.y)),
+    across: Math.round(Math.abs(across.p1.y - across.p0.y)),
+  }
+}, spanned.first)
+console.log('the bar, own box against the group:', JSON.stringify(spanBar))
+check('the bar spans the group too, rather than just its own layer',
+  spanBar.across > spanBar.own * 1.8, `${spanBar.own}px -> ${spanBar.across}px`)
+
+// And the control only shows where there is a group to span.
+const offered = await page.evaluate(async (id) => {
+  window.__pfState().select([id])
+  await new Promise((r) => setTimeout(r, 300))
+  const st = window.__pfState()
+  const l = st.doc.layers.find((x) => x.id === id)
+  const rows = [...document.querySelectorAll('.row-label')].map((x) => x.textContent.trim())
+  return {
+    grouped: rows.includes('Across'),
+    parentId: l?.parentId, selected: st.selectedIds, span: l?.gradientSpan,
+    rows: rows.join(' '),
+  }
+}, spanned.first)
+console.log('the Across row:', JSON.stringify(offered))
+check('a grouped layer is offered the choice', offered.grouped === true, JSON.stringify(offered))
+
+const alone = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const { makeShapeLayer } = window.__pfStore
+  const l = st.addLayer(makeShapeLayer({
+    shape: 'rect', x: 600, y: 100, w: 100, h: 100, fill: '#ff0000', fill2: '#00ff00',
+  }))
+  window.__pfState().select([l.id])
+  await new Promise((r) => setTimeout(r, 350))
+  return { rows: [...document.querySelectorAll('.row-label')].map((x) => x.textContent.trim()) }
+})
+// On a layer standing on its own the two answers are the same box, and the
+// control would be a choice between a thing and itself.
+check('a layer on its own is not', !alone.rows.includes('Across'), alone.rows.join(' '))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

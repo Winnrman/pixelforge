@@ -40,7 +40,7 @@ export function Info({ children }) {
         onFocus={show}
         onBlur={hide}
         onClick={(e) => { e.preventDefault(); pos ? hide() : show() }}
-      >i</button>
+      />
       {pos && createPortal(
         <span className="info-bubble" style={pos}>{children}</span>,
         document.body,

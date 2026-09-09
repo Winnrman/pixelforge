@@ -10,7 +10,7 @@
 // on a keyframe track like rotation or opacity, so a gradient can sweep across
 // a title without anything here knowing that animation exists.
 
-import { layerCenter } from './shapes.js'
+import { layerCenter, layerAABB, toLocal } from './shapes.js'
 
 const rad = (deg) => (deg * Math.PI) / 180
 const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0))
@@ -110,6 +110,61 @@ export function gradientOf(l) {
   }
 }
 
+/**
+ * The box a gradient measures itself against.
+ *
+ * Normally the layer's own, which is right for one shape and wrong the moment a
+ * title is two text layers: each measures itself, so the ramp restarts on the
+ * second word instead of running through the pair. Set to span the group and
+ * every layer in it reads the same box, so a gradient crosses the whole title
+ * and each word takes the part of it that falls where the word is.
+ *
+ * Returns null when the layer measures itself, which is also what the callers
+ * pass around to mean "nothing special here".
+ */
+export function gradientBox(layer, members) {
+  if (layer?.gradientSpan !== 'group' || !members?.length) return null
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const m of members) {
+    // The box a turned layer actually occupies, not the box it would occupy
+    // straight: a rotated word that stuck out of the union would take the end
+    // colour and nothing else.
+    const b = layerAABB(m)
+    if (!(b.w > 0 && b.h > 0)) continue
+    x0 = Math.min(x0, b.x)
+    y0 = Math.min(y0, b.y)
+    x1 = Math.max(x1, b.x + b.w)
+    y1 = Math.max(y1, b.y + b.h)
+  }
+  if (!(x1 > x0 && y1 > y0)) return null
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+/**
+ * How to place a gradient, given the frame the caller's context is already in.
+ *
+ * A shape fills in document space, so a box in document space needs no
+ * conversion. Text draws inside a transform centred and turned on its own box,
+ * so a box measured across a group has to be brought into that frame — and the
+ * gradient turned back by the layer's own rotation, or a tilted word would tilt
+ * the shared ramp with it.
+ */
+export function placeIn(layer, box, { local = false } = {}) {
+  if (!box) {
+    if (local) return { w: layer.w, h: layer.h, cx: 0, cy: 0, rotation: 0 }
+    const c = layerCenter(layer)
+    return { w: layer.w, h: layer.h, cx: c.x, cy: c.y, rotation: layer.rotation || 0 }
+  }
+  const cx = box.x + box.w / 2
+  const cy = box.y + box.h / 2
+  if (!local) return { w: box.w, h: box.h, cx, cy, rotation: 0 }
+  const p = toLocal(layer, cx, cy)
+  return { w: box.w, h: box.h, cx: p.x, cy: p.y, rotation: -(layer.rotation || 0) }
+}
+
 /** A patch setting a layer's stops, under whichever names that layer uses. */
 export function stopPatch(l, { stop, stop2 }) {
   const p = l?.type === 'text' ? 'color' : 'fill'
@@ -128,13 +183,14 @@ export function stopPatch(l, { stop, stop2 }) {
  * function, because a handle drawn anywhere but where it is grabbed is worse
  * than no handle at all.
  */
-export function gradientAxis(l) {
+export function gradientAxis(l, box = null) {
   const g = gradientOf(l)
   if (!g) return null
-  const line = gradientLine(l.w, l.h, g.angle)
+  const place = placeIn(l, box)
+  const line = gradientLine(place.w, place.h, g.angle)
   if (!(line.len > 0.01)) return null
-  const c = layerCenter(l)
-  const t = rad(l.rotation || 0)
+  const c = { x: place.cx, y: place.cy }
+  const t = rad(place.rotation)
   const cos = Math.cos(t)
   const sin = Math.sin(t)
   const at = (x, y) => ({ x: c.x + x * cos - y * sin, y: c.y + x * sin + y * cos })

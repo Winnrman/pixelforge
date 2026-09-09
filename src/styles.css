@@ -870,6 +870,11 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   display: grid; place-items: center;
   text-transform: none;
 }
+/* The letter is drawn rather than written. As a text child it joined whatever
+   label it followed — "Clone stamp" read as "Clone stampi", a path ending
+   "backups" as "backupsi" — which is wrong on screen and wrong again for
+   anything reading the label back. */
+.info-dot::before { content: 'i'; }
 .info-dot:hover { color: var(--accent); border-color: var(--accent); }
 .info-bubble {
   position: fixed;

@@ -82,14 +82,37 @@ function GradientChip({ from, to, angle, onChange, commit }) {
   )
 }
 
-/** The second stop and the angle, under the colour they belong to. */
-function GradientRows({ to, angle, onChange, commit, anim }) {
+/** The second stop, the angle, and what the gradient measures itself against. */
+function GradientRows({ to, angle, span, grouped, onChange, commit, anim }) {
   if (!to) return null
   return (
     <>
       <Row label="To">
         <Color value={to} onChange={(v) => onChange({ to: v })} onCommit={commit} />
       </Row>
+      {/* Only where there is a group to span. On a layer standing on its own the
+          two answers are the same box, and the control would be a choice
+          between a thing and itself. */}
+      {grouped && (
+        <Row
+          label="Across"
+          info={'What the gradient is measured against. This layer means the ramp runs '
+            + 'from one edge of it to the other, which is right for one shape and wrong '
+            + 'the moment a title is two text layers — each measures itself, so the ramp '
+            + 'restarts on the second word. The group means every layer in it reads the '
+            + 'same box, so one gradient crosses the whole title and each word takes the '
+            + 'part of it that falls where the word is.'}
+        >
+          <Segmented
+            value={span === 'group' ? 'group' : 'layer'}
+            onChange={(v) => { onChange({ span: v }); commit() }}
+            options={[
+              { value: 'layer', label: 'This layer' },
+              { value: 'group', label: 'The group' },
+            ]}
+          />
+        </Row>
+      )}
       <Row label="Angle" anim={anim}>
         <Slider
           value={Math.round(angle ?? 90)}
@@ -196,10 +219,14 @@ export default function Inspector() {
   const setFill = (g) => set({
     ...(g.to !== undefined ? { fill2: g.to } : {}),
     ...(g.angle !== undefined ? { fillAngle: g.angle } : {}),
+    // One name for both kinds of layer: a layer has one gradient, so what it is
+    // measured against needs no second spelling.
+    ...(g.span !== undefined ? { gradientSpan: g.span } : {}),
   })
   const setTextColor = (g) => set({
     ...(g.to !== undefined ? { color2: g.to } : {}),
     ...(g.angle !== undefined ? { colorAngle: g.angle } : {}),
+    ...(g.span !== undefined ? { gradientSpan: g.span } : {}),
   })
 
   // Live edits are transient; history is pushed once, on the first change of a
@@ -1337,6 +1364,7 @@ export default function Inspector() {
                 onChange={setFill} commit={commit} />
             </Row>
             <GradientRows to={l.fill2} angle={l.fillAngle}
+              span={l.gradientSpan} grouped={!!base?.parentId}
               onChange={setFill} commit={commit} anim={animFor('fillAngle')} />
             <Row label="Stroke"><Color value={l.stroke} onChange={(stroke) => set({ stroke })} onCommit={commit} /></Row>
             <Row label="Width">
@@ -1411,6 +1439,7 @@ export default function Inspector() {
                 onChange={setTextColor} commit={commit} />
             </Row>
             <GradientRows to={l.color2} angle={l.colorAngle}
+              span={l.gradientSpan} grouped={!!base?.parentId}
               onChange={setTextColor} commit={commit} anim={animFor('colorAngle')} />
             <Row label="Outline"><Color value={l.stroke} onChange={(stroke) => set({ stroke })} onCommit={commit} /></Row>
             <Row label="Outline w">

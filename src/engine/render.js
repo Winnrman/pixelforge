@@ -5,9 +5,9 @@ import { pairsIn, stateAt, drawFor, revealRect, veilBox, orderForTransitions, fa
 import {
   addShapePath, addMaskPath, hasMask, cropInsets, rad, toLocal, fromLocal, layerCenter,
 } from './shapes.js'
-import { paintFor, gradientOf } from './gradient.js'
+import { paintFor, gradientOf, placeIn, gradientBox } from './gradient.js'
 import { resolveLayer, keyExtent, allKeyTimes } from './keyframes.js'
-import { resolveGroups, isGroup } from './groups.js'
+import { resolveGroups, isGroup, descendantIds } from './groups.js'
 import { keyedFrame } from './matte.js'
 import { keyedFrameAI } from './aiMatte.js'
 import { frameAt as videoFrameAt, ensureDecoded, exactFrame, indexAt } from './video.js'
@@ -677,11 +677,12 @@ function drawShapeLayer(ctx, l) {
     // The path built its own transform and put it back, so the context here is
     // the document — the gradient has to be placed on the shape rather than
     // around the origin, and turned with it.
-    const c = layerCenter(l)
     const g = gradientOf(l)
     ctx.fillStyle = paintFor(ctx, {
       from: l.fill, to: l.fill2, angle: l.fillAngle, stop: g?.stop, stop2: g?.stop2,
-      w: l.w, h: l.h, cx: c.x, cy: c.y, rotation: l.rotation,
+      // The path built its own transform and put it back, so the context here is
+      // the document — which is also the frame `gradBox` is measured in.
+      ...placeIn(l, l.gradBox),
     })
     ctx.fill()
   }
@@ -850,7 +851,9 @@ function drawTextLayer(ctx, l, { outlineOnly = false, only = null, skip = null }
   const grad = gradientOf(l)
   const fill = paintFor(ctx, {
     from: l.color || '#fff', to: l.color2, angle: l.colorAngle,
-    stop: grad?.stop, stop2: grad?.stop2, w: l.w, h: l.h,
+    stop: grad?.stop, stop2: grad?.stop2,
+    // Local: the context is already centred and turned on this layer's box.
+    ...placeIn(l, l.gradBox, { local: true }),
   })
 
   const paint = (text, x, y) => {
@@ -1110,6 +1113,30 @@ function withMaskOnly(ctx, l, draw) {
   ctx.drawImage(sc, 0, 0)
 }
 
+/**
+ * The box each group-spanning gradient measures itself against, by parent.
+ *
+ * Null when nothing asks for one, so the ordinary case costs a filter over the
+ * layer list and nothing else. Members are resolved at the current time because
+ * the box has to follow animation: a word that slides across the frame drags the
+ * shared ramp with it, which is what makes a gradient sweeping over a title read
+ * as one gradient rather than as each word doing its own thing.
+ */
+function spansFor(layers, time, groups) {
+  const want = layers.filter((l) => l.gradientSpan === 'group' && l.parentId)
+  if (!want.length) return null
+  const out = new Map()
+  for (const parent of new Set(want.map((l) => l.parentId))) {
+    const ids = new Set(descendantIds(layers, parent))
+    const members = layers
+      .filter((l) => ids.has(l.id) && !isGroup(l) && groups.visible.get(l.id))
+      .map((l) => resolveLayer(l, time))
+    const box = gradientBox({ gradientSpan: 'group' }, members)
+    if (box) out.set(parent, box)
+  }
+  return out.size ? out : null
+}
+
 function paintLayer(ctx, l, time) {
   if (l.type === 'image') drawImageLayer(ctx, l, time)
   else if (l.type === 'shape') drawShapeLayer(ctx, l)
@@ -1219,6 +1246,12 @@ function renderDocumentInner(ctx, doc, time) {
   }
   const drawnEarly = new Set()
 
+  // Where a gradient set to span its group measures itself. Worked out once for
+  // the whole frame rather than per layer, because every member of a group has
+  // to be handed the same box or the ramp steps between them — which is the
+  // thing spanning a group is for.
+  const spans = spansFor(doc.layers, time, groups)
+
   // Transitions. The overlap between two clips on one track is the transition,
   // so the plan is read off the arrangement rather than stored anywhere: there
   // is no object at the join to keep in step with the clips either side of it.
@@ -1270,9 +1303,11 @@ function renderDocumentInner(ctx, doc, time) {
       ? 0
       : 1 - fadeAlphaAt(resolved, time, getAsset(raw.assetId))
     const alpha = (resolved.opacity ?? 1) * groupAlpha * (draw ? draw.alpha : 1)
-    const l = alpha === (resolved.opacity ?? 1)
+    let l = alpha === (resolved.opacity ?? 1)
       ? resolved
       : { ...resolved, opacity: alpha }
+    const span = spans?.get(raw.parentId || null)
+    if (span) l = { ...l, gradBox: span }
     // A wipe uncovers the incoming clip across the frame, so it is drawn whole
     // and shown through a growing window rather than faded.
     if (draw?.reveal) {

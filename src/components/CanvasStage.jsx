@@ -14,8 +14,8 @@ import {
   addShapePath, corners, hitTest, layerCenter, toLocal, fromLocal, visibleBox, isCropped,
 } from '../engine/shapes.js'
 import { resolveLayer, hasTracks, trackOf, groupKeyTimes, valueAt } from '../engine/keyframes.js'
-import { gradientAxis, stopAt, stopPatch } from '../engine/gradient.js'
-import { resolveGroups, isGroup } from '../engine/groups.js'
+import { gradientAxis, stopAt, stopPatch, gradientBox } from '../engine/gradient.js'
+import { resolveGroups, isGroup, descendantIds } from '../engine/groups.js'
 import { snapRect, unionBox, SNAP_TOLERANCE } from '../engine/snap.js'
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
@@ -733,9 +733,19 @@ export default function CanvasStage() {
     drawGradientBar(ctx, l, v)
   }
 
+  /** The box a group-spanning gradient measures itself against, or null. */
+  function spanBoxFor(l) {
+    if (l.gradientSpan !== 'group' || !l.parentId) return null
+    const st = useStore.getState()
+    const ids = new Set(descendantIds(st.doc.layers, l.parentId))
+    return gradientBox(l, st.doc.layers
+      .filter((x) => ids.has(x.id) && !isGroup(x))
+      .map((x) => resolveLayer(x, st.time)))
+  }
+
   /** Where a gradient's bar and knobs are on screen, drawn and grabbed alike. */
   function gradBar(l, v) {
-    const g = gradientAxis(l)
+    const g = gradientAxis(l, spanBoxFor(l))
     if (!g) return null
     const scr = (q) => ({ x: v.panX + q.x * v.zoom, y: v.panY + q.y * v.zoom })
     const s0 = scr(g.p0)

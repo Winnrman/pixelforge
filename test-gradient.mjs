@@ -6,6 +6,7 @@
 // colour. Neither announces itself, so it is worth pinning down.
 import {
   gradientLine, isGradient, seedStop, gradientOf, stopPatch, gradientAxis, stopAt,
+  gradientBox, placeIn,
 } from './src/engine/gradient.js'
 
 const checks = []
@@ -160,6 +161,67 @@ check('nor to fade from', !isGradient('none', '#fff'))
     near(stopAt(axis, 150, 400), 0.25), String(stopAt(axis, 150, 400)))
   check('past the end is the end', stopAt(axis, -500, 150) === 0 && stopAt(axis, 5000, 150) === 1)
   check('a flat layer has no bar', gradientAxis({ ...l, fill2: null }) === null)
+}
+
+// --- what a gradient measures itself against ------------------------------------
+// The layer's own box is right for one shape and wrong the moment a title is two
+// text layers: each measures itself, so the ramp restarts on the second word
+// instead of running through the pair.
+{
+  const top = { type: 'text', x: 100, y: 100, w: 300, h: 150, color: '#f00', color2: '#00f' }
+  const bottom = { type: 'text', x: 100, y: 250, w: 300, h: 150, color: '#f00', color2: '#00f' }
+
+  check('a layer measuring itself has no special box',
+    gradientBox({ ...top, gradientSpan: 'layer' }, [top, bottom]) === null)
+  check('and neither has one with nothing to span',
+    gradientBox({ ...top, gradientSpan: 'group' }, []) === null)
+
+  const box = gradientBox({ ...top, gradientSpan: 'group' }, [top, bottom])
+  check('spanning the group takes in every member',
+    near(box.x, 100) && near(box.y, 100) && near(box.w, 300) && near(box.h, 300),
+    JSON.stringify(box))
+
+  // A turned member sticking out of the union would take the end colour and
+  // nothing else, so the box is what each layer actually occupies.
+  const turned = { ...bottom, rotation: 90 }
+  const wide = gradientBox({ ...top, gradientSpan: 'group' }, [top, turned])
+  check('a turned member is measured by the room it really takes',
+    wide.h > 300, JSON.stringify(wide))
+}
+
+// --- placing it in whichever frame the caller is already in -----------------------
+{
+  const l = { type: 'shape', x: 100, y: 100, w: 200, h: 100, rotation: 0 }
+  const own = placeIn(l, null)
+  check('with no box a shape is placed on itself',
+    near(own.cx, 200) && near(own.cy, 150) && near(own.w, 200) && near(own.h, 100),
+    JSON.stringify(own))
+  // The bug this pins: spreading layerCenter gave x and y where cx and cy were
+  // wanted, so every gradient centred on the origin and the whole shape came out
+  // flat in the end colour.
+  check('and names the centre the way paintFor reads it',
+    own.cx !== undefined && own.cy !== undefined && own.x === undefined,
+    JSON.stringify(own))
+
+  const local = placeIn(l, null, { local: true })
+  check('text is placed about the origin, its context being centred already',
+    local.cx === 0 && local.cy === 0 && local.rotation === 0, JSON.stringify(local))
+
+  const box = { x: 0, y: 0, w: 400, h: 400 }
+  const doc = placeIn(l, box)
+  check('a group box needs no conversion for a shape',
+    near(doc.cx, 200) && near(doc.cy, 200) && doc.rotation === 0, JSON.stringify(doc))
+
+  // Text draws inside a transform centred and turned on its own box, so a box
+  // measured across the group has to be brought into that frame — and the
+  // gradient turned back, or a tilted word would tilt the shared ramp with it.
+  const tilted = { ...l, rotation: 90 }
+  const inText = placeIn(tilted, box, { local: true })
+  check('and is converted into the text’s own frame',
+    near(inText.rotation, -90) && near(inText.w, 400), JSON.stringify(inText))
+  check('with the group centre carried into that frame',
+    near(Math.hypot(inText.cx, inText.cy), Math.hypot(200 - 200, 200 - 150)),
+    JSON.stringify(inText))
 }
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')

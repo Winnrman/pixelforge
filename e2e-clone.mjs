@@ -165,9 +165,7 @@ const ui = await page.evaluate(async () => {
   const opts = document.querySelector('.rail-options')?.textContent || ''
   return {
     tool: window.__pfState().tool,
-    // The heading carries the (i) now, so its text ends with the dot's own "i".
-    label: (document.querySelector('.rail-options .rail-opt-label')?.textContent || '')
-      .replace(/i$/, '').trim(),
+    label: (document.querySelector('.rail-options .rail-opt-label')?.textContent || '').trim(),
     saysAlt: /alt-click/i.test(opts),
     hasBrush: /Brush/.test(opts),
   }
