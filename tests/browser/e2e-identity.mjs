@@ -8,7 +8,7 @@ import { chromium } from 'playwright-core'
 import fs from 'fs'
 import path from 'path'
 
-const OUT = 'shots-identity'
+const OUT = 'shots/identity'
 fs.mkdirSync(OUT, { recursive: true })
 
 const browser = await chromium.launch({

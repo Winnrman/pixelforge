@@ -10,7 +10,7 @@ import { chromium } from 'playwright-core'
 import fs from 'fs'
 import path from 'path'
 
-const OUT = 'shots-tools2'
+const OUT = 'shots/tools2'
 fs.mkdirSync(OUT, { recursive: true })
 
 const browser = await chromium.launch({

@@ -13,7 +13,7 @@ import { chromium } from 'playwright-core'
 import fs from 'fs'
 import path from 'path'
 
-const OUT = 'shots-tint'
+const OUT = 'shots/tint'
 fs.mkdirSync(OUT, { recursive: true })
 
 const browser = await chromium.launch({

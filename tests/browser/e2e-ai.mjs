@@ -6,7 +6,7 @@ import { importAndPlace } from '../e2e-helpers.mjs'
 import fs from 'fs'
 import path from 'path'
 
-const OUT = 'shots-ai'
+const OUT = 'shots/ai'
 fs.mkdirSync(OUT, { recursive: true })
 
 // WebGPU needs a real GPU adapter, which headless Chrome will not give us

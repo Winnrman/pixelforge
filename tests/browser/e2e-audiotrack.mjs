@@ -15,7 +15,7 @@ import { importAndPlace } from '../e2e-helpers.mjs'
 import fs from 'fs'
 import path from 'path'
 
-const OUT = 'shots-audiotrack'
+const OUT = 'shots/audiotrack'
 fs.mkdirSync(OUT, { recursive: true })
 
 const browser = await chromium.launch({

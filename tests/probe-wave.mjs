@@ -39,5 +39,5 @@ console.log(await page.evaluate(() => {
     peaks: window.__pfWave.hasPeaks(a),
   }
 }))
-await page.screenshot({ path: 'shots-editing/03-wave.png' })
+await page.screenshot({ path: 'shots/editing/03-wave.png' })
 await browser.close()

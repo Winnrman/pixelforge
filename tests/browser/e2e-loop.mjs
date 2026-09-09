@@ -9,7 +9,7 @@ import { importAndPlace } from '../e2e-helpers.mjs'
 import fs from 'fs'
 import path from 'path'
 
-const OUT = 'shots-loop'
+const OUT = 'shots/loop'
 fs.mkdirSync(OUT, { recursive: true })
 
 const browser = await chromium.launch({

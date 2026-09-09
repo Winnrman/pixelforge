@@ -8,7 +8,7 @@ import { importAndPlace } from '../e2e-helpers.mjs'
 import fs from 'fs'
 import path from 'path'
 
-const OUT = 'shots-video'
+const OUT = 'shots/video'
 fs.mkdirSync(OUT, { recursive: true })
 
 const browser = await chromium.launch({

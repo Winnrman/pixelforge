@@ -9,7 +9,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-const OUT = 'shots-desktop'
+const OUT = 'shots/desktop'
 fs.mkdirSync(OUT, { recursive: true })
 
 const checks = []

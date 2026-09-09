@@ -176,7 +176,7 @@ check('it brings the running window back instead of doing nothing silently',
 check('and does not leave it pinned over everything else', after?.onTop === false,
   String(after?.onTop))
 
-await page.screenshot({ path: 'shots-desktop/02-packaged.png' }).catch(() => {})
+await page.screenshot({ path: 'shots/desktop/02-packaged.png' }).catch(() => {})
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 check('no console errors on startup', errors.length === 0, errors.slice(0, 2).join(' | '))
 

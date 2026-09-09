@@ -5,7 +5,7 @@ import { importAndPlace } from '../e2e-helpers.mjs'
 import fs from 'fs'
 import path from 'path'
 
-const OUT = 'shots-tracking'
+const OUT = 'shots/tracking'
 fs.mkdirSync(OUT, { recursive: true })
 
 const browser = await chromium.launch({

@@ -10,7 +10,7 @@ import { unzipSync } from 'fflate'
 import fs from 'fs'
 import path from 'path'
 
-const OUT = 'shots-batch'
+const OUT = 'shots/batch'
 fs.mkdirSync(OUT, { recursive: true })
 
 const browser = await chromium.launch({

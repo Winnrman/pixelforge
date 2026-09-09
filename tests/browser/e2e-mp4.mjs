@@ -11,7 +11,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-const OUT = 'shots-mp4'
+const OUT = 'shots/mp4'
 fs.mkdirSync(OUT, { recursive: true })
 
 // Scratch, and swept up afterwards. Each of these is a full Electron user-data
