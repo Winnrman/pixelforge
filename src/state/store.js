@@ -405,8 +405,13 @@ function growTo(layer, { u0, v0, u1, v1 }) {
   // is easy to forget and shows up as somebody's rubbings-out sliding across the
   // picture the moment the frame moves.
   const rebase = (pts) => pts.map(([u, v]) => [(u - gu0) / (gu1 - gu0), (v - gv0) / (gv1 - gv0)])
+  // A brush width is a fraction of the box too, so a stroke on a box that grew
+  // has to be read as a smaller fraction of the bigger one or it fattens.
+  const kx = gu1 - gu0
+  const restroke = (k) => ({ ...k, pts: rebase(k.pts || []), ...(k.size ? { size: k.size * kx } : null) })
   const polys = maskPolys(layer)
   const strokes = layer.erase?.strokes
+  const painted = layer.mask?.paint
   return {
     src,
     cropT: 0, cropR: 0, cropB: 0, cropL: 0, zoom: 1, panX: 0, panY: 0,
@@ -414,11 +419,17 @@ function growTo(layer, { u0, v0, u1, v1 }) {
     y: cy - h / 2,
     w,
     h,
-    ...(polys.length
-      ? { mask: { ...layer.mask, points: rebase(polys[0]), plus: polys.slice(1).map(rebase) } }
+    ...(polys.length || painted?.length
+      ? {
+          mask: {
+            ...layer.mask,
+            ...(polys.length ? { points: rebase(polys[0]), plus: polys.slice(1).map(rebase) } : null),
+            ...(painted?.length ? { paint: painted.map(restroke) } : null),
+          },
+        }
       : null),
     ...(strokes?.length
-      ? { erase: { ...layer.erase, strokes: strokes.map((k) => ({ ...k, pts: rebase(k.pts || []) })) } }
+      ? { erase: { ...layer.erase, strokes: strokes.map(restroke) } }
       : null),
   }
 }
@@ -602,6 +613,10 @@ export const useStore = create((set, get) => ({
   toolOptions: {
     aiSelect: false,
     brush: defaultBrush(),
+    // The mask brush keeps its own size and softness: tidying a cut-out edge and
+    // rubbing out a background are different jobs at different scales, and one
+    // shared setting means changing tools always means changing it back.
+    maskBrush: { ...defaultBrush(), mode: 'add' },
     shape: 'ellipse',
     effect: 'pixelate',
     pixelSize: 14,
@@ -626,6 +641,11 @@ export const useStore = create((set, get) => ({
   // system clipboard. Paste needs to know: see claimSystemClipboard.
   clipboardOwned: false,
   lasso: null,            // { points: [[x, y], ...] } in doc space, closed
+  // Which of those points are picked out as a run, by index. A stretch of an
+  // outline is the unit worth editing — forty points along one side that all
+  // need to move, or a wander into the background that all needs to go — and
+  // one point at a time is no way to do either.
+  lassoPick: [],
   contextMenu: null,      // { x, y, layerId } for the layers panel
   projectName: 'Untitled',
   projectId: null,
@@ -678,6 +698,7 @@ export const useStore = create((set, get) => ({
       workspace: 'editor',
       time: 0, duration: 0, projectName: 'Untitled', projectId: null, dirty: false,
       lasso: null,
+      lassoPick: [],
     }),
 
   addLayer: (layer, { select = true } = {}) => {
@@ -2640,6 +2661,91 @@ export const useStore = create((set, get) => ({
    * History is pushed once here rather than on every point, so one drag is one
    * undo — an eraser that took fifty undos to reverse would be unusable.
    */
+  /**
+   * Starts a brush stroke on a layer's mask.
+   *
+   * Add to mask and Erase both want a closed outline drawn round the thing being
+   * fixed, which is right for a missed sliver and tedious for a ragged edge you
+   * only want to tidy. A brush has no outline to close: paint over what should
+   * be kept, paint over what should not.
+   *
+   * Stored as strokes rather than baked, for the same reason the eraser is: they
+   * scale and turn with the layer, they undo one drag at a time, and the
+   * original is never touched.
+   *
+   * Takes a point on the document rather than on the layer, unlike the eraser:
+   * this can open the frame back out as it starts, and a fraction of a box that
+   * is about to change is a fraction of nothing.
+   */
+  beginMaskPaint: (id, docPoint, opts = {}) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    if (!layer || layer.locked) return null
+    // The brush repairs a cut-out. On a layer that was never cut out, painting
+    // away would just be the eraser wearing a different hat — so it says which
+    // tool that is rather than quietly doing its job.
+    if (!isCutOut(layer)) {
+      set({ notice: { kind: 'warn', text: 'Nothing cut out here — lasso the subject and choose Mask, or use the eraser (E).' } })
+      return null
+    }
+    const mode = opts.mode === 'take' ? 'take' : 'add'
+    if (mode === 'add' && !hasMask(layer)) {
+      set({ notice: { kind: 'warn', text: 'No outline to grow — Remove takes away, and Mask from a lasso is what Keep adds back to.' } })
+      return null
+    }
+    const brush = { ...defaultBrush(), ...s.toolOptions.maskBrush, ...opts }
+    s.pushHistory()
+    // Keeping means putting back something the cut took, and a cut trims the
+    // frame to what it kept — so the very thing being painted for is outside the
+    // frame, where there is nothing to paint onto. The frame opens back out to
+    // the whole picture first, the same as handing the outline to the lasso
+    // does, and for the same reason: you cannot repair an edge you cannot see.
+    const opened = mode === 'add' ? untrimPatch(layer) : null
+    const base = opened ? { ...layer, ...opened } : layer
+    const point = docToLayer(resolveLayer(base, s.time), docPoint[0], docPoint[1])
+    const stroke = { ...newStroke(brush, point), mode }
+    s.updateLayer(id, {
+      ...(opened || {}),
+      mask: { ...(base.mask || { points: [], invert: false, feather: 0 }),
+        paint: [...(base.mask?.paint || []), stroke] },
+    })
+    return stroke
+  },
+
+  /**
+   * Adds a point to the mask stroke in progress, in document coordinates.
+   * Deliberately no history: one drag is one undo.
+   */
+  extendMaskPaint: (id, docPoint) => {
+    set((st) => ({
+      dirty: true,
+      doc: {
+        ...st.doc,
+        layers: st.doc.layers.map((l) => {
+          if (l.id !== id || !l.mask?.paint?.length) return l
+          const point = docToLayer(resolveLayer(l, st.time), docPoint[0], docPoint[1])
+          const paint = l.mask.paint.slice()
+          const last = paint[paint.length - 1]
+          const prev = last.pts[last.pts.length - 1]
+          const step = (last.size || 0.05) * 0.18
+          if (prev && Math.hypot(point[0] - prev[0], point[1] - prev[1]) < step) return l
+          paint[paint.length - 1] = { ...last, pts: [...last.pts, point] }
+          return { ...l, mask: { ...l.mask, paint } }
+        }),
+      },
+    }))
+  },
+
+  /** Takes back the last brush stroke on a mask. */
+  undoMaskPaint: (id) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === id)
+    if (!l?.mask?.paint?.length) return
+    s.pushHistory()
+    const paint = l.mask.paint.slice(0, -1)
+    s.updateLayer(id, { mask: { ...l.mask, paint: paint.length ? paint : undefined } })
+  },
+
   beginErase: (id, point, opts = {}) => {
     const s = get()
     const layer = s.doc.layers.find((x) => x.id === id)
@@ -2786,8 +2892,15 @@ export const useStore = create((set, get) => ({
   },
 
   // ---- lasso selection --------------------------------------------------
-  setLasso: (lasso) => set({ lasso }),
-  clearLasso: () => set({ lasso: null }),
+  setLasso: (lasso) => set((st) => ({
+    lasso,
+    // A picked run survives points being dragged about and does not survive a
+    // different outline arriving. Same count, same outline: anything else and
+    // the indices are describing points that are no longer there.
+    lassoPick: (st.lasso?.points?.length || 0) === (lasso?.points?.length || 0) ? st.lassoPick : [],
+  })),
+  clearLasso: () => set({ lasso: null, lassoPick: [] }),
+  setLassoPick: (lassoPick) => set({ lassoPick }),
 
   /** The layer lasso actions apply to: the selection, else the topmost visible one. */
   lassoTarget: () => {
@@ -2985,6 +3098,7 @@ export const useStore = create((set, get) => ({
     set({
       selectedIds: [id],
       tool: 'lasso',
+      lassoPick: [],
       // Only the outline it was cut with. Pieces added since are unioned into
       // it, and a lasso is one closed loop — handing back several would quietly
       // lose all but the first the moment it was applied.
@@ -3510,6 +3624,7 @@ export const useStore = create((set, get) => ({
         selectedKey: null,
         keySelection: [],
         lasso: null,
+      lassoPick: [],
         past: [],
         future: [],
         dirty: true,
@@ -3546,6 +3661,7 @@ export const useStore = create((set, get) => ({
         selectedIds: [],
         selectedKey: null,
         lasso: null,
+      lassoPick: [],
         past: [],
         future: [],
         dirty: false,

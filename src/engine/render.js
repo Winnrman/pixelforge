@@ -3,7 +3,7 @@ import { applyEffectLayer } from './effects.js'
 import { pairsIn, stateAt, drawFor, revealRect, veilBox, orderForTransitions, fadeAlphaAt, hasFade }
   from './transitions.js'
 import {
-  addShapePath, addMaskPath, hasMask, cropInsets, rad, toLocal, fromLocal, layerCenter,
+  addShapePath, addMaskPath, hasMask, maskPolys, cropInsets, rad, toLocal, fromLocal, layerCenter,
 } from './shapes.js'
 import { paintFor, gradientOf, placeIn, gradientBox, withAlpha } from './gradient.js'
 import { resolveLayer, keyExtent, allKeyTimes } from './keyframes.js'
@@ -479,12 +479,18 @@ function cutSignature(l, raw) {
   const mask = hasMask(l)
     ? `${l.mask.points.length}/${l.mask.invert ? 1 : 0}/${l.mask.feather || 0}/`
       + `${l.mask.points[0]}/${l.mask.points[l.mask.points.length - 1]}`
+      + `/${(l.mask.plus || []).map((q) => q.length).join('.')}`
     : ''
+  // Brush strokes on the mask change the shape a border is grown round, so they
+  // have to be part of what says the cached cutout is stale. Left out, a stroke
+  // painted on a sticker showed in the picture and not in its border.
+  const painted = (l.mask?.paint || [])
+    .map((k) => `${k.mode}${k.size}${k.hardness}${k.pts?.length || 0}`).join(',')
   const erase = hasErase(l)
     ? l.erase.strokes.map((k) => `${k.mode}${k.size}${k.hardness}${k.pts?.length || 0}`).join(',')
     : ''
   return [
-    rawId(raw), JSON.stringify(l.bgRemove || 0), mask, erase,
+    rawId(raw), JSON.stringify(l.bgRemove || 0), mask, painted, erase,
     l.w, l.h, l.flipX ? 1 : 0, l.flipY ? 1 : 0,
     JSON.stringify(sourceRect(l)), JSON.stringify(destRect(l)),
   ].join('|')
@@ -529,7 +535,7 @@ function stickerCut(raw, l) {
     return { x: a.x * aw, y: a.y * ah }
   }
 
-  if (hasMask(l)) {
+  if (hasMask(l) || hasMaskPaint(l)) {
     const feather = (l.mask.feather || 0) * scale
     const stencil = document.createElement('canvas')
     stencil.width = aw
@@ -537,18 +543,35 @@ function stickerCut(raw, l) {
     const sx = stencil.getContext('2d')
     if (feather > 0.4) sx.filter = `blur(${feather.toFixed(2)}px)`
     sx.fillStyle = '#fff'
+    // Every outline, not just the first: a piece added to a mask is part of the
+    // subject, and a border grown round a shape that leaves it out cuts the
+    // added piece straight back off.
     sx.beginPath()
-    const pts = l.mask.points
-    for (let i = 0; i < pts.length; i++) {
-      const q = map(pts[i])
-      i === 0 ? sx.moveTo(q.x, q.y) : sx.lineTo(q.x, q.y)
+    for (const poly of maskPolys(l)) {
+      for (let i = 0; i < poly.length; i++) {
+        const q = map(poly[i])
+        i === 0 ? sx.moveTo(q.x, q.y) : sx.lineTo(q.x, q.y)
+      }
+      sx.closePath()
     }
-    sx.closePath()
     if (l.mask.invert) {
       sx.rect(0, 0, aw, ah)
       sx.fill('evenodd')
-    } else {
+    } else if (hasMask(l)) {
       sx.fill()
+    } else {
+      // Brushed and never outlined: everything is kept until a stroke says not.
+      sx.fillRect(0, 0, aw, ah)
+    }
+    const paint = l.mask.paint || []
+    const bare = (list) => list.map((k) => ({ ...k, mode: undefined }))
+    paintStrokes(sx, l, bare(paint.filter((k) => k.mode !== 'take')), { map, scale })
+    const takes = bare(paint.filter((k) => k.mode === 'take'))
+    if (takes.length) {
+      sx.save()
+      sx.globalCompositeOperation = 'destination-out'
+      paintStrokes(sx, l, takes, { map, scale })
+      sx.restore()
     }
     cx.globalCompositeOperation = 'destination-in'
     cx.drawImage(stencil, 0, 0)
@@ -1243,11 +1266,68 @@ function withMask(ctx, l, draw) {
   withMaskOnly(ctx, l, cloned)
 }
 
+/** Whether a mask has been brushed as well as outlined. */
+export const hasMaskPaint = (l) => (l?.mask?.paint?.length || 0) > 0
+
+/**
+ * The mask as an alpha channel: white where the layer is kept.
+ *
+ * A clip can express an outline and nothing else, so the moment a mask is also
+ * brushed it has to be built as a picture instead. Outlines first, then the
+ * strokes that add, then the strokes that take away — in that order, because
+ * painting something back is meant to survive having been painted out earlier in
+ * the same session, and the last word belongs to whichever stroke was made last.
+ */
+function maskAlpha(l, w, h) {
+  const sc = eraseScratch('mask-alpha', w, h)
+  const mx = sc.getContext('2d')
+  mx.setTransform(1, 0, 0, 1, 0, 0)
+  mx.globalAlpha = 1
+  mx.globalCompositeOperation = 'source-over'
+  mx.filter = 'none'
+  mx.clearRect(0, 0, w, h)
+
+  mx.fillStyle = '#fff'
+  if (l.mask?.invert) {
+    mx.fillRect(0, 0, w, h)
+    mx.globalCompositeOperation = 'destination-out'
+    mx.beginPath()
+    addMaskPath(mx, l)
+    mx.fill()
+    mx.globalCompositeOperation = 'source-over'
+  } else if (hasMask(l)) {
+    mx.beginPath()
+    addMaskPath(mx, l)
+    mx.fill()
+  } else {
+    // Brushed but never outlined — a background removal that took too much, or
+    // too little. Everything is kept to begin with, so the strokes are read
+    // against the picture as it stands rather than against nothing at all: a
+    // first dab in Remove mode takes a bite out, instead of the layer vanishing
+    // and leaving the dab behind as the only thing on screen.
+    mx.fillRect(0, 0, w, h)
+  }
+
+  const paint = l.mask?.paint || []
+  // `mode` is dropped so `paintStrokes` does not filter on its own notion of it:
+  // which pass a stroke belongs to is decided here.
+  const bare = (list) => list.map((k) => ({ ...k, mode: undefined }))
+  paintStrokes(mx, l, bare(paint.filter((k) => k.mode !== 'take')))
+  const takes = bare(paint.filter((k) => k.mode === 'take'))
+  if (takes.length) {
+    mx.save()
+    mx.globalCompositeOperation = 'destination-out'
+    paintStrokes(mx, l, takes)
+    mx.restore()
+  }
+  return sc
+}
+
 function withMaskOnly(ctx, l, draw) {
-  if (!hasMask(l)) { draw(ctx); return }
+  if (!hasMask(l) && !hasMaskPaint(l)) { draw(ctx); return }
   const feather = l.mask.feather || 0
 
-  if (feather <= 0) {
+  if (feather <= 0 && !hasMaskPaint(l)) {
     ctx.save()
     ctx.beginPath()
     if (l.mask.invert) {
@@ -1276,17 +1356,8 @@ function withMaskOnly(ctx, l, draw) {
 
   sctx.save()
   sctx.globalCompositeOperation = 'destination-in'
-  sctx.filter = `blur(${feather}px)`
-  sctx.fillStyle = '#fff'
-  sctx.beginPath()
-  if (l.mask.invert) {
-    sctx.rect(-feather * 4, -feather * 4, w + feather * 8, h + feather * 8)
-    addMaskPath(sctx, l)
-    sctx.fill('evenodd')
-  } else {
-    addMaskPath(sctx, l)
-    sctx.fill()
-  }
+  sctx.filter = feather > 0 ? `blur(${feather}px)` : 'none'
+  sctx.drawImage(maskAlpha(l, w, h), 0, 0)
   sctx.restore()
 
   ctx.drawImage(sc, 0, 0)

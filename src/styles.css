@@ -171,6 +171,10 @@ button:disabled { opacity: 0.35; cursor: default; }
 }
 .rail-options > .rail-opt-label:first-child { margin-top: 0; }
 .rail-hint { color: var(--dim); font-size: 11px; margin: 14px 0 0; line-height: 1.5; }
+/* Actions under a tool's settings: as many as fit on a line, wrapping rather
+   than squeezing, since their labels are words and not icons. */
+.rail-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.rail-row .btn { flex: 1 1 auto; }
 
 /* ------------------------------------------------------------------ stage */
 .stage { flex: 1; min-height: 0; position: relative; }

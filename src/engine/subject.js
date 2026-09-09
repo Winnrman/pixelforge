@@ -94,8 +94,8 @@ export function unionBounds(list) {
  *
  * A sticker needs a subject standing free of its surroundings; it does not care
  * *how* that happened. Removing the background is one way, drawing round the
- * subject with the lasso — the AI one included — is another, and rubbing the
- * background out with the eraser is a third. All three leave the same thing: a
+ * subject with the lasso — the AI one included — is another, brushing the mask
+ * is a third, and rubbing the background out with the eraser is a fourth. All three leave the same thing: a
  * layer with transparency where the background used to be.
  *
  * It lives here so the renderer and the switch that turns stickers on read the
@@ -108,6 +108,7 @@ export const isCutOut = (l) => !!(
   l?.type === 'image'
   && (l.bgRemove?.on
     || (l.mask?.points?.length || 0) >= 3
+    || (l.mask?.paint?.length || 0) > 0
     || (l.erase?.strokes?.length || 0) > 0)
 )
 

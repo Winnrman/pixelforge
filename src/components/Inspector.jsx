@@ -167,9 +167,7 @@ export default function Inspector() {
   const fitCanvasToContent = useStore((s) => s.fitCanvasToContent)
   const recompute = useStore((s) => s.recomputeDuration)
   const setAutoTrack = useStore((s) => s.setAutoTrack)
-  const setMask = useStore((s) => s.setMask)
-  const clearMask = useStore((s) => s.clearMask)
-  const undoMaskAdd = useStore((s) => s.undoMaskAdd)
+  const setTool = useStore((s) => s.setTool)
   // What is selected inside the text being edited, if anything. The colour and
   // weight controls point at it when there is one and at the layer when there
   // is not — the same controls either way, which is the whole idea.
@@ -180,7 +178,6 @@ export default function Inspector() {
     return l?.type === 'text' ? { ...t, text: String(l.text || '').slice(t.from, t.to) } : null
   })
   const styleText = useStore((s) => s.styleText)
-  const editMask = useStore((s) => s.editMask)
   const setNotice = useStore((s) => s.setNotice)
   const enableTrack = useStore((s) => s.enableTrack)
   const disableTrack = useStore((s) => s.disableTrack)
@@ -236,6 +233,8 @@ export default function Inspector() {
   useStore((s) => (animated ? Math.round(s.time / 50) : 0))
   const time = useStore.getState().time
   const l = animated ? resolveLayer(base, time) : base
+  // Pieces added and strokes brushed: how many times the cut has been mended.
+  const maskMends = (l?.mask?.plus?.length || 0) + (l?.mask?.paint?.length || 0)
 
   // Per-property keyframe toggle for a Row: anim={animFor('opacity')}.
   const animFor = (prop) => {
@@ -682,60 +681,20 @@ export default function Inspector() {
         {l.mask?.points?.length >= 3 && (
           <Section
             title="Mask"
-            info={'Cut from a lasso outline. The mask is stored relative to the layer box, so it '
-              + 'follows the layer when you move, resize or rotate it. A cut that took a slice '
-              + 'off an arm or a leg does not have to be drawn again. Edit hands the outline '
-              + 'back to the lasso with its points intact — drag one, click a midpoint to add '
-              + 'one, right-click one to take it away — and opens the frame back out to the '
-              + 'whole picture so you can see the edge you are fixing; Mask writes it back. Or '
-              + 'lasso just the missing piece and choose Add to mask, which unions it in and '
-              + 'grows the frame if the piece reaches outside. Erase takes pieces away again, '
-              + 'and accumulates the same way.'}
+            info={'Cut from a lasso outline, stored relative to the layer box, so it follows '
+              + 'the layer when you move, resize or rotate it. Everything that shapes it — '
+              + 'the brush, the feather, what it keeps, and handing the outline back to the '
+              + 'lasso to move its points — lives with the mask tool, so the settings are '
+              + 'beside the brush that needs them rather than across the window from it.'}
             right={(
-              <>
-                <button
-                  className="mini"
-                  title="Put the outline back on the lasso so its points can be moved"
-                  onClick={() => {
-                    const res = editMask(base.id)
-                    setNotice(res.ok
-                      ? { kind: 'ok', text: res.text }
-                      : { kind: 'warn', text: res.reason })
-                  }}
-                >Edit</button>
-                <button className="mini" onClick={() => clearMask(base.id)}>Remove</button>
-              </>
+              <button
+                className="mini"
+                title="Open the mask tool, where the brush and its settings are"
+                onClick={() => setTool('mask')}
+              >Edit</button>
             )}
           >
-            <Row label="Keeps">
-              <Toggle
-                value={!l.mask.invert}
-                onChange={(keep) => { push(); setMask(base.id, { invert: !keep }) }}
-              >
-                {l.mask.invert ? 'Everything outside' : 'Everything inside'}
-              </Toggle>
-            </Row>
-            <Row label="Feather">
-              <Slider
-                value={l.mask.feather || 0}
-                min={0}
-                max={80}
-                onChange={(feather) => { begin(); setMask(base.id, { feather }) }}
-                onCommit={commit}
-                suffix="px"
-              />
-            </Row>
-            {/* Only once there is something to say. A count of one outline is a
-                row saying the mask is a mask. */}
-            {l.mask.plus?.length > 0 && (
-              <Row label="Pieces">
-                <span className="readout">
-                  {l.mask.plus.length + 1} outlines
-                </span>
-                <button className="mini" title="Take back the last piece added"
-                  onClick={() => undoMaskAdd(base.id)}>Undo last</button>
-              </Row>
-            )}
+            <p className="hint">{maskMends ? `Cut out, mended ${maskMends}×.` : 'Cut out.'}</p>
           </Section>
         )}
 

@@ -3,6 +3,9 @@ import { useStore, makeEffectLayer, makeShapeLayer, makeTextLayer } from '../sta
 import { uiFlags } from '../state/uiFlags.js'
 import { renderDocument, primeVideo } from '../engine/render.js'
 import { docToLayer } from '../engine/erase.js'
+import {
+  bandRect, pointsInRect, nearSelection, dropPoints, movePoints, selectionBounds,
+} from '../engine/lassoedit.js'
 import { deliverPick, pickRestore, cancelPick } from '../state/picker.js'
 import {
   currentTime as audioTime, play as playAudio, stop as stopAudio, isPlaying as audioPlaying,
@@ -37,7 +40,7 @@ const LOUPE_N = 9
 // press must start a new shape, even on top of a selected layer's handle —
 // otherwise picking the pixelate tool and dragging silently resizes whatever
 // happened to be selected.
-const DRAWS_ON_DRAG = new Set(['effect', 'shape', 'lasso', 'text', 'erase'])
+const DRAWS_ON_DRAG = new Set(['effect', 'shape', 'lasso', 'text', 'erase', 'mask'])
 const usesHandles = (tool) => !DRAWS_ON_DRAG.has(tool)
 const HANDLE_SIZE = 9
 /** The radius of a gradient stop knob, on screen. */
@@ -146,6 +149,10 @@ export default function CanvasStage() {
   // In-progress lasso lives in a ref so plotting points does not re-render the
   // app 60 times a second; it is committed to the store once the outline closes.
   const lassoRef = useRef(null)
+  // The band being dragged across an outline, while it is being dragged. The
+  // run it picks out is state, because Delete has to know about it from the
+  // other side of the window; the rectangle is only ever drawn.
+  const bandRef = useRef(null)
   const guidesRef = useRef([])
   // Exposed so the snapping test can read the guides mid-drag.
   if (import.meta.env.DEV) window.__pfSnapGuides = () => guidesRef.current
@@ -398,7 +405,8 @@ export default function CanvasStage() {
     const p = cursorRef.current
     if (!p) return
     const target = st.eraseTarget(p[0], p[1])
-    const brush = st.toolOptions.brush || {}
+    const masking = st.tool === 'mask'
+    const brush = (masking ? st.toolOptions.maskBrush : st.toolOptions.brush) || {}
     const layer = target ? resolveLayer(target, st.time) : null
     // With no layer under the cursor there is nothing to erase, so the ring is
     // shown hollow and dim rather than hidden — a disappearing cursor is worse
@@ -408,7 +416,10 @@ export default function CanvasStage() {
       : 12
     const x = v.panX + p[0] * v.zoom
     const y = v.panY + p[1] * v.zoom
-    const restore = brush.mode === 'restore'
+    // Green for the mode that puts something back, whichever brush is in hand:
+    // the eraser calls it Restore and the mask brush calls it Keep, and they are
+    // the same promise.
+    const restore = masking ? brush.mode !== 'take' : brush.mode === 'restore'
 
     ctx.save()
     ctx.beginPath()
@@ -571,7 +582,7 @@ export default function CanvasStage() {
 
   function drawOverlay(ctx, st, v) {
     const { doc, selectedIds, tool } = st
-    if (tool === 'erase') {
+    if (tool === 'erase' || tool === 'mask') {
       drawBrush(ctx, st, v)
       return
     }
@@ -911,6 +922,7 @@ export default function CanvasStage() {
       // A closed outline is editable: solid dots move a point, hollow midpoints
       // insert one.
       if (st.tool !== 'lasso') return
+      const pick = new Set(st.lassoPick || [])
       for (let i = 0; i < pts.length; i++) {
         const a2 = scr(pts[i])
         const b2 = scr(pts[(i + 1) % pts.length])
@@ -923,15 +935,43 @@ export default function CanvasStage() {
         ctx.fill()
         ctx.stroke()
       }
-      for (const q0 of pts) {
-        const q = scr(q0)
+      for (let i = 0; i < pts.length; i++) {
+        const q = scr(pts[i])
+        const on = pick.has(i)
         ctx.beginPath()
-        ctx.arc(q.x, q.y, 4.5, 0, Math.PI * 2)
-        ctx.fillStyle = '#fff'
+        ctx.arc(q.x, q.y, on ? 5.5 : 4.5, 0, Math.PI * 2)
+        ctx.fillStyle = on ? '#ffcc33' : '#fff'
         ctx.strokeStyle = 'rgba(0,0,0,0.65)'
         ctx.lineWidth = 1.2
         ctx.fill()
         ctx.stroke()
+      }
+      // A loose box round the picked run, so a stretch of forty points reads as
+      // one thing you can take hold of rather than forty yellow dots.
+      const runBox = selectionBounds(pts, st.lassoPick || [])
+      if (runBox) {
+        ctx.save()
+        ctx.strokeStyle = 'rgba(255,204,51,0.7)'
+        ctx.lineWidth = 1
+        ctx.setLineDash([4, 4])
+        ctx.strokeRect(
+          v.panX + runBox.x * v.zoom - 6, v.panY + runBox.y * v.zoom - 6,
+          runBox.w * v.zoom + 12, runBox.h * v.zoom + 12,
+        )
+        ctx.restore()
+      }
+      // And the band itself, while it is being dragged.
+      if (bandRef.current) {
+        const b = bandRef.current
+        ctx.save()
+        ctx.strokeStyle = '#ffcc33'
+        ctx.fillStyle = 'rgba(255,204,51,0.12)'
+        ctx.lineWidth = 1
+        const bx = v.panX + b.x * v.zoom
+        const by = v.panY + b.y * v.zoom
+        ctx.fillRect(bx, by, b.w * v.zoom, b.h * v.zoom)
+        ctx.strokeRect(bx, by, b.w * v.zoom, b.h * v.zoom)
+        ctx.restore()
       }
       return
     }
@@ -1007,10 +1047,32 @@ export default function CanvasStage() {
     const onKey = (e) => {
       if (e.code === 'Space') spaceRef.current = e.type === 'keydown'
       if (tool === 'lasso' && e.type === 'keydown') {
+        const st = useStore.getState()
+        const pick = st.lassoPick || []
         if (e.key === 'Enter') closeLasso()
-        else if (e.key === 'Escape') cancelLasso()
-        else if (e.key === 'Backspace' && lassoRef.current?.points.length) {
+        else if (e.key === 'Escape') {
+          // One step back per press: let go of the run first, and only then
+          // throw the outline away. Escape has never meant "lose the lot" while
+          // there was something smaller to let go of.
+          if (pick.length && !lassoRef.current) st.setLassoPick([])
+          else cancelLasso()
+        } else if (e.key === 'Backspace' && lassoRef.current?.points.length) {
           lassoRef.current.points.pop()
+        } else if ((e.key === 'Delete' || e.key === 'Backspace')
+          && !lassoRef.current && pick.length) {
+          // The stretch goes, and the outline closes straight across the gap —
+          // which is the repair, not a side effect of it. A trace that wandered
+          // into the background and back is banded and deleted, and what is left
+          // is a straight line between the two places it was still right.
+          e.preventDefault()
+          const res = dropPoints(st.lasso?.points || [], pick)
+          if (!res.ok) {
+            st.setNotice({ kind: 'warn', text: res.reason })
+          } else {
+            st.setLasso({ points: res.points })
+            st.setLassoPick([])
+            st.setNotice({ kind: 'ok', text: `${res.removed} points out, and the outline joined across` })
+          }
         }
       }
       if (tool === 'eyedrop' && e.type === 'keydown' && e.key === 'Escape') {
@@ -1201,6 +1263,21 @@ export default function CanvasStage() {
       return
     }
 
+    if (st.tool === 'mask') {
+      const target = st.eraseTarget(p.x, p.y)
+      if (!target) {
+        st.setNotice({ kind: 'warn', text: 'Nothing to mask there — select a layer first.' })
+        return
+      }
+      // Alt flips between growing the mask and cutting it back, the same way it
+      // flips the eraser: the hand stays on the picture and the mode is a key.
+      const mode = st.toolOptions.maskBrush?.mode === 'take' ? 'take' : 'add'
+      const started = st.beginMaskPaint(target.id, [p.x, p.y],
+        { mode: e.altKey ? (mode === 'take' ? 'add' : 'take') : mode })
+      if (started) drag.current = { mode: 'maskpaint', id: target.id }
+      return
+    }
+
     if (st.tool === 'erase') {
       const target = st.eraseTarget(p.x, p.y)
       if (!target) {
@@ -1295,6 +1372,19 @@ export default function CanvasStage() {
     }
 
     if (st.tool === 'lasso') {
+      // A run already picked out: pressing on it drags the whole stretch. This
+      // comes before everything else the tool does, because once a run is
+      // picked, that is what the outline is for until it is let go of.
+      const pick = st.lassoPick || []
+      if (!lassoRef.current && st.lasso && pick.length
+        && nearSelection(st.lasso.points, pick, [p.x, p.y], 10 / st.view.zoom)) {
+        drag.current = {
+          mode: 'lasso-run',
+          p0: p,
+          points: st.lasso.points.map((q) => [...q]),
+        }
+        return
+      }
       // AI select replaces plotting: one click asks the model for an outline
       // instead of adding a vertex. Editing an outline it produced still works,
       // because what comes back is an ordinary lasso.
@@ -1328,7 +1418,18 @@ export default function CanvasStage() {
         }
       }
       if (!live) {
-        if (st.lasso) st.clearLasso()
+        // A closed outline is work — sometimes a great deal of it. A click that
+        // missed a handle used to throw the whole thing away and start plotting
+        // a new one from that point, so one slip lost a traced subject with no
+        // way back: the outline is not in the document, so undo cannot reach it.
+        //
+        // Now a press on the empty part of the picture drags a band instead, and
+        // a click that goes nowhere does nothing at all.
+        if (st.lasso) {
+          bandRef.current = null
+          drag.current = { mode: 'lasso-band', p0: p, moved: false }
+          return
+        }
         live = { points: [], freehand: false }
         lassoRef.current = live
       }
@@ -1372,7 +1473,13 @@ export default function CanvasStage() {
     const p = toDoc(e)
 
     const activeTool = useStore.getState().tool
-    if (activeTool === 'lasso' || activeTool === 'erase' || activeTool === 'eyedrop') cursorRef.current = [p.x, p.y]
+    if (activeTool === 'lasso' || activeTool === 'erase' || activeTool === 'eyedrop'
+      || activeTool === 'mask') cursorRef.current = [p.x, p.y]
+
+    if (d?.mode === 'maskpaint') {
+      useStore.getState().extendMaskPaint(d.id, [p.x, p.y])
+      return
+    }
 
     if (d?.mode === 'erase') {
       const st = useStore.getState()
@@ -1386,12 +1493,14 @@ export default function CanvasStage() {
       let cursor = 'default'
       if (spaceRef.current || st.tool === 'hand') cursor = 'grab'
       else if (st.tool === 'crop') cursor = cropHandleAt(p) === 'move' ? 'move' : (cropHandleAt(p) ? CURSORS[cropHandleAt(p)] : 'crosshair')
+      else if (st.tool === 'lasso' && st.lassoPick?.length && st.lasso
+        && nearSelection(st.lasso.points, st.lassoPick, [p.x, p.y], 10 / st.view.zoom)) cursor = 'move'
       else if (st.tool === 'lasso' && lassoHandleAt(p)) cursor = 'grab'
       else {
         const h = hitHandle(p)
         if (h) cursor = CURSORS[h.key]
         else if (st.tool === 'move') cursor = topLayerAt(p) ? 'move' : 'default'
-        else if (st.tool === 'erase') cursor = 'crosshair'
+        else if (st.tool === 'erase' || st.tool === 'mask') cursor = 'crosshair'
         else if (st.tool === 'clone') cursor = 'crosshair'
         else cursor = 'crosshair'
       }
@@ -1525,6 +1634,19 @@ export default function CanvasStage() {
       return
     }
 
+    if (d.mode === 'lasso-band') {
+      d.moved = true
+      bandRef.current = bandRect([d.p0.x, d.p0.y], [p.x, p.y])
+      return
+    }
+
+    if (d.mode === 'lasso-run') {
+      st.setLasso({
+        points: movePoints(d.points, st.lassoPick, p.x - d.p0.x, p.y - d.p0.y),
+      })
+      return
+    }
+
     if (d.mode === 'lasso-vertex') {
       const pts = st.lasso?.points
       if (!pts) return
@@ -1617,6 +1739,22 @@ export default function CanvasStage() {
       // A freehand trace finishes on release; a plotted vertex was already
       // added on press, so a plain click needs nothing here.
       if (d.moved) closeLasso()
+    }
+
+    if (d.mode === 'lasso-band') {
+      const band = bandRef.current
+      bandRef.current = null
+      // A press that went nowhere is the misclick this replaced, and it still
+      // does nothing but say how to start again.
+      if (!d.moved || !band) {
+        st.setNotice({ kind: 'warn', text: 'Esc to start a new outline, or drag a band across some points' })
+        return
+      }
+      const picked = pointsInRect(st.lasso?.points || [], band)
+      st.setLassoPick(picked)
+      st.setNotice(picked.length
+        ? { kind: 'ok', text: `${picked.length} points — drag them together, or Delete to close the gap` }
+        : { kind: 'warn', text: 'No points in there' })
     }
   }
 
@@ -1734,7 +1872,7 @@ export default function CanvasStage() {
         onPointerCancel={onPointerUp}
         onPointerLeave={() => {
           const t = useStore.getState().tool
-          if (t === 'erase' || t === 'eyedrop') cursorRef.current = null
+          if (t === 'erase' || t === 'eyedrop' || t === 'mask') cursorRef.current = null
         }}
         onDoubleClick={onDoubleClick}
         onContextMenu={(e) => {

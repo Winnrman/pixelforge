@@ -1,5 +1,7 @@
+import { useRef } from 'react'
 import { useStore } from '../state/store.js'
 import { EFFECTS } from '../engine/effects.js'
+import { isCutOut } from '../engine/subject.js'
 import { Row, Select, Slider, Segmented, Toggle, Info } from './ui.jsx'
 
 const TOOLS = [
@@ -12,6 +14,7 @@ const TOOLS = [
   { id: 'lasso', key: 'L', label: 'Lasso select — click to plot points, or drag to trace', icon: 'M4 14 C2 9 6 3 12 3 C18 3 21 8 18 12 C16 15 10 15 9 18 C8 20 10 21 11 20' },
   { id: 'shape', key: 'S', label: 'Shape', icon: 'M3 3 H12 V12 H3 Z M9 9 A6 6 0 1 0 21 9 A6 6 0 1 0 9 9' },
   { id: 'text', key: 'T', label: 'Text', icon: 'M4 4 H20 M12 4 V20 M8 20 H16' },
+  { id: 'mask', key: 'B', label: 'Mask — brush the cut-out edge, or edit its outline', icon: 'M12 2.5 a9.5 9.5 0 0 1 0 19 z M12 2.5 a9.5 9.5 0 0 0 0 19 M4.2 6 l15.6 12 M6 3.6 l12 16.8 M2.8 9.4 l18.4 5.2' },
   { id: 'erase', key: 'E', label: 'Erase — paint away part of a layer', icon: 'M8.5 20 H20 M3.6 16.4 l8-8 a1.5 1.5 0 0 1 2.1 0 l4.9 4.9 a1.5 1.5 0 0 1 0 2.1 l-4.6 4.6 H9.2 l-5.6 -5.6 a1.5 1.5 0 0 1 0 -2.1 Z' },
   { id: 'clone', key: 'K', label: 'Clone stamp — copy one part of a picture over another', icon: 'M9 3 h6 a2 2 0 0 1 2 2 v1 a3 3 0 0 0 3 3 v2 H4 V9 a3 3 0 0 0 3 -3 V5 a2 2 0 0 1 2 -2 z M9 11 v4 a3 3 0 0 0 3 3 v3' },
   { id: 'wand', key: 'W', label: 'Select by colour', icon: 'M4 20 L14 10 M12.5 8.5 l3 3 M17 3 l1 2.2 l2.2 1 l-2.2 1 l-1 2.2 l-1 -2.2 l-2.2 -1 l2.2 -1 z M6 4 l0.6 1.4 l1.4 0.6 l-1.4 0.6 l-0.6 1.4 l-0.6 -1.4 l-1.4 -0.6 l1.4 -0.6 z' },
@@ -237,6 +240,8 @@ export default function ToolRail() {
         </div>
       )}
 
+      {tool === 'mask' && <MaskPanel />}
+
       {tool === 'erase' && (
         <div className="rail-options">
           <div className="rail-opt-label">Brush size</div>
@@ -302,6 +307,129 @@ export default function ToolRail() {
           )}
           <p className="rail-hint">Drag on the canvas to place. Shift = square, Alt = from center.</p>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Everything to do with a mask, in the one place you go to work on one.
+ *
+ * These controls used to live in the inspector, on the far side of the window
+ * from the brush that needs them — so fixing an edge meant picking the tool on
+ * the left, painting in the middle, then crossing to the right to feather it and
+ * back again. The tool is where the work happens, so the settings are here.
+ */
+function MaskPanel() {
+  const o = useStore((s) => s.toolOptions)
+  const setToolOptions = useStore((s) => s.setToolOptions)
+  const setMask = useStore((s) => s.setMask)
+  const clearMask = useStore((s) => s.clearMask)
+  const editMask = useStore((s) => s.editMask)
+  const undoMaskAdd = useStore((s) => s.undoMaskAdd)
+  const undoMaskPaint = useStore((s) => s.undoMaskPaint)
+  const setNotice = useStore((s) => s.setNotice)
+  const push = useStore((s) => s.pushHistory)
+  // The same layer the brush will land on: the selection, so what the panel says
+  // and what a stroke does can never disagree.
+  const l = useStore((s) => {
+    const sel = s.doc.layers.filter((x) => s.selectedIds.includes(x.id) && !x.locked
+      && x.type !== 'group' && x.type !== 'effect')
+    return sel[sel.length - 1] || null
+  })
+
+  const pushed = useRef(false)
+  const begin = () => { if (!pushed.current) { push(); pushed.current = true } }
+  const commit = () => { pushed.current = false }
+
+  const brush = o.maskBrush || {}
+  const outlined = (l?.mask?.points?.length || 0) >= 3
+  const cut = isCutOut(l)
+
+  return (
+    <div className="rail-options">
+      <div className="rail-opt-label">
+        Mask
+        <Info>
+          Paint over the edge of a cut-out to fix it: Keep brings back what was cut off,
+          Remove takes away what should not have survived. Hold Alt to flip while you paint.
+          Strokes are kept as strokes, so they scale and turn with the layer and undo one
+          drag at a time — the picture underneath is never touched. Edit outline hands the
+          shape back to the lasso with its points intact, and opens the frame out so you can
+          see the edge you are fixing; there, band a run of points to move or delete a whole
+          stretch at once.
+        </Info>
+      </div>
+      <Segmented
+        value={brush.mode === 'take' ? 'take' : 'add'}
+        onChange={(mode) => setToolOptions({ maskBrush: { ...brush, mode } })}
+        options={[{ value: 'add', label: 'Keep' }, { value: 'take', label: 'Remove' }]}
+      />
+      <div className="rail-opt-label">Brush size</div>
+      <Slider
+        value={Math.round((brush.size ?? 0.06) * 200)}
+        min={1}
+        max={60}
+        onChange={(v) => setToolOptions({ maskBrush: { ...brush, size: v / 200 } })}
+      />
+      <div className="rail-opt-label">Hardness</div>
+      <Slider
+        value={Math.round((brush.hardness ?? 0.65) * 100)}
+        min={0}
+        max={100}
+        onChange={(v) => setToolOptions({ maskBrush: { ...brush, hardness: v / 100 } })}
+      />
+
+      {!cut ? (
+        <p className="rail-hint">
+          Nothing cut out on this layer yet. Lasso the subject and choose <b>Mask</b>.
+        </p>
+      ) : (
+        <>
+          {outlined && (
+            <>
+              <div className="rail-opt-label">Keeps</div>
+              <Toggle
+                value={!l.mask.invert}
+                onChange={(keep) => { push(); setMask(l.id, { invert: !keep }) }}
+              >
+                {l.mask.invert ? 'Everything outside' : 'Everything inside'}
+              </Toggle>
+              <div className="rail-opt-label">Feather</div>
+              <Slider
+                value={l.mask.feather || 0}
+                min={0}
+                max={80}
+                suffix="px"
+                onChange={(feather) => { begin(); setMask(l.id, { feather }) }}
+                onCommit={commit}
+              />
+            </>
+          )}
+          <div className="rail-row">
+            {outlined && (
+              <button
+                className="btn ghost"
+                title="Put the outline back on the lasso so its points can be moved"
+                onClick={() => {
+                  const res = editMask(l.id)
+                  setNotice(res.ok ? { kind: 'ok', text: res.text } : { kind: 'warn', text: res.reason })
+                }}
+              >Edit outline</button>
+            )}
+            {l.mask?.paint?.length > 0 && (
+              <button className="btn ghost" title="Take back the last brush stroke"
+                onClick={() => undoMaskPaint(l.id)}>Undo stroke</button>
+            )}
+            {l.mask?.plus?.length > 0 && (
+              <button className="btn ghost" title="Take back the last piece added"
+                onClick={() => undoMaskAdd(l.id)}>Undo piece</button>
+            )}
+            {outlined && (
+              <button className="btn ghost" onClick={() => clearMask(l.id)}>Remove mask</button>
+            )}
+          </div>
+        </>
       )}
     </div>
   )

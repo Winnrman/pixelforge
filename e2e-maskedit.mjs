@@ -283,6 +283,314 @@ check('the leg that was cut off is there now', await litAt(0.6, 0.5))
 check('and what was outside the outline still is not', !(await litAt(0.9, 0.5)))
 await page.screenshot({ path: path.join(OUT, '03-edited.png') })
 
+// --- the brush -----------------------------------------------------------------------
+// An outline is a closed shape drawn round the thing being fixed, which is right
+// for a missed sliver and tedious for a ragged edge. A brush has no outline to
+// close: paint over what should be kept, paint over what should not.
+//
+// Measured in pixels, because "the stroke was recorded" cannot tell the
+// difference between a mask that changed and one that changed in the wrong
+// direction — and Keep and Remove are one sign apart.
+// Measured against the frame the layer is in *now*: by this point the suite has
+// cropped and re-cut it several times, and the box it started in is long gone.
+const litIn = (box, fx, fy) => page.evaluate(([x, y]) => {
+  const st = window.__pfState()
+  const c = document.createElement('canvas')
+  c.width = st.doc.width
+  c.height = st.doc.height
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  window.__pfRender.renderDocument(ctx, st.doc, 0)
+  return ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data[3] > 128
+}, [box.x + box.w * fx, box.y + box.h * fy])
+
+const PBOX = await page.evaluate(async (id) => {
+  const st = window.__pfState()
+  st.clearMask(id)
+  await new Promise((r) => setTimeout(r, 250))
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  const at = (fx, fy) => [l.x + l.w * fx, l.y + l.h * fy]
+  st.select([id])
+  // Cut to the left half again: the right half is what the brush has to win back.
+  st.setLasso({ points: [at(0.05, 0.05), at(0.5, 0.05), at(0.5, 0.95), at(0.05, 0.95)], closed: true })
+  st.applyLasso('mask')
+  await new Promise((r) => setTimeout(r, 400))
+  return { x: l.x, y: l.y, w: l.w, h: l.h }
+}, start.id)
+const lit = (fx, fy) => litIn(PBOX, fx, fy)
+check('the right half is out after the cut', !(await lit(0.7, 0.5)))
+
+// A stroke straight across the middle, in document coordinates — which is what
+// the canvas hands the store, because the frame may open out as the stroke
+// starts and a fraction of a box that is about to change is a fraction of
+// nothing.
+const painted = await page.evaluate(async ([id, box]) => {
+  const st = window.__pfState()
+  st.setToolOptions({ maskBrush: { ...st.toolOptions.maskBrush, size: 0.12, hardness: 1, mode: 'add' } })
+  const at = (fx, fy) => [box.x + box.w * fx, box.y + box.h * fy]
+  const began = st.beginMaskPaint(id, at(0.45, 0.5), { mode: 'add' })
+  for (let f = 0.45; f <= 0.85; f += 0.02) window.__pfState().extendMaskPaint(id, at(f, 0.5))
+  await new Promise((r) => setTimeout(r, 400))
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  return {
+    began: !!began,
+    strokes: l.mask?.paint?.length || 0,
+    pts: l.mask.paint[0].pts.length,
+    opened: Math.round(l.w),
+  }
+}, [start.id, PBOX])
+console.log('after brushing the mask:', JSON.stringify(painted))
+check('a brush stroke goes onto the mask', painted.began && painted.strokes === 1, JSON.stringify(painted))
+check('and it keeps the points it was dragged through', painted.pts > 5, String(painted.pts))
+// Keeping puts back what the cut took, and the cut trimmed the frame to what it
+// kept — so what is being painted for is outside the frame, where there is
+// nothing to paint onto. It opens back out first.
+check('and the frame opens back out so there is something to paint onto',
+  painted.opened > PBOX.w * 0.9, `${painted.opened} of ${Math.round(PBOX.w)}`)
+check('what the brush painted is back', await lit(0.7, 0.5))
+check('what it did not paint stays out', !(await lit(0.7, 0.15)))
+check('and the outline it was added to is untouched', await lit(0.25, 0.5))
+await page.screenshot({ path: path.join(OUT, '04-brushed.png') })
+
+// One drag, one undo — the same promise the eraser makes.
+const unpainted = await page.evaluate(async (id) => {
+  window.__pfState().undoMaskPaint(id)
+  await new Promise((r) => setTimeout(r, 350))
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  return { strokes: l.mask?.paint?.length || 0 }
+}, start.id)
+check('a stroke can be taken back', unpainted.strokes === 0, JSON.stringify(unpainted))
+check('and what it painted goes with it', !(await lit(0.7, 0.5)))
+
+// Remove is the same brush the other way round.
+const removed = await page.evaluate(async ([id, box]) => {
+  const st = window.__pfState()
+  const at = (fx, fy) => [box.x + box.w * fx, box.y + box.h * fy]
+  st.beginMaskPaint(id, at(0.15, 0.5), { mode: 'take' })
+  for (let f = 0.15; f <= 0.4; f += 0.02) window.__pfState().extendMaskPaint(id, at(f, 0.5))
+  await new Promise((r) => setTimeout(r, 400))
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  return { mode: l.mask.paint[0].mode, w: Math.round(l.w) }
+}, [start.id, PBOX])
+console.log('after brushing in Remove:', JSON.stringify(removed))
+check('the same brush takes away as well as puts back', removed.mode === 'take', JSON.stringify(removed))
+check('and what it painted over is gone', !(await lit(0.25, 0.5)))
+check('while the rest of the cut-out stays', await lit(0.25, 0.15))
+
+// The brush repairs a cut-out; on a layer that was never cut out it would just
+// be the eraser wearing a different hat, so it says which tool that is instead.
+const refused = await page.evaluate(async (id) => {
+  const st = window.__pfState()
+  st.undoMaskPaint(id)
+  st.clearMask(id)
+  await new Promise((r) => setTimeout(r, 300))
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  const began = window.__pfState().beginMaskPaint(id, [l.x + l.w / 2, l.y + l.h / 2], { mode: 'take' })
+  return { began: !!began, notice: window.__pfState().notice?.text || '' }
+}, start.id)
+console.log('brushing a layer with nothing cut out:', JSON.stringify(refused))
+check('brushing a layer that was never cut out does nothing', refused.began === false)
+check('and says which tool does want that', /eraser/.test(refused.notice), refused.notice)
+
+// --- brushed with no outline under it --------------------------------------------------
+// A layer cut out by the eraser, or by a background key, has transparency but no
+// outline. The mask has to start as "everything is kept" there, or the first dab
+// in Remove takes the whole layer away and leaves the dab behind as the only
+// thing on screen — the mask being built from nothing instead of from what is
+// already there.
+const noOutline = await page.evaluate(async (id) => {
+  const st = window.__pfState()
+  st.clearMask(id)
+  await new Promise((r) => setTimeout(r, 250))
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  const box = { x: l.x, y: l.y, w: l.w, h: l.h }
+  const at = (fx, fy) => [box.x + box.w * fx, box.y + box.h * fy]
+  // Cut out with the eraser rather than an outline: no mask points at all.
+  st.select([id])
+  st.beginErase(id, [0.8, 0.8], { mode: 'erase', size: 0.3, hardness: 1 })
+  st.extendErase(id, [0.9, 0.9])
+  await new Promise((r) => setTimeout(r, 300))
+  const began = window.__pfState().beginMaskPaint(id, at(0.2, 0.2), { mode: 'take' })
+  for (let f = 0.2; f <= 0.35; f += 0.02) window.__pfState().extendMaskPaint(id, at(f, 0.2))
+  await new Promise((r) => setTimeout(r, 400))
+  const after = window.__pfState().doc.layers.find((x) => x.id === id)
+  return { began: !!began, outline: after.mask?.points?.length || 0, box }
+}, start.id)
+console.log('brushing a layer with no outline:', JSON.stringify(noOutline.began))
+check('a layer cut out without an outline can still be brushed', noOutline.began === true)
+check('and it has no outline to have been brushed onto', noOutline.outline === 0)
+check('what the stroke took is gone', !(await litIn(noOutline.box, 0.25, 0.2)))
+check('and everything it did not touch is still there',
+  await litIn(noOutline.box, 0.25, 0.6))
+
+// --- a frame that grows under a stroke that is already on it ----------------------------
+// Anything stored as a fraction of the box has to be read against the new one
+// when the box changes, or it slides across the picture. Outlines and erase
+// strokes are rebased; brush strokes on a mask are the third thing, and the one
+// that is easy to forget because it only shows when a repair happens to grow the
+// frame afterwards.
+const regrown = await page.evaluate(async (id) => {
+  const st = window.__pfState()
+  st.clearMask(id)
+  await new Promise((r) => setTimeout(r, 250))
+  const l0 = window.__pfState().doc.layers.find((x) => x.id === id)
+  const at0 = (fx, fy) => [l0.x + l0.w * fx, l0.y + l0.h * fy]
+  st.select([id])
+  st.setLasso({ points: [at0(0.1, 0.1), at0(0.5, 0.1), at0(0.5, 0.9), at0(0.1, 0.9)], closed: true })
+  st.applyLasso('mask')
+  await new Promise((r) => setTimeout(r, 400))
+
+  // A stroke that takes a bite out of the middle of what was kept.
+  const cut = window.__pfState().doc.layers.find((x) => x.id === id)
+  const at = (fx, fy) => [cut.x + cut.w * fx, cut.y + cut.h * fy]
+  window.__pfState().beginMaskPaint(id, at(0.3, 0.5), { mode: 'take' })
+  for (let f = 0.3; f <= 0.5; f += 0.02) window.__pfState().extendMaskPaint(id, at(f, 0.5))
+  await new Promise((r) => setTimeout(r, 400))
+  const before = window.__pfState().doc.layers.find((x) => x.id === id)
+  const box = { x: before.x, y: before.y, w: before.w, h: before.h }
+  const stroke = before.mask.paint[0].pts[0]
+  // The bite in document coordinates, so it can be looked for in the same place
+  // after the frame moves underneath it.
+  const spot = [before.x + before.w * stroke[0], before.y + before.h * stroke[1]]
+
+  // Now add a piece that reaches outside the frame, which grows it.
+  window.__pfState().setLasso({
+    points: [at(1.05, 0.4), at(1.4, 0.4), at(1.4, 0.6), at(1.05, 0.6)],
+    closed: true,
+  })
+  window.__pfState().applyLasso('mask-add')
+  await new Promise((r) => setTimeout(r, 500))
+  const after = window.__pfState().doc.layers.find((x) => x.id === id)
+  const moved = after.mask.paint[0].pts[0]
+  return {
+    spot,
+    grew: after.w > box.w * 1.05,
+    was: box,
+    now: { x: after.x, y: after.y, w: after.w, h: after.h },
+    doc: [after.x + after.w * moved[0], after.y + after.h * moved[1]],
+  }
+}, start.id)
+console.log('a frame grown under a brush stroke:', JSON.stringify(regrown))
+check('adding a piece outside the frame grows it', regrown.grew === true, JSON.stringify(regrown.now))
+check('and the stroke already on it stays where it was drawn',
+  Math.abs(regrown.doc[0] - regrown.spot[0]) < 2 && Math.abs(regrown.doc[1] - regrown.spot[1]) < 2,
+  JSON.stringify([regrown.spot, regrown.doc]))
+await page.screenshot({ path: path.join(OUT, '08-regrown.png') })
+
+// --- the settings live with the tool -------------------------------------------------
+// They used to be in the inspector, on the far side of the window from the brush
+// that needs them: pick the tool on the left, paint in the middle, cross to the
+// right to feather it, and back again.
+const rail = await page.evaluate(async (id) => {
+  const st = window.__pfState()
+  const l = st.doc.layers.find((x) => x.id === id)
+  const at = (fx, fy) => [l.x + l.w * fx, l.y + l.h * fy]
+  st.select([id])
+  st.setLasso({ points: [at(0.1, 0.1), at(0.6, 0.1), at(0.6, 0.9), at(0.1, 0.9)], closed: true })
+  st.applyLasso('mask')
+  await new Promise((r) => setTimeout(r, 400))
+  window.__pfState().setTool('mask')
+  await new Promise((r) => setTimeout(r, 350))
+  const inspector = document.querySelector('.inspector')?.textContent || ''
+  return {
+    text: document.querySelector('.rail-options')?.textContent || '',
+    labels: [...document.querySelectorAll('.rail-options .rail-opt-label')].map((n) => n.textContent.trim()),
+    buttons: [...document.querySelectorAll('.rail-options button')].map((n) => n.textContent.trim()),
+    inspectorHasFeather: /Feather/.test(inspector),
+  }
+}, start.id)
+console.log('the mask tool panel:', JSON.stringify(rail.buttons))
+check('the mask tool offers Keep and Remove',
+  /Keep/.test(rail.text) && /Remove/.test(rail.text), rail.text.slice(0, 120))
+check('with the brush size and hardness beside them',
+  rail.labels.includes('Brush size') && rail.labels.includes('Hardness'), rail.labels.join('|'))
+check('and the mask settings that used to be across the window',
+  rail.labels.includes('Feather') && rail.labels.includes('Keeps'), rail.labels.join('|'))
+check('including handing the outline back to the lasso',
+  rail.buttons.some((b) => /Edit outline/.test(b)), rail.buttons.join('|'))
+check('and they are not left behind in the inspector as well', rail.inspectorHasFeather === false)
+await page.screenshot({ path: path.join(OUT, '05-rail.png') })
+
+// --- a stretch of the outline, moved and dropped ---------------------------------------
+// One point at a time is fine for a rectangle and hopeless for a traced subject.
+// Banding a run makes it one thing: drag it somewhere else, or delete it and let
+// the loop close straight across the gap.
+const view = await page.evaluate(() => {
+  const s = window.__pfState()
+  const r = document.querySelector('.stage canvas').getBoundingClientRect()
+  return { cx: r.x, cy: r.y, ...s.view }
+})
+const scr = (x, y) => [view.cx + view.panX + x * view.zoom, view.cy + view.panY + y * view.zoom]
+
+// An outline with an excursion out to the right, which is what a trace that
+// wandered into the background and back looks like.
+const shape = await page.evaluate(async (id) => {
+  const st = window.__pfState()
+  st.clearMask(id)
+  await new Promise((r) => setTimeout(r, 250))
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  const at = (fx, fy) => [l.x + l.w * fx, l.y + l.h * fy]
+  const pts = [
+    at(0.1, 0.1), at(0.5, 0.1),
+    at(0.8, 0.15), at(0.85, 0.2), at(0.8, 0.25),   // the excursion
+    at(0.5, 0.3), at(0.5, 0.9), at(0.1, 0.9),
+  ]
+  st.select([id])
+  st.setTool('lasso')
+  st.setLasso({ points: pts, closed: true })
+  await new Promise((r) => setTimeout(r, 300))
+  return { n: pts.length, from: at(0.7, 0.08), to: at(0.95, 0.3) }
+}, start.id)
+
+// A press on the empty picture used to throw the outline away. It bands instead.
+await page.mouse.move(...scr(shape.from[0], shape.from[1]))
+await page.mouse.down()
+await page.mouse.move(...scr(shape.to[0], shape.to[1]), { steps: 8 })
+await page.mouse.up()
+await page.waitForTimeout(300)
+const picked = await page.evaluate(() => ({
+  pick: window.__pfState().lassoPick,
+  points: window.__pfState().lasso?.points?.length || 0,
+}))
+console.log('after banding the excursion:', JSON.stringify(picked))
+check('a band across the outline picks out the run under it',
+  picked.pick.join() === '2,3,4', JSON.stringify(picked.pick))
+check('and the outline is still there, which a stray press used to lose',
+  picked.points === shape.n, String(picked.points))
+await page.screenshot({ path: path.join(OUT, '06-picked.png') })
+
+// Dragging any point of the run moves the whole run.
+const before = await page.evaluate(() => window.__pfState().lasso.points.map((q) => [...q]))
+await page.mouse.move(...scr(before[3][0], before[3][1]))
+await page.mouse.down()
+await page.mouse.move(...scr(before[3][0] - 60, before[3][1]), { steps: 8 })
+await page.mouse.up()
+await page.waitForTimeout(300)
+const dragged = await page.evaluate(() => window.__pfState().lasso.points.map((q) => [...q]))
+console.log('after dragging the run:', JSON.stringify(dragged.slice(2, 5).map((q) => Math.round(q[0]))))
+check('dragging one point of a picked run moves the whole run',
+  before[2][0] - dragged[2][0] > 50 && before[4][0] - dragged[4][0] > 50,
+  JSON.stringify([before[2][0] - dragged[2][0], before[4][0] - dragged[4][0]]))
+check('and leaves every point outside it where it was',
+  Math.abs(dragged[0][0] - before[0][0]) < 1 && Math.abs(dragged[5][0] - before[5][0]) < 1)
+
+// And Delete takes the stretch out, closing the loop across the gap.
+await page.locator('.stage canvas').hover()
+await page.keyboard.press('Delete')
+await page.waitForTimeout(300)
+const cut = await page.evaluate(() => ({
+  points: window.__pfState().lasso?.points?.length || 0,
+  pick: window.__pfState().lassoPick.length,
+  layers: window.__pfState().doc.layers.length,
+}))
+console.log('after deleting the run:', JSON.stringify(cut))
+check('Delete takes the picked run out of the outline',
+  cut.points === shape.n - 3, `${cut.points} of ${shape.n}`)
+check('and lets go of it afterwards', cut.pick === 0)
+// The nearer, smaller thing has first claim on the key: losing a whole layer
+// instead of a stretch of an outline is not a mistake anyone would forgive.
+check('and it is the run that goes, not the layer', cut.layers >= 1, String(cut.layers))
+await page.screenshot({ path: path.join(OUT, '07-dropped.png') })
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

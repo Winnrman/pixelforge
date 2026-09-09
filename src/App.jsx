@@ -21,7 +21,7 @@ import OpenDialog from './components/OpenDialog.jsx'
 
 const TOOL_KEYS = {
   v: 'move', c: 'crop', p: 'effect', l: 'lasso', s: 'shape', t: 'text', h: 'hand', e: 'erase',
-  i: 'eyedrop', w: 'wand', k: 'clone',
+  i: 'eyedrop', w: 'wand', k: 'clone', b: 'mask',
 }
 
 export default function App() {
@@ -275,6 +275,10 @@ export default function App() {
       if (typing) return
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        // A run of outline points picked out has first claim on Delete: it is
+        // the smaller, nearer thing, and losing the whole layer instead of a
+        // stretch of a mask is not a mistake anyone would forgive.
+        if (s.tool === 'lasso' && s.lassoPick?.length) return
         if (!s.selectedIds.length) return
         e.preventDefault()
         // Shift closes the hole behind it. Plain delete leaves the gap, because
