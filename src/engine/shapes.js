@@ -107,23 +107,80 @@ export function addShapePath(ctx, l) {
  * to the layer box (0..1), so the cut-out follows the layer when it is moved,
  * resized or rotated.
  */
+/**
+ * Every outline a mask is made of: the one it was cut with, and anything added
+ * to it since.
+ *
+ * A mask used to be a single outline, which made it a thing you could only
+ * throw away and redraw — and the moment it is a *cut-out subject*, the outline
+ * that took a slice off somebody's leg is not one you want to draw again from
+ * scratch. Several outlines union together, so the fix for a bad edge is to
+ * draw the missing piece and add it.
+ */
+export const maskPolys = (l) => {
+  const out = []
+  if ((l?.mask?.points?.length || 0) >= 3) out.push(l.mask.points)
+  for (const p of l?.mask?.plus || []) if (p?.length >= 3) out.push(p)
+  return out
+}
+
+/** Twice the signed area: positive one way round the outline, negative the other. */
+export function signedArea(pts) {
+  let a = 0
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i]
+    const [x2, y2] = pts[(i + 1) % pts.length]
+    a += (x2 - x1) * (y2 + y1)
+  }
+  return a
+}
+
+/** The same outline, wound the way `addMaskPath` needs every outline wound. */
+export const windSame = (pts) => (signedArea(pts) < 0 ? [...pts].reverse() : pts)
+
 export function addMaskPath(ctx, l) {
-  const pts = l.mask?.points
-  if (!pts || pts.length < 3) return
+  const polys = maskPolys(l)
+  if (!polys.length) return
   const c = layerCenter(l)
   ctx.save()
   ctx.translate(c.x, c.y)
   if (l.rotation) ctx.rotate(rad(l.rotation))
-  for (let i = 0; i < pts.length; i++) {
-    const x = (pts[i][0] - 0.5) * l.w
-    const y = (pts[i][1] - 0.5) * l.h
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+  // Subpaths, filled as one. Canvas unions overlapping subpaths for nothing,
+  // which is the whole reason a mask can be several outlines without any
+  // polygon arithmetic here — but only while they are wound the same way. Wound
+  // against each other, the nonzero rule reads the overlap as a hole, and adding
+  // a piece would punch one out of the middle of the subject.
+  for (const pts of polys) {
+    for (let i = 0; i < pts.length; i++) {
+      const x = (pts[i][0] - 0.5) * l.w
+      const y = (pts[i][1] - 0.5) * l.h
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+    }
+    ctx.closePath()
   }
-  ctx.closePath()
   ctx.restore()
 }
 
 export const hasMask = (l) => (l?.mask?.points?.length || 0) >= 3
+
+/** A mask's extent in layer-box fractions, over every outline it is made of. */
+export function maskBounds(l) {
+  const polys = maskPolys(l)
+  if (!polys.length) return null
+  let u0 = Infinity
+  let v0 = Infinity
+  let u1 = -Infinity
+  let v1 = -Infinity
+  for (const pts of polys) {
+    for (const [u, v] of pts) {
+      if (u < u0) u0 = u
+      if (u > u1) u1 = u
+      if (v < v0) v0 = v
+      if (v > v1) v1 = v
+    }
+  }
+  return { u0, v0, u1, v1 }
+}
 
 // Axis-aligned bounding box of the (possibly rotated) layer box, in doc space.
 export function layerAABB(l) {

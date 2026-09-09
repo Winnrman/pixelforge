@@ -119,6 +119,7 @@ export default function Inspector() {
   const setAutoTrack = useStore((s) => s.setAutoTrack)
   const setMask = useStore((s) => s.setMask)
   const clearMask = useStore((s) => s.clearMask)
+  const undoMaskAdd = useStore((s) => s.undoMaskAdd)
   const enableTrack = useStore((s) => s.enableTrack)
   const disableTrack = useStore((s) => s.disableTrack)
   const setKeyEase = useStore((s) => s.setKeyEase)
@@ -603,7 +604,11 @@ export default function Inspector() {
         {l.mask?.points?.length >= 3 && (
           <Section
             title="Mask"
-            info={'Cut from a lasso outline. The mask is stored relative to the layer box, so it follows the layer when you move, resize or rotate it.'}
+            info={'Cut from a lasso outline. The mask is stored relative to the layer box, so it '
+              + 'follows the layer when you move, resize or rotate it. A cut that took a slice off '
+              + 'an arm or a leg is repaired rather than redrawn: lasso the missing piece and the '
+              + 'lasso bar offers Add to mask, growing the frame back if the piece reaches outside '
+              + 'it. Erase takes pieces away again, and accumulates the same way.'}
             right={<button className="mini" onClick={() => clearMask(base.id)}>Remove</button>}
           >
             <Row label="Keeps">
@@ -624,6 +629,21 @@ export default function Inspector() {
                 suffix="px"
               />
             </Row>
+            {/* Only once there is something to say. A count of one outline is a
+                row saying the mask is a mask. */}
+            {l.mask.plus?.length > 0 && (
+              <Row label="Pieces">
+                <span className="readout">
+                  {l.mask.plus.length + 1} outlines
+                </span>
+                <button className="mini" title="Take back the last piece added"
+                  onClick={() => undoMaskAdd(base.id)}>Undo last</button>
+              </Row>
+            )}
+            <p className="hint">
+              Missing a bit? Lasso it and choose <b>Add to mask</b>. Too much kept?
+              Lasso that and choose <b>Erase</b>.
+            </p>
           </Section>
         )}
 

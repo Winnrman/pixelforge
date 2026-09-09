@@ -93,19 +93,28 @@ console.log('playing:', JSON.stringify({ ...before, t: Math.round(before.t) }))
 check('the clip is running', before.playing === true && before.t > 400, `${Math.round(before.t)}ms`)
 
 const box = await page.locator('input.vol').boundingBox()
+// Timed, because the clip is playing throughout: the playhead is *supposed* to
+// advance while the drag happens, and by however long the drag takes. A check
+// that expects it not to move is a check that fails on a slow machine for a
+// reason that has nothing to do with the bug it guards.
+const dragStarted = Date.now()
 await page.mouse.move(box.x + box.width * 0.9, box.y + box.height / 2)
 await page.mouse.down()
 await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2, { steps: 6 })
 await page.mouse.up()
 await page.waitForTimeout(120)
+const dragTook = Date.now() - dragStarted
 const after = await page.evaluate(() => ({
   t: window.__pfState().time, playing: window.__pfState().playing, v: window.__pfState().volume,
 }))
 console.log('after dragging the volume down:', JSON.stringify({ ...after, t: Math.round(after.t) }))
 check('the volume actually changed', after.v < before.v - 0.2, `${before.v} -> ${after.v}`)
 // Measured before the fix: 1022ms -> 4067ms and stopped, because the drag was
-// read as a scrub to wherever the slider happens to sit along the window.
-check('and the picture did not jump', Math.abs(after.t - before.t) < 700,
+// read as a scrub to wherever the slider happens to sit along the window. So
+// what must not happen is the playhead going *somewhere else*; carrying on from
+// where it was, by about as long as the drag lasted, is it working.
+check('and the picture did not jump', after.t - before.t > -100
+  && after.t - before.t < dragTook + 600,
   `${Math.round(before.t)}ms -> ${Math.round(after.t)}ms`)
 check('nor did playback stop', after.playing === true)
 

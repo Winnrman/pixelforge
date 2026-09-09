@@ -6,6 +6,17 @@ const ACTIONS = [
   { id: 'copy', label: 'Copy to layer', title: 'Duplicate just this region onto a new layer' },
   { id: 'cut', label: 'Cut to layer', title: 'Move this region onto a new layer, removing it from the original' },
   { id: 'mask', label: 'Mask', title: 'Keep only what is inside the outline' },
+  {
+    id: 'mask-add',
+    label: 'Add to mask',
+    title: 'Put this piece back into the mask that is already there',
+    // Only where there is a mask to add to. It takes the place of Mask rather
+    // than sitting beside it, because on a layer that is already cut out,
+    // drawing a second outline nearly always means "and this bit too" — and
+    // Clear mask in the inspector is there for the times it does not.
+    when: (l) => (l?.mask?.points?.length || 0) >= 3,
+    instead: 'mask',
+  },
   { id: 'erase', label: 'Erase', title: 'Remove what is inside the outline' },
   { id: 'effect', label: 'Pixelate', title: 'Add an overlay shaped like the outline' },
 ]
@@ -111,7 +122,12 @@ export default function LassoBar() {
       <span className="lasso-target" title="Lasso actions apply to this layer">
         {target ? target.name : 'no layer selected'}
       </span>
-      {ACTIONS.map((a) => (
+      {ACTIONS.filter((a) => {
+        if (a.when) return a.when(target)
+        // A general action steps aside for the specific one that replaces it.
+        const taken = ACTIONS.find((b) => b.instead === a.id && b.when?.(target))
+        return !taken
+      }).map((a) => (
         <button key={a.id} title={a.title} onClick={() => run(a.id)}>{a.label}</button>
       ))}
       <button

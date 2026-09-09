@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { loadImageFile, getAsset } from '../engine/assets.js'
 import {
   polygonBounds, polygonToLayer, cropInsets, isCropped, fromLocal, layerAABB,
+  maskPolys, maskBounds, windSame, hasMask,
 } from '../engine/shapes.js'
 import { isGroup, withDescendants, normalize, resolveGroups } from '../engine/groups.js'
 import { trackLayer, trackTimes, simplifyTrack } from '../engine/tracker.js'
@@ -299,6 +300,95 @@ export function makeEffectLayer(partial = {}) {
     visible: true,
     locked: false,
     ...partial,
+  }
+}
+
+/**
+ * Grows a layer's frame, and the window it samples, until its mask fits inside.
+ *
+ * Masking trims the box down to what was kept, so an outline that cut too tight
+ * leaves the true edge just outside the frame. Adding a piece there has to bring
+ * the frame back with it or the piece has nothing to be drawn on.
+ *
+ * Everything is expressed as fractions of the current box, which is also how
+ * mask outlines and erase strokes are stored — so the same numbers that size the
+ * new box rebase what is already on the old one. Growth stops at the edge of the
+ * source picture, because past that there is nothing to show.
+ *
+ * Returns a patch, or null when the mask already fits.
+ */
+function growToFitMask(layer) {
+  const b = maskBounds(layer)
+  if (!b) return null
+  const u0 = Math.min(0, b.u0)
+  const v0 = Math.min(0, b.v0)
+  const u1 = Math.max(1, b.u1)
+  const v1 = Math.max(1, b.v1)
+  if (u0 > -1e-6 && v0 > -1e-6 && u1 < 1 + 1e-6 && v1 < 1 + 1e-6) return null
+
+  // The window on the picture, and the same growth asked of it. Clamped to the
+  // picture, then read back, so the box and the window always describe each
+  // other — a box grown further than the source can follow would stretch what
+  // is left across it.
+  const r = sourceRect(layer)
+  const want = {
+    x: r.x + u0 * r.w, y: r.y + v0 * r.h, x2: r.x + u1 * r.w, y2: r.y + v1 * r.h,
+  }
+  const src = {
+    x: Math.max(0, want.x),
+    y: Math.max(0, want.y),
+    w: Math.min(1, want.x2) - Math.max(0, want.x),
+    h: Math.min(1, want.y2) - Math.max(0, want.y),
+  }
+  if (!(src.w > 1e-6 && src.h > 1e-6)) return null
+  const gu0 = (src.x - r.x) / r.w
+  const gv0 = (src.y - r.y) / r.h
+  const gu1 = (src.x + src.w - r.x) / r.w
+  const gv1 = (src.y + src.h - r.y) / r.h
+  if (Math.abs(gu0) < 1e-6 && Math.abs(gv0) < 1e-6
+    && Math.abs(gu1 - 1) < 1e-6 && Math.abs(gv1 - 1) < 1e-6) return null
+
+  // The drawn rectangle is the box minus its crop insets; growth is of the
+  // picture, so it is measured against that rather than against the box.
+  const ci = cropInsets(layer)
+  const dx = layer.x + ci.cl * layer.w
+  const dy = layer.y + ci.ct * layer.h
+  const dw = layer.w * ci.kx
+  const dh = layer.h * ci.ky
+  const x = dx + gu0 * dw
+  const y = dy + gv0 * dh
+  const w = Math.max(1, (gu1 - gu0) * dw)
+  const h = Math.max(1, (gv1 - gv0) * dh)
+
+  // Rotation is about the centre, so moving the box moves the pivot. The new
+  // centre is carried around the old one by the same angle, which is what keeps
+  // a turned subject exactly where it was.
+  const oldCx = layer.x + layer.w / 2
+  const oldCy = layer.y + layer.h / 2
+  const a = ((layer.rotation || 0) * Math.PI) / 180
+  const ox = x + w / 2 - oldCx
+  const oy = y + h / 2 - oldCy
+  const cx = oldCx + ox * Math.cos(a) - oy * Math.sin(a)
+  const cy = oldCy + ox * Math.sin(a) + oy * Math.cos(a)
+
+  // Anything stored as a fraction of the old box has to be read against the new
+  // one. The mask outlines are the obvious case; erase strokes are the one that
+  // is easy to forget and shows up as somebody's rubbings-out sliding across the
+  // picture the moment the frame moves.
+  const rebase = (pts) => pts.map(([u, v]) => [(u - gu0) / (gu1 - gu0), (v - gv0) / (gv1 - gv0)])
+  const polys = maskPolys(layer)
+  const strokes = layer.erase?.strokes
+  return {
+    src,
+    cropT: 0, cropR: 0, cropB: 0, cropL: 0, zoom: 1, panX: 0, panY: 0,
+    x: cx - w / 2,
+    y: cy - h / 2,
+    w,
+    h,
+    mask: { ...layer.mask, points: rebase(polys[0]), plus: polys.slice(1).map(rebase) },
+    ...(strokes?.length
+      ? { erase: { ...layer.erase, strokes: strokes.map((k) => ({ ...k, pts: rebase(k.pts || []) })) } }
+      : null),
   }
 }
 
@@ -1694,18 +1784,20 @@ export const useStore = create((set, get) => ({
     // what makes AI select produce a layer the size of the thing it selected.
     if (hasLasso) {
       const r0 = sourceRect(layer)
-      const xs = layer.mask.points.map((q) => q[0])
-      const ys = layer.mask.points.map((q) => q[1])
+      // Every outline the mask is made of, not just the one it started as: a
+      // mask that has been repaired keeps the repair in a second outline, and
+      // measuring only the first would trim the repair straight back off.
+      const mb = maskBounds(layer)
       // Mask points are fractions of the layer *box*; the drawn picture is the
       // box minus its crop insets, so they are rebased onto the source window
       // before being compared with anything measured from the pixels.
       const ci = cropInsets(layer)
       const toSrc = (u, lo, keep) => (Math.min(1, Math.max(0, (u - lo) / keep)))
       boxes.push({
-        x: r0.x + toSrc(Math.min(...xs), ci.cl, ci.kx) * r0.w,
-        y: r0.y + toSrc(Math.min(...ys), ci.ct, ci.ky) * r0.h,
-        w: (toSrc(Math.max(...xs), ci.cl, ci.kx) - toSrc(Math.min(...xs), ci.cl, ci.kx)) * r0.w,
-        h: (toSrc(Math.max(...ys), ci.ct, ci.ky) - toSrc(Math.min(...ys), ci.ct, ci.ky)) * r0.h,
+        x: r0.x + toSrc(mb.u0, ci.cl, ci.kx) * r0.w,
+        y: r0.y + toSrc(mb.v0, ci.ct, ci.ky) * r0.h,
+        w: (toSrc(mb.u1, ci.cl, ci.kx) - toSrc(mb.u0, ci.cl, ci.kx)) * r0.w,
+        h: (toSrc(mb.v1, ci.ct, ci.ky) - toSrc(mb.v0, ci.ct, ci.ky)) * r0.h,
       })
     }
     const box = unionBounds(boxes)
@@ -2612,6 +2704,13 @@ export const useStore = create((set, get) => ({
       return { ok: true, text: 'Erased the selection' }
     }
 
+    // The same outline, meaning "and this bit too" rather than "only this".
+    if (mode === 'mask-add') {
+      const res = get().addToMask(target.id, pts, { commit: false })
+      if (res.ok) set({ lasso: null })
+      return res
+    }
+
     if (mode === 'mask') {
       s.updateLayer(target.id, {
         mask: { points: polygonToLayer(pts, target), invert: false, feather: 0 },
@@ -2656,6 +2755,57 @@ export const useStore = create((set, get) => ({
     }
 
     return { ok: false, reason: 'Unknown lasso action' }
+  },
+
+  /**
+   * Adds an outline to a mask that already exists, rather than replacing it.
+   *
+   * The case this is for: a subject was cut out, and the cut took a slice off
+   * an arm or a leg. Redrawing the whole outline to win back a sliver is not a
+   * repair, it is doing the job again — so the missing piece is drawn on its own
+   * and added, and the two outlines union.
+   *
+   * If the piece reaches outside the layer's frame, the frame grows to meet it.
+   * Masking trims the box down to what was kept, so the very edge that was cut
+   * too tight is often just outside it — without this, drawing over the missing
+   * leg would land outside the layer and appear to do nothing at all, which is
+   * the worst answer available.
+   */
+  addToMask: (id, points, { commit = true } = {}) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    if (!layer) return { ok: false, reason: 'Select a layer to add to.' }
+    if (!hasMask(layer)) {
+      return { ok: false, reason: 'That layer has no mask yet — use Mask to make one.' }
+    }
+    if (!points || points.length < 3) return { ok: false, reason: 'Draw an outline first.' }
+
+    if (commit) s.pushHistory()
+    // Every outline wound the same way, including the one already there: wound
+    // against each other the overlap reads as a hole and the addition would cut
+    // a bite out of the subject instead of filling one in.
+    const added = windSame(polygonToLayer(points, layer))
+    const mask = {
+      ...layer.mask,
+      points: windSame(layer.mask.points),
+      plus: [...(layer.mask.plus || []).map(windSame), added],
+    }
+    const grown = growToFitMask({ ...layer, mask })
+    get().updateLayer(id, grown || { mask })
+    return {
+      ok: true,
+      text: grown ? 'Added to the mask, and the frame grew to hold it' : 'Added to the mask',
+    }
+  },
+
+  /** Takes back the last piece added to a mask. */
+  undoMaskAdd: (id) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === id)
+    if (!l?.mask?.plus?.length) return
+    s.pushHistory()
+    const plus = l.mask.plus.slice(0, -1)
+    s.updateLayer(id, { mask: { ...l.mask, plus: plus.length ? plus : undefined } })
   },
 
   clearMask: (id) => {
