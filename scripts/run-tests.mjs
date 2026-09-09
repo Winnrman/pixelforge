@@ -100,8 +100,11 @@ const BROWSER = [
   'e2e-maskedit', 'e2e-tint', 'test-edges', 'test-cli',
 ]
 
-const fileFor = (name) => `${name}.mjs`
+// Where a suite lives, from what it is: the two lists above are the same split
+// as the two folders, so nothing has to be said twice and a suite in the wrong
+// folder is a suite the runner cannot find.
 const isUnit = (name) => UNITS.includes(name)
+const fileFor = (name) => `tests/${isUnit(name) ? 'unit' : 'browser'}/${name}.mjs`
 
 function changedFiles() {
   const out = []
@@ -122,13 +125,14 @@ export function suitesFor(files) {
   for (const f of files) {
     const p = f.replace(/\\/g, '/')
     // A suite edited directly is a suite to run.
-    const own = p.match(/^(e2e[a-z0-9-]*|test-[a-z0-9-]*)\.mjs$/)
+    const own = p.match(/^tests\/(?:unit|browser)\/(e2e[a-z0-9-]*|test-[a-z0-9-]*)\.mjs$/)
     if (own) { picked.add(own[1]); continue }
     const hit = OWNERS
       .filter(([prefix]) => p.startsWith(prefix))
       .sort((a, b) => b[0].length - a[0].length)[0]
     if (hit) { for (const s of hit[1]) picked.add(s) }
-    else if (p.startsWith('src/') || p.startsWith('scripts/') || p === 'package.json') {
+    else if (p.startsWith('src/') || p.startsWith('scripts/') || p.startsWith('tests/')
+      || p === 'package.json') {
       // Touched something the map has not been taught about. Everything, then:
       // guessing narrowly here is how a suite stops being trusted.
       return null

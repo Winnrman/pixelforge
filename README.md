@@ -480,7 +480,7 @@ it sat in the tree.
 ### A shift that had been hiding a stale test
 
 Arming a tool that has options widens the rail from 52px to 210px, moving everything to its
-right — the canvas included — by 158 pixels. `e2e.mjs` cached the canvas position before
+right — the canvas included — by 158 pixels. `tests/browser/e2e.mjs` cached the canvas position before
 arming a tool and clicked with those coordinates, which were therefore always stale. It passed
 anyway: the stale point still landed *somewhere* on a canvas that ran to the window edge, so
 it drew in the wrong place, and a test that counts layers cannot tell the difference. With the
@@ -1028,7 +1028,7 @@ Export keeps a separate path. It flushes, so it needs a decoder of its own, and 
 streaming run is closed first: two decoders competing for the same hardware frame slots
 is how the pool runs dry.
 
-`bench-video.mjs` reports these numbers for any file — `npm run bench:video -- path.mp4`.
+`tests/bench-video.mjs` reports these numbers for any file — `npm run bench:video -- path.mp4`.
 
 ## Printing
 
@@ -1050,7 +1050,7 @@ encoding, immediately after `IHDR` where the spec puts it, replacing any `pHYs` 
 present rather than writing a second one. Two would be invalid and readers disagree
 about which wins.
 
-`test-dpi.mjs` checks this against a real PNG produced by something other than the
+`tests/unit/test-dpi.mjs` checks this against a real PNG produced by something other than the
 module itself, and recomputes every chunk CRC with an independent implementation — a
 writer and a reader that agree with each other can still both be wrong, and a bad CRC
 is the kind of thing most viewers ignore silently and the print shop does not.
@@ -2382,13 +2382,15 @@ across GIF frames, and that a keyframed overlay physically travels across the ex
 The project suite saves a `.pfz`, reloads into a clean session, reopens it and asserts the
 document renders **pixel-identically** at every sampled time.
 
-Forty-three browser suites (**1000 checks**), two Electron suites (**70 checks** — the shell
-itself and MP4 export, which can only run where ffmpeg exists), and nine DOM-free unit
-suites under plain node — `test-retro.mjs`, `test-loop.mjs`, `test-cursor.mjs`,
-`test-collage.mjs`, `test-trace.mjs`, `test-dpi.mjs`, `test-clips.mjs`, `test-edges.mjs`,
-`test-transitions.mjs` —
-for the parts that are pure maths and deserve testing without a browser at all. **1469
-checks** in total.
+They live under `tests/`, split the way the runner already thought about them:
+`tests/browser/` for everything that drives Chrome, `tests/unit/` for the DOM-free suites
+that run under plain node in milliseconds, and `tests/` itself for the shared helper and the
+benchmarks. The split is not decoration — the runner reads it to decide how many of a suite
+it can run at once, and a suite in the wrong folder is a suite it cannot find.
+
+Forty-seven browser suites, two Electron suites (the shell itself and MP4 export, which can
+only run where ffmpeg exists), and fifteen unit suites for the parts that are pure maths and
+deserve testing without a browser at all. **1790 checks** in total, in about a minute.
 
 One check had to be rewritten rather than kept: the DPI suite asserted that the same
 document exported at 300 and at 600 came out the same number of bytes, on the reasoning that
