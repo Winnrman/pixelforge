@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { Info } from './ui.jsx'
-import { backupFolder } from '../engine/backup.js'
+import { backupFolder, backupListError } from '../engine/backup.js'
 
 function Thumb({ blob }) {
   const [url, setUrl] = useState(null)
@@ -127,7 +127,16 @@ export default function OpenDialog({ onClose }) {
                     being able to check rather than guess at.
                   </Info>
                 </p>
-                {!backups.length && <p className="hint">No backups yet.</p>}
+                {!backups.length && (
+                  backupListError()
+                    ? (
+                      <p className="hint warn">
+                        Could not read that folder.
+                        <Info>{backupListError()}</Info>
+                      </p>
+                    )
+                    : <p className="hint">No backups yet.</p>
+                )}
                 <div className="proj-list">
                   {backups.map((b) => (
                     <div key={b.id} className="proj">

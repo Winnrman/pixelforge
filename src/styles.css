@@ -851,7 +851,11 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
 
 /* --------------------------------------------------------------- info dots */
 .section-title { display: inline-flex; align-items: center; gap: 5px; }
-.info { position: relative; display: inline-flex; }
+/* Held off the text it follows. Butted against a word the dot reads as a
+   letter of it — a path ending "backups" came out as "backupsi", which is not a
+   detail when the whole point of printing the path is that somebody compares it
+   with another one character by character. */
+.info { position: relative; display: inline-flex; margin-left: 6px; vertical-align: middle; }
 .info-dot {
   width: 13px; height: 13px;
   border-radius: 50%;

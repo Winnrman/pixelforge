@@ -76,11 +76,26 @@ export async function writeBackup(doc, { time = 0, name = 'Untitled', reason = '
 }
 
 /** Most recent first. `{ id, name, reason, at, size }`. */
+/** Set when the last listing failed, so the panel can say so instead of looking empty. */
+let lastListError = null
+export const backupListError = () => lastListError
+
 export async function listBackups() {
   const d = desk()
   if (d) {
-    try { return await d.list() } catch { return [] }
+    // An empty folder and a folder that could not be read look identical in a
+    // list, and only one of them is somebody's backups being missing. The reason
+    // is kept so the panel can say which it is.
+    try {
+      const out = await d.list()
+      lastListError = null
+      return out
+    } catch (e) {
+      lastListError = String(e?.message || e)
+      return []
+    }
   }
+  lastListError = null
   return allBackups()
 }
 
