@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
-import { clipRange, assetTimeFor, sourceRange } from '../engine/clips.js'
+import { clipRange, assetTimeFor, sourceRange, audioRange } from '../engine/clips.js'
 import { columnsFor, hasPeaks } from '../engine/waveform.js'
 import { ensureAudio } from '../engine/audio.js'
 import { trackOf, valueAt } from '../engine/keyframes.js'
@@ -45,6 +45,7 @@ function AudioClip({ layer, duration }) {
   const selected = useStore((s) => s.selectedIds.includes(layer.id))
   const setPoint = useStore((s) => s.setVolumePoint)
   const removePoint = useStore((s) => s.removeVolumePoint)
+  const setAudioEdge = useStore((s) => s.setAudioEdge)
   const setContextMenu = useStore((s) => s.setContextMenu)
   // Subscribed as a string so the lane repaints when a point moves: an array
   // would be a new reference every render and never compare equal.
@@ -53,9 +54,16 @@ function AudioClip({ layer, duration }) {
     return (trackOf(l, 'volume') || []).map((k) => `${Math.round(k.t)}:${k.v.toFixed(3)}`).join(',')
   })
 
-  const range = clipRange(layer, asset)
+  // The sound's own span, which reaches past the picture wherever a J or an L
+  // cut has been made.
+  const range = audioRange(layer, asset)
+  const pic = clipRange(layer, asset)
   const left = duration ? (range.start / duration) * 100 : 0
   const width = duration ? (range.length / duration) * 100 : 0
+  // Where the picture sits inside it, so the part that is sound-only is visible
+  // as such rather than looking like the clip is simply longer.
+  const picLeft = range.length ? ((pic.start - range.start) / range.length) * 100 : 0
+  const picRight = range.length ? ((range.end - pic.end) / range.length) * 100 : 0
   const keys = trackOf(useStore.getState().doc.layers.find((x) => x.id === layer.id), 'volume')
 
   // The waveform.
@@ -81,8 +89,12 @@ function AudioClip({ layer, duration }) {
       // The clip's own span in source time, the same window the filmstrip uses,
       // so the wave under the pictures and the wave on the lane are the same
       // sound at the same place.
-      const from = assetTimeFor(layer, range.start, asset)
-      const to = assetTimeFor(layer, range.end, asset)
+      // Measured from the picture's own mapping and then pushed out by the
+      // lead and trail: `assetTimeFor` answers for times inside the clip, and
+      // these are the times outside it.
+      const speed = Math.abs(layer.speed || 1) || 1
+      const from = assetTimeFor(layer, pic.start, asset) - range.lead * speed
+      const to = assetTimeFor(layer, pic.end, asset) + range.trail * speed
       const peak = columnsFor(asset, from, to, w, 'peak')
       const body = columnsFor(asset, from, to, w, 'rms')
       if (!peak) return
@@ -107,7 +119,8 @@ function AudioClip({ layer, duration }) {
       }
     })()
     return () => { cancelled = true }
-  }, [asset, layer.clip?.in, layer.clip?.out, layer.speed, width, ready])
+  }, [asset, layer.clip?.in, layer.clip?.out, layer.speed, width, ready,
+    layer.audio?.lead, layer.audio?.trail])
 
   // A clip whose media turned out to have no sound at all keeps no lane: an
   // empty row of nothing is worse than no row.
@@ -146,6 +159,28 @@ function AudioClip({ layer, duration }) {
     window.addEventListener('pointerup', up)
   }
 
+  const dragEdge = (e, edge) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    select([layer.id])
+    // Measured against the lane rather than the clip, because the clip is the
+    // thing being resized and its own box moves as the drag goes on.
+    const lane = boxRef.current.parentElement.getBoundingClientRect()
+    let first = true
+    const move = (ev) => {
+      const t = ((ev.clientX - lane.left) / Math.max(1, lane.width)) * duration
+      setAudioEdge(layer.id, edge, t, { commit: first })
+      first = false
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   const level = keys.length ? valueAt(layer, 'volume', time) : (layer.volume ?? 1)
 
   return (
@@ -173,7 +208,30 @@ function AudioClip({ layer, duration }) {
       }}
     >
       <canvas ref={canvasRef} style={{ width: '100%', height: AUDIO_H }} />
+      {/* The stretch of sound with no picture over it, shaded — otherwise a J
+          cut just looks like a clip that is longer than the one above it. */}
+      {picLeft > 0.05 && <span className="audio-only" style={{ left: 0, width: `${picLeft}%` }} />}
+      {picRight > 0.05 && <span className="audio-only" style={{ right: 0, width: `${picRight}%` }} />}
       <span className="audio-name">{layer.name}</span>
+      {/* Drag either end past the picture and you have made the cut. No mode to
+          enter, nothing to detach first: the sound already has two ends and this
+          is what moving them means. */}
+      <span
+        className={'audio-grip start' + (range.lead > 0 ? ' out' : '')}
+        title={range.lead > 0
+          ? `Sound starts ${(range.lead / 1000).toFixed(2)}s before the picture — a J cut.`
+            + ' Drag back to line them up.'
+          : 'Drag left to start the sound before the picture — a J cut'}
+        onPointerDown={(e) => dragEdge(e, 'lead')}
+      />
+      <span
+        className={'audio-grip end' + (range.trail > 0 ? ' out' : '')}
+        title={range.trail > 0
+          ? `Sound runs ${(range.trail / 1000).toFixed(2)}s past the picture — an L cut.`
+            + ' Drag back to line them up.'
+          : 'Drag right to carry the sound past the picture — an L cut'}
+        onPointerDown={(e) => dragEdge(e, 'trail')}
+      />
 
       {/* The line, and the points on it. Drawn over the waveform rather than
           beside it, because what you are shaping is that sound. */}

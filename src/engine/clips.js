@@ -70,6 +70,47 @@ export function clipRange(layer, asset) {
  * The end is exclusive so two clips butted together do not both draw on the
  * single frame where they meet — which reads as a flash on every cut.
  */
+/**
+ * Where a clip's *sound* runs, which is not always where its picture does.
+ *
+ * A J cut is the next shot's sound arriving before its picture; an L cut is this
+ * shot's sound carrying on after the picture has cut away. Both are the ordinary
+ * way two shots are joined so the join is not heard, and both need the sound and
+ * the picture to end at different moments.
+ *
+ * Rather than detaching the audio onto a layer of its own — a second object to
+ * keep in step, and a step to take before you can do anything — a clip's sound
+ * simply has its own two edges. `lead` is how far it starts before the picture,
+ * `trail` how far it runs after: drag the end of the bar on the audio lane and
+ * you have made the cut.
+ *
+ * Both are clamped to what the recording can actually supply. Leading by half a
+ * second means playing half a second of sound from before the clip's in-point,
+ * and if there is not half a second there, there is not.
+ */
+export function audioRange(layer, asset) {
+  const r = clipRange(layer, asset)
+  const speed = Math.abs(layer.speed || 1) || 1
+  const src = sourceRange(layer, asset)
+  const total = sourceDuration(layer, asset)
+  // What is in front of the in-point, and behind the out-point, in document ms.
+  const spare = { lead: src.in / speed, trail: total ? Math.max(0, total - src.out) / speed : 0 }
+  const lead = Math.max(0, Math.min(layer.audio?.lead || 0, spare.lead, r.start))
+  const trail = Math.max(0, Math.min(layer.audio?.trail || 0, spare.trail))
+  return {
+    start: r.start - lead,
+    end: r.end + trail,
+    length: r.length + lead + trail,
+    lead,
+    trail,
+    // What the sound is limited to, so a lane can show how much room is left.
+    room: spare,
+  }
+}
+
+/** Whether a clip's sound reaches beyond its picture at either end. */
+export const hasAudioEdges = (l) => !!(l?.audio?.lead > 0 || l?.audio?.trail > 0)
+
 export function visibleAt(layer, time, asset) {
   if (!layer.clip) return true
   const { start, end } = clipRange(layer, asset)

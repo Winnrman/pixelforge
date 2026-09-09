@@ -19,7 +19,7 @@
 // something, or that a trimmed clip really starts where it claims, without
 // listening to it.
 
-import { clipRange, sourceRange } from './clips.js'
+import { clipRange, sourceRange, audioRange } from './clips.js'
 import { pairsIn, voiceGainPoints, gainAt } from './transitions.js'
 import { valueAt, trackOf } from './keyframes.js'
 
@@ -97,7 +97,9 @@ export function voiceFor(layer, asset, fromMs) {
     }
   }
 
-  const { start, end } = clipRange(layer, asset)
+  // The sound's own span, which reaches past the picture wherever a J or an L
+  // cut has been made.
+  const { start, end, lead } = audioRange(layer, asset)
   const { in: cin } = sourceRange(layer, asset)
   if (fromMs >= end) return null
 
@@ -105,7 +107,9 @@ export function voiceFor(layer, asset, fromMs) {
   // offset — which silently plays the wrong part of the sound.
   const delay = Math.max(0, (start - fromMs) / 1000)
   const into = Math.max(0, (fromMs - start) / 1000) * speed
-  const offset = cin / 1000 + into
+  // Leading means starting that much earlier in the recording. `audioRange` has
+  // already held it to what is actually there, so this cannot go negative.
+  const offset = (cin - lead * speed) / 1000 + into
   const duration = (end - Math.max(start, fromMs)) / 1000 * speed
   if (duration <= 0) return null
   return { delay, offset, duration, loop: false, rate: speed }

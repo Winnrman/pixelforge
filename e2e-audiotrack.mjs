@@ -390,6 +390,100 @@ const onClip = await page.evaluate(async () => {
 check('while pressing the clip’s own lane still puts a point on the line',
   onClip.keys === 1, `${onClip.keys} points`)
 
+// --- J and L cuts ------------------------------------------------------------------
+// A J cut is the next shot's sound arriving before its picture; an L cut is this
+// shot's sound carrying on after the picture has gone. Rather than detaching the
+// audio onto a layer of its own — a second object to keep in step, and a step to
+// take before you can do anything — a clip's sound has its own two edges.
+//
+// Rendered and measured, because the fields being set says nothing about whether
+// a sound arrives early. What settles it is hearing something at a moment that
+// was silent before.
+const jl = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.setPlaying(false)
+  const l = st.doc.layers.find((x) => x.clip && x.assetId)
+  const a = window.__pfAssets.getAsset(l.assetId)
+  await window.__pfAudio.ensureAudio(a)
+  // Taken from the middle of the recording, so there is material either side to
+  // reach into.
+  st.updateLayer(l.id, { clip: { start: 1000, in: 500, out: 1500 }, audio: {}, tracks: {} })
+  await new Promise((r) => setTimeout(r, 300))
+
+  const loudness = async () => {
+    const ctx = new OfflineAudioContext(1, 44100 * 3, 44100)
+    const doc = window.__pfState().doc
+    window.__pfAudio.buildGraph(ctx, doc, (x) => window.__pfAssets.getAsset(x.assetId),
+      { from: 0, when: 0, master: 1, muted: false })
+    const out = await ctx.startRendering()
+    const d = out.getChannelData(0)
+    const rms = (from, to) => {
+      let sum = 0
+      let n = 0
+      for (let i = Math.floor(from * 44100); i < Math.floor(to * 44100) && i < d.length; i++) {
+        sum += d[i] * d[i]
+        n++
+      }
+      return n ? +Math.sqrt(sum / n).toFixed(4) : 0
+    }
+    // Before the picture starts, during it, and after it ends.
+    return { before: rms(0.5, 0.95), during: rms(1.1, 1.9), after: rms(2.1, 2.4) }
+  }
+
+  const lined = await loudness()
+  st.setAudioEdge(l.id, 'lead', 500)      // sound starts 500ms early
+  st.setAudioEdge(l.id, 'trail', 2400)    // and runs 400ms late
+  await new Promise((r) => setTimeout(r, 300))
+  const cut = await loudness()
+  const now = window.__pfState().doc.layers.find((x) => x.id === l.id)
+  return { lined, cut, edges: now.audio }
+})
+console.log('sound before, during and after the picture:', JSON.stringify(jl))
+check('lined up, there is sound only while the picture is there',
+  jl.lined.during > 0.02 && jl.lined.before < 0.005 && jl.lined.after < 0.005,
+  JSON.stringify(jl.lined))
+check('a J cut puts sound before the picture starts',
+  jl.cut.before > 0.02, `${jl.lined.before} -> ${jl.cut.before}`)
+check('an L cut carries it past the end',
+  jl.cut.after > 0.02, `${jl.lined.after} -> ${jl.cut.after}`)
+check('and the picture itself is unchanged in between',
+  Math.abs(jl.cut.during - jl.lined.during) < 0.01,
+  `${jl.lined.during} -> ${jl.cut.during}`)
+
+// The lane is where the cut is made, so the handles have to be on it.
+const grips = await page.evaluate(() => ({
+  grips: document.querySelectorAll('.audio-clip .audio-grip').length,
+  shaded: document.querySelectorAll('.audio-clip .audio-only').length,
+}))
+console.log('the lane:', JSON.stringify(grips))
+check('the sound has a handle at each end', grips.grips === 2, JSON.stringify(grips))
+// Otherwise a J cut just looks like a clip longer than the one above it.
+check('and the stretch with no picture over it is shaded', grips.shaded === 2, JSON.stringify(grips))
+
+// Cutting a clip that has a J or an L cut on it. Both belong to the outside
+// edges of a run, the same as a fade: giving both halves both would play the
+// lead-in a second time at the cut, where there is now a picture to go with it.
+const halves = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const l = st.doc.layers.find((x) => x.clip && x.assetId)
+  st.updateLayer(l.id, { clip: { start: 1000, in: 400, out: 1600 }, audio: { lead: 300, trail: 300 } })
+  await new Promise((r) => setTimeout(r, 300))
+  const r = window.__pfClips.clipRange(window.__pfState().doc.layers.find((x) => x.id === l.id),
+    window.__pfAssets.getAsset(l.assetId))
+  window.__pfState().splitClips(Math.round(r.start + r.length / 2))
+  await new Promise((r2) => setTimeout(r2, 400))
+  const parts = window.__pfState().doc.layers
+    .filter((x) => x.clip && x.assetId)
+    .sort((a, b) => a.clip.start - b.clip.start)
+    .map((x) => ({ lead: x.audio?.lead || 0, trail: x.audio?.trail || 0 }))
+  return { parts }
+})
+console.log('cutting a clip with both edges out:', JSON.stringify(halves))
+check('the first half keeps the lead and loses the trail',
+  halves.parts[0]?.lead === 300 && halves.parts[0]?.trail === 0, JSON.stringify(halves.parts[0]))
+check('and the second keeps the trail and loses the lead',
+  halves.parts[1]?.trail === 300 && halves.parts[1]?.lead === 0, JSON.stringify(halves.parts[1]))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

@@ -8,6 +8,7 @@ import {
   sourceRange, clipRange, visibleAt, assetTimeFor, wholeClip, slideTo, trimTo,
   splitAt, clipsEnd, closeGaps, hasClip, MIN_CLIP_MS,
   snapPoints, snapClip, snapEdge, SNAP_PX, hostOf, ridersOf, isOverlay,
+  audioRange, hasAudioEdges,
 } from './src/engine/clips.js'
 
 const checks = []
@@ -243,6 +244,54 @@ check('and leaves it alone when nothing is near',
     !both.includes(4000) && !both.includes(2000), JSON.stringify(both))
   check('and one id still works on its own',
     snapPoints([a, b], of, 'A').includes(4000))
+}
+
+// --- a clip's sound has its own two edges --------------------------------------
+// A J cut is the next shot's sound arriving before its picture; an L cut is this
+// shot's sound carrying on after the picture has gone. Both need the sound and
+// the picture to end at different moments, which is all this is.
+{
+  const ten = { duration: 10000 }
+  const mid = { id: 'm', assetId: 'a', clip: { start: 2000, in: 600, out: 1600 } }
+
+  const plain = audioRange(mid, ten)
+  check('with no cut the sound is exactly the picture',
+    plain.start === 2000 && plain.end === 3000 && plain.lead === 0 && plain.trail === 0,
+    JSON.stringify(plain))
+  check('and the clip says so', !hasAudioEdges(mid))
+
+  const j = audioRange({ ...mid, audio: { lead: 300 } }, ten)
+  check('leading starts the sound early and leaves the picture alone',
+    j.start === 1700 && j.end === 3000 && j.lead === 300, JSON.stringify(j))
+  const l = audioRange({ ...mid, audio: { trail: 400 } }, ten)
+  check('trailing carries it past the end', l.start === 2000 && l.end === 3400 && l.trail === 400,
+    JSON.stringify(l))
+  check('and either counts as a cut', hasAudioEdges({ ...mid, audio: { trail: 1 } }))
+
+  // Leading by half a second means playing half a second of sound from before
+  // the in-point. If it is not there, it is not there.
+  const greedy = audioRange({ ...mid, audio: { lead: 5000, trail: 20000 } }, ten)
+  check('a lead is held to what is in front of the in-point',
+    greedy.lead === 600, `${greedy.lead} of 600 available`)
+  check('and a trail to what is behind the out-point',
+    greedy.trail === 8400, `${greedy.trail} of 8400 available`)
+  // Asking for less than there is gets what was asked for, which is the case
+  // that would pass either way and so says nothing on its own.
+  check('while asking for less than there is gets exactly that',
+    audioRange({ ...mid, audio: { trail: 5000 } }, ten).trail === 5000)
+  check('the room either side is said out loud, so a lane can show it',
+    greedy.room.lead === 600 && greedy.room.trail === 8400, JSON.stringify(greedy.room))
+
+  // Nor can the sound start before the project does.
+  const atZero = audioRange({ id: 'z', assetId: 'a', clip: { start: 100, in: 600, out: 1600 }, audio: { lead: 500 } }, ten)
+  check('and the sound cannot start before the project does', atZero.start === 0 && atZero.lead === 100,
+    JSON.stringify(atZero))
+
+  // At double speed a second of document time is two seconds of recording, so
+  // the same spare material buys half as much lead.
+  const fast = audioRange({ ...mid, speed: 2, audio: { lead: 5000 } }, ten)
+  check('speed is taken into account, the recording being played faster',
+    fast.lead === 300, `${fast.lead}`)
 }
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')

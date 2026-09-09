@@ -38,7 +38,7 @@ import {
 import { saveBlob } from '../engine/desktop.js'
 import {
   wholeClip, slideTo, trimTo, splitAt, closeGaps, clipRange, sourceRange, MIN_CLIP_MS,
-  trackCount, sortByTrack, isOverlay, ridersOf,
+  trackCount, sortByTrack, isOverlay, ridersOf, audioRange,
 } from '../engine/clips.js'
 import { ensureAudio, setMaster } from '../engine/audio.js'
 import {
@@ -1379,6 +1379,29 @@ export const useStore = create((set, get) => ({
     get().recomputeDuration()
   },
 
+  /**
+   * Drags one end of a clip's *sound* past its picture, or back.
+   *
+   * `at` is a document time: where the sound should now start, or stop. Beyond
+   * what the recording holds it simply stops moving, which is the honest answer
+   * and reads as the bar refusing to stretch further.
+   */
+  setAudioEdge: (id, edge, at, { commit = true } = {}) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === id)
+    if (!l?.clip) return
+    const asset = getAsset(l.assetId)
+    const r = clipRange(l, asset)
+    const room = audioRange(l, asset).room
+    const want = edge === 'lead'
+      ? Math.max(0, Math.min(r.start - at, room.lead, r.start))
+      : Math.max(0, Math.min(at - r.end, room.trail))
+    const next = { ...(l.audio || {}), [edge]: Math.round(want) }
+    if ((l.audio?.[edge] || 0) === next[edge]) return
+    if (commit) s.pushHistory()
+    get().updateLayer(id, { audio: next })
+  },
+
   /** Drags one end of a clip to a document time. */
   trimClip: (id, edge, time, { commit = true } = {}) => {
     const s = get()
@@ -1421,8 +1444,24 @@ export const useStore = create((set, get) => ({
       // — the picture dipped in the middle of continuous footage, twice.
       const speed = Math.abs(l.speed || 1) || 1
       const [fa, fb] = splitFade(l.fade, (a.out - a.in) / speed, (b.out - b.in) / speed)
-      const right = { ...clone(l), id: nid('l'), clip: b, fade: fb }
-      layers.push({ ...l, clip: a, fade: fa })
+      // A J or an L cut belongs to the outside edges of a run, the same as a
+      // fade: giving both halves both would play the lead-in twice, once at the
+      // cut where there is now a picture to go with it.
+      const lead = l.audio?.lead || 0
+      const trail = l.audio?.trail || 0
+      const right = {
+        ...clone(l),
+        id: nid('l'),
+        clip: b,
+        fade: fb,
+        audio: trail ? { ...(l.audio || {}), lead: 0 } : undefined,
+      }
+      layers.push({
+        ...l,
+        clip: a,
+        fade: fa,
+        audio: lead ? { ...(l.audio || {}), trail: 0 } : undefined,
+      })
       layers.push(right)
       made.push(right.id)
     }

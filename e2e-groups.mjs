@@ -220,9 +220,24 @@ check('dragging a point moves it',
 
 // Click the midpoint of the second edge to insert a point.
 const before = await page.evaluate(() => window.__pfState().lasso.points.length)
+// The middle of the *longest* edge, rather than of a particular one. How many
+// points a freehand outline ends up with depends on how many pointer moves the
+// machine delivered, and on a busy one this had nine where it usually has four —
+// making the chosen edge short enough that its midpoint sat inside the hit
+// radius of the vertex beside it, so the click grabbed the vertex and inserted
+// nothing. The longest edge always has room around its middle.
 const mid = await page.evaluate(() => {
   const p = window.__pfState().lasso.points
-  return [(p[1][0] + p[2][0]) / 2, (p[1][1] + p[2][1]) / 2]
+  let best = 0
+  let far = -1
+  for (let i = 0; i < p.length; i++) {
+    const q = p[(i + 1) % p.length]
+    const d = Math.hypot(q[0] - p[i][0], q[1] - p[i][1])
+    if (d > far) { far = d; best = i }
+  }
+  const a = p[best]
+  const b = p[(best + 1) % p.length]
+  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
 })
 const [mx, my] = at(mid[0], mid[1])
 await page.mouse.click(mx, my)

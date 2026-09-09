@@ -1715,6 +1715,30 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   border-radius: 5px;
   overflow: hidden;
 }
+/* The two ends of a clip's sound. Wider than they look, because a four-pixel
+   target is one you have to aim at, and they sit over the very edge so dragging
+   one reads as moving that edge rather than as making a new thing. */
+.audio-grip {
+  position: absolute; top: 0; bottom: 0; width: 9px;
+  cursor: ew-resize; z-index: 3;
+}
+.audio-grip.start { left: -4px; }
+.audio-grip.end { right: -4px; }
+.audio-grip::after {
+  content: ''; position: absolute; top: 6px; bottom: 6px; left: 3px;
+  width: 3px; border-radius: 2px;
+  background: rgba(255, 255, 255, 0.35);
+}
+.audio-grip:hover::after, .audio-grip.out::after { background: var(--accent, #4ea1ff); }
+/* The stretch of sound with no picture over it. Shaded, or a J cut just looks
+   like a clip longer than the one above it. */
+.audio-only {
+  position: absolute; top: 0; bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg, rgba(78,161,255,0.18) 0 5px, rgba(78,161,255,0.05) 5px 10px);
+  pointer-events: none;
+}
+
 .audio-clip {
   position: absolute;
   top: 0;
