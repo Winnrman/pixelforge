@@ -17,6 +17,13 @@ const MAX_VOL = 2
 const yFor = (v, h) => h - (Math.max(0, Math.min(MAX_VOL, v)) / MAX_VOL) * h
 const volFor = (y, h) => Math.max(0, Math.min(MAX_VOL, ((h - y) / h) * MAX_VOL))
 
+/** Somewhere along a lane, as a document time. */
+function scrubTo(e, duration, setTime) {
+  const r = e.currentTarget.getBoundingClientRect()
+  const t = ((e.clientX - r.left) / Math.max(1, r.width)) * duration
+  setTime(Math.max(0, Math.min(duration, t)))
+}
+
 /**
  * One clip's sound, on its own lane.
  *
@@ -227,6 +234,11 @@ function AudioClip({ layer, duration }) {
  */
 export default function AudioRows({ duration }) {
   const layers = useStore((s) => s.doc.layers)
+  const setTime = useStore((s) => s.setTime)
+  const setPlaying = useStore((s) => s.setPlaying)
+  // Whether the press that began this drag landed on empty lane, rather than on
+  // a clip whose volume line is being dragged along it.
+  const scrubbing = useRef(false)
   // Whether a clip has sound is not known until its soundtrack has been looked
   // at, and looking is asynchronous and not a store change. Without this a
   // silent video keeps an empty lane for ever, because nothing ever re-renders
@@ -260,7 +272,25 @@ export default function AudioRows({ duration }) {
       {tracks.map((t) => (
         <div className="audio-row" key={t} data-audio-track={t}>
           <span className="track-name">A{t + 1}</span>
-          <div className="audio-lane" style={{ height: AUDIO_H }}>
+          <div
+            className="audio-lane"
+            style={{ height: AUDIO_H }}
+            // Empty lane is a spot in time, the same as an empty stretch of
+            // video track. A clip's own lane is its volume line and deals with
+            // its own presses.
+            onPointerDown={(e) => {
+              if (e.button !== 0 || e.target.closest('.audio-clip')) return
+              e.currentTarget.setPointerCapture(e.pointerId)
+              scrubbing.current = true
+              setPlaying(false)
+              scrubTo(e, duration, setTime)
+            }}
+            onPointerMove={(e) => {
+              if (e.buttons === 1 && scrubbing.current) scrubTo(e, duration, setTime)
+            }}
+            onPointerUp={() => { scrubbing.current = false }}
+            onPointerCancel={() => { scrubbing.current = false }}
+          >
             {withSound.filter((l) => (l.track || 0) === t).map((l) => (
               <AudioClip key={l.id} layer={l} duration={duration} />
             ))}

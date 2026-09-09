@@ -428,6 +428,9 @@ export default function Timeline() {
   })
 
   const scrubbing = useRef(false)
+  // Whether the press that began this drag landed on empty track, rather than on
+  // a clip that is now being dragged along it.
+  const laneScrubbing = useRef(false)
 
   /**
    * How much wider than the window the tracks are drawn.
@@ -498,6 +501,13 @@ export default function Timeline() {
     setTime(Math.max(0, Math.min(duration, t)))
   }
 
+  /** Somewhere along a track lane, as a document time. */
+  const laneScrub = (e) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const t = ((e.clientX - r.left) / Math.max(1, r.width)) * duration
+    setTime(Math.max(0, Math.min(duration, t)))
+  }
+
   // Only a pane with something in it is worth giving height to. With neither the
   // timeline is just the transport bar and should stay out of the way.
   const expandable = showKeys || (showVideo && strips.length > 0)
@@ -556,7 +566,28 @@ export default function Timeline() {
       <span className="track-name">
         {row.empty ? '' : `Track ${row.track + 1}`}
       </span>
-      <div className="track-lane">
+      <div
+        className="track-lane"
+        // A spot on a track is a spot in time whether or not there is a clip
+        // sitting on it. The keyframe lanes have always worked this way, and the
+        // gaps between clips were the one part of the timeline where clicking
+        // where you wanted to be did nothing at all.
+        onPointerDown={(e) => {
+          // A clip deals with its own presses — it has a drag, a trim and a
+          // selection to do — and they reach here as well because they bubble.
+          if (e.button !== 0 || e.target.closest('.strip')) return
+          e.currentTarget.setPointerCapture(e.pointerId)
+          laneScrubbing.current = true
+          setPlaying(false)
+          laneScrub(e)
+        }}
+        // The scrub has to have *started* on the lane. A held-button move that
+        // merely passes over it is somebody else's drag — dragging a clip sweeps
+        // the pointer straight along the row it came from.
+        onPointerMove={(e) => { if (e.buttons === 1 && laneScrubbing.current) laneScrub(e) }}
+        onPointerUp={() => { laneScrubbing.current = false }}
+        onPointerCancel={() => { laneScrubbing.current = false }}
+      >
         {row.clips.map((l) => (
           <Filmstrip
             key={l.id}

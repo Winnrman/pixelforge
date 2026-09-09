@@ -424,6 +424,105 @@ const off = await page.evaluate(() => ({
 check('pressing it again goes back to one at a time',
   off.panes === 1 && !off.divider, JSON.stringify(off))
 
+// --- clicking a bare stretch of track ---------------------------------------------------------
+// A spot on a track is a spot in time whether or not there is a clip sitting on
+// it. The keyframe lanes have always worked this way; the gaps between clips
+// were the one part of the timeline where clicking where you wanted to be did
+// nothing at all.
+await page.evaluate(async () => {
+  const st = window.__pfState()
+  const btn = [...document.querySelectorAll('.tl-tabs button')].find((x) => /^Video/.test(x.textContent))
+  btn?.click()
+  await new Promise((r) => setTimeout(r, 500))
+  // One clip, pushed along, so the front of its row is bare track.
+  const clips = window.__pfState().doc.layers.filter((l) => l.clip && l.assetId)
+  for (const l of clips.slice(1)) window.__pfState().removeLayers([l.id])
+  await new Promise((r) => setTimeout(r, 300))
+  const only = window.__pfState().doc.layers.find((l) => l.clip && l.assetId)
+  window.__pfState().select([])
+  window.__pfState().slideClip(only.id, 2000)
+  window.__pfState().setTime(0)
+  await new Promise((r) => setTimeout(r, 400))
+})
+// Back to 1x first: the split section left the panes zoomed in, and a lane five
+// times the width of the window has most of itself off the side of the screen.
+const rowsAt1x = await page.locator('.track-rows').boundingBox()
+await page.mouse.move(rowsAt1x.x + rowsAt1x.width * 0.5, rowsAt1x.y + rowsAt1x.height * 0.5)
+for (let i = 0; i < 12; i++) { await page.mouse.wheel(0, 120); await page.waitForTimeout(90) }
+await page.waitForTimeout(300)
+
+/** The row holding the clip, the clip on it, and a point on bare track. */
+const spots = await page.evaluate(() => {
+  const strip = document.querySelector('.track-row:not(.empty) .strip.clip')
+  if (!strip) return { none: true }
+  const lane = strip.closest('.track-lane').getBoundingClientRect()
+  const clip = strip.getBoundingClientRect()
+  const y = Math.round(lane.top + lane.height / 2)
+  // Halfway along whatever bare track there is in front of the clip.
+  return {
+    y,
+    bare: Math.round(lane.left + (clip.left - lane.left) / 2),
+    bare2: Math.round(lane.left + (clip.left - lane.left) * 0.8),
+    onClip: Math.round(clip.left + clip.width / 2),
+    lane: [Math.round(lane.left), Math.round(lane.width)],
+    clip: [Math.round(clip.left), Math.round(clip.width)],
+  }
+})
+console.log('the row:', JSON.stringify(spots))
+const timeAtX = (x) => Math.round(((x - spots.lane[0]) / spots.lane[1]) * 6000)
+
+await page.mouse.click(spots.bare, spots.y)
+await page.waitForTimeout(250)
+const clicked = await page.evaluate(() => ({
+  time: Math.round(window.__pfState().time),
+  duration: Math.round(window.__pfState().duration),
+  start: Math.round(window.__pfState().doc.layers.find((l) => l.clip && l.assetId).clip.start),
+}))
+const want = ((spots.bare - spots.lane[0]) / spots.lane[1]) * clicked.duration
+console.log('clicking bare track:', JSON.stringify(clicked), 'wanted', Math.round(want))
+check('clicking an empty stretch of track moves the playhead there',
+  Math.abs(clicked.time - want) < Math.max(60, clicked.duration * 0.03),
+  `${clicked.time}ms, wanted ${Math.round(want)}ms`)
+check('and moves nothing else', clicked.start === 2000, `clip at ${clicked.start}`)
+
+// Dragging along the bare stretch keeps scrubbing, the way the transport does.
+await page.mouse.move(spots.bare, spots.y)
+await page.mouse.down()
+await page.mouse.move(spots.bare2, spots.y, { steps: 6 })
+await page.mouse.up()
+await page.waitForTimeout(250)
+const dragged = await page.evaluate(() => ({
+  time: Math.round(window.__pfState().time),
+  duration: Math.round(window.__pfState().duration),
+}))
+const want2 = ((spots.bare2 - spots.lane[0]) / spots.lane[1]) * dragged.duration
+console.log('after dragging along it:', JSON.stringify(dragged), 'wanted', Math.round(want2))
+check('and dragging along it goes on scrubbing',
+  Math.abs(dragged.time - want2) < Math.max(60, dragged.duration * 0.04),
+  `${dragged.time}ms, wanted ${Math.round(want2)}ms`)
+
+// The half that matters more: a clip being dragged sweeps the pointer along the
+// very row it came from, and that must not take the playhead with it.
+const wasAt = dragged.time
+await page.mouse.move(spots.onClip, spots.y)
+await page.mouse.down()
+await page.mouse.move(spots.onClip - 150, spots.y, { steps: 8 })
+await page.mouse.up()
+await page.waitForTimeout(350)
+const afterClipDrag = await page.evaluate(() => ({
+  time: Math.round(window.__pfState().time),
+  start: Math.round(window.__pfState().doc.layers.find((l) => l.clip && l.assetId).clip.start),
+}))
+console.log('after dragging the clip itself:', JSON.stringify(afterClipDrag))
+check('dragging a clip moves the clip', afterClipDrag.start < 1800, `clip at ${afterClipDrag.start}`)
+// Grabbing a clip starts a drag and leaves the playhead alone. That is the whole
+// risk in scrubbing from bare track: the pointer sweeps along the very row it
+// came from, and a scrub that only checks "the button is down over a lane" would
+// take the playhead with it.
+check('and leaves the playhead exactly where it was',
+  afterClipDrag.time === wasAt,
+  `${wasAt} -> ${afterClipDrag.time} while the clip went past ${timeAtX(spots.onClip)}`)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

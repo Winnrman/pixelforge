@@ -327,6 +327,69 @@ check('a volume ramp follows document time at 1x',
 check('and runs twice as fast when the preview does',
   Math.abs(fast.at2x - 0.5) < 0.05, `${fast.at2x}`)
 
+// --- bare audio lane is a spot in time, not a volume point ------------------------------------
+// The lane *is* the volume line, so pressing on a clip's lane puts a point on
+// it. Off the end of the clip there is no line to put a point on, and what a
+// click there means is the same thing it means on bare video track: go there.
+const bareAudio = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const btn = [...document.querySelectorAll('.tl-tabs button')].find((x) => /^Video/.test(x.textContent))
+  btn?.click()
+  await new Promise((r) => setTimeout(r, 500))
+  const l = window.__pfState().doc.layers.find((x) => x.clip && x.assetId)
+  // Pushed along, so the front of its lane is bare.
+  window.__pfState().slideClip(l.id, 2000)
+  window.__pfState().updateLayer(l.id, { tracks: { ...(l.tracks || {}), volume: [] } })
+  window.__pfState().setTime(0)
+  await new Promise((r) => setTimeout(r, 500))
+  const lane = document.querySelector('.audio-lane')
+  const clip = document.querySelector('.audio-clip')
+  if (!lane || !clip) return { none: true }
+  const lr = lane.getBoundingClientRect()
+  const cr = clip.getBoundingClientRect()
+  return {
+    x: Math.round(lr.left + (cr.left - lr.left) / 2),
+    y: Math.round(lr.top + lr.height / 2),
+    lane: [Math.round(lr.left), Math.round(lr.width)],
+    gap: Math.round(cr.left - lr.left),
+  }
+})
+console.log('the bare stretch of the audio lane:', JSON.stringify(bareAudio))
+check('a clip pushed along leaves bare lane in front of it',
+  !bareAudio.none && bareAudio.gap > 40, JSON.stringify(bareAudio))
+
+await page.mouse.click(bareAudio.x, bareAudio.y)
+await page.waitForTimeout(300)
+const afterBare = await page.evaluate(() => {
+  const l = window.__pfState().doc.layers.find((x) => x.clip && x.assetId)
+  return {
+    time: Math.round(window.__pfState().time),
+    duration: Math.round(window.__pfState().duration),
+    keys: (l.tracks?.volume || []).length,
+  }
+})
+const wantAudio = ((bareAudio.x - bareAudio.lane[0]) / bareAudio.lane[1]) * afterBare.duration
+console.log('after clicking it:', JSON.stringify(afterBare), 'wanted', Math.round(wantAudio))
+check('clicking bare audio lane moves the playhead there',
+  Math.abs(afterBare.time - wantAudio) < Math.max(60, afterBare.duration * 0.03),
+  `${afterBare.time}ms, wanted ${Math.round(wantAudio)}ms`)
+check('and does not leave a volume point behind on nothing',
+  afterBare.keys === 0, `${afterBare.keys} points`)
+
+// On the clip it still means what it always meant.
+const onClip = await page.evaluate(async () => {
+  const clip = document.querySelector('.audio-clip')
+  const r = clip.getBoundingClientRect()
+  clip.dispatchEvent(new PointerEvent('pointerdown', {
+    bubbles: true, button: 0, clientX: r.left + r.width / 2, clientY: r.top + r.height * 0.75,
+  }))
+  await new Promise((x) => setTimeout(x, 250))
+  const l = window.__pfState().doc.layers.find((x) => x.clip && x.assetId)
+  return { keys: (l.tracks?.volume || []).length }
+})
+check('while pressing the clip’s own lane still puts a point on the line',
+  onClip.keys === 1, `${onClip.keys} points`)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)
