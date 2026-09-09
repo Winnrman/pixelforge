@@ -691,6 +691,90 @@ check('the empty canvas no longer offers to take files',
 check('it points at Media instead', /Media/.test(hero.text), hero.text.slice(0, 90))
 check('and clicking it goes there', hero.went === 'media', hero.went)
 
+// --- a poster you can recognise -----------------------------------------------------
+// A poster covers its card and crops the overflow, so a tall picture in a wide
+// tile is scaled by its *width*. Asking for the thumbnail by the box's height
+// gave a 720x1606 clip one twenty-one pixels wide, stretched across the whole
+// tile — the blockiness this measures.
+//
+// Measured as detail rather than as a size: a picture of fine vertical stripes
+// survives being downscaled honestly and turns to mush when it is blown up from
+// nothing, and counting the stripes that made it says which happened.
+const detail = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  await new Promise((r) => setTimeout(r, 300))
+  // Portrait, like a phone clip. The stripes are wide enough that even the
+  // small bin poster can resolve them honestly — measuring detail the poster
+  // could never show whatever the code did would measure aliasing, not the bug.
+  const c = document.createElement('canvas')
+  c.width = 720
+  c.height = 1606
+  const g = c.getContext('2d')
+  g.fillStyle = '#101010'
+  g.fillRect(0, 0, c.width, c.height)
+  g.fillStyle = '#f0f0f0'
+  for (let x = 0; x < c.width; x += 60) g.fillRect(x, 0, 30, c.height)
+  const blob = await new Promise((r) => c.toBlob(r))
+  await st.addImages([new File([blob], 'stripes.png', { type: 'image/png' })])
+  await new Promise((r) => setTimeout(r, 1200))
+
+  // Two readings along the middle of a poster. The stripe count says the picture
+  // is there at all; the *softness* says whether it was drawn at its own size or
+  // blown up from a smaller one. Only the second can tell them apart — a count
+  // survives being upscaled perfectly well, it just goes blurry, which is the
+  // whole complaint.
+  const measure = (canvas) => {
+    if (!canvas || !canvas.width) return { stripes: 0, soft: 0, w: 0 }
+    const g2 = canvas.getContext('2d', { willReadFrequently: true })
+    const row = g2.getImageData(0, Math.round(canvas.height / 2), canvas.width, 1).data
+    let runs = 0
+    let last = null
+    let soft = 0
+    for (let x = 0; x < canvas.width; x++) {
+      const v = row[x * 4]
+      const lit = v > 128
+      if (last !== null && lit !== last) runs++
+      last = lit
+      // Neither ink nor paper: a pixel part-way up a ramp between two stripes.
+      // A sharp edge has one of these; a stretched one has as many as it was
+      // stretched by.
+      if (v > 40 && v < 215) soft++
+    }
+    return { stripes: runs, soft, w: canvas.width }
+  }
+
+  window.__pfState().setWorkspace('media')
+  await new Promise((r) => setTimeout(r, 900))
+  const card = document.querySelector('.media-card canvas')
+  const inView = measure(card)
+
+  window.__pfState().setWorkspace('editor')
+  await new Promise((r) => setTimeout(r, 900))
+  const pool = document.querySelector('.media-pool canvas, .pool-card canvas, .rail-media canvas')
+    || [...document.querySelectorAll('canvas')].find((n) => n.closest('.media-pool'))
+  const inBin = measure(pool)
+  return { inView, inBin }
+})
+console.log('poster detail:', JSON.stringify(detail))
+// Twelve stripes is twenty-three light/dark crossings, and both posters are wide
+// enough to show every one of them.
+check('the Media tab poster shows the whole picture',
+  detail.inView.stripes >= 16, `${detail.inView.stripes} stripes across ${detail.inView.w}px`)
+// And drawn at its own size rather than stretched from a smaller one. Sized by
+// the box's height, the bin's thumbnail came back twenty-one pixels wide and
+// was blown up more than fourfold — every edge in it a soft ramp instead of an
+// edge, which is what "low-res" looks like when you measure it.
+const blur = (m) => m.soft / Math.max(1, m.stripes)
+check('with edges rather than ramps, so it was not blown up',
+  blur(detail.inView) < 1.6, `${blur(detail.inView).toFixed(2)} soft pixels per edge`)
+if (detail.inBin.w) {
+  check('and the bin poster beside the canvas is drawn the same way',
+    detail.inBin.stripes >= 16 && blur(detail.inBin) < 1.6,
+    `${detail.inBin.stripes} stripes, ${blur(detail.inBin).toFixed(2)} soft pixels per edge`)
+}
+await page.screenshot({ path: path.join(OUT, '20-poster-detail.png') })
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

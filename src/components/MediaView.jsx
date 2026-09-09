@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { Info } from './ui.jsx'
 import { getAsset } from '../engine/assets.js'
-import { thumbAt } from '../engine/filmstrip.js'
+import { thumbAt, posterHeight } from '../engine/filmstrip.js'
 import CollageDialog from './CollageDialog.jsx'
 
 const POSTER_H = 132
@@ -23,20 +23,24 @@ function MediaCard({ asset, selected, onSelect, onOpen }) {
       // A quarter in rather than frame zero: clips often open on black or a fade,
       // which makes for a poster that identifies nothing.
       const at = asset.animated ? asset.duration * 0.25 : 0
+      const dpr = Math.min(2, window.devicePixelRatio || 1)
+      const box = ref.current.getBoundingClientRect()
+      const w = Math.max(1, Math.round(box.width))
       let thumb = null
       try {
-        thumb = await thumbAt(asset, at, POSTER_H)
+        // Asked for by what the poster will actually need, not by the box's
+        // height: a poster covers and crops, so a tall picture is scaled by its
+        // width and a thumbnail sized by height comes back far too narrow.
+        thumb = await thumbAt(asset, at, posterHeight(asset, w, POSTER_H, dpr))
       } catch {
         thumb = null
       }
       if (cancelled || !thumb || !ref.current) return
-      const dpr = Math.min(2, window.devicePixelRatio || 1)
-      const box = ref.current.getBoundingClientRect()
-      const w = Math.max(1, Math.round(box.width))
       ref.current.width = Math.round(w * dpr)
       ref.current.height = Math.round(POSTER_H * dpr)
       const ctx = ref.current.getContext('2d')
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.imageSmoothingQuality = 'high'
       ctx.clearRect(0, 0, w, POSTER_H)
       // Cover. The argument for contain was that a bin should show the whole
       // frame — but a portrait clip in a wide tile then becomes a sliver between

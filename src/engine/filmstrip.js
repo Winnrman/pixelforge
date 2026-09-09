@@ -33,15 +33,64 @@ export function thumbWidth(asset, h = THUMB_H) {
 }
 
 function downscale(src, h) {
-  const w = Math.max(1, Math.round(((src.width || src.naturalWidth) / (src.height || src.naturalHeight)) * h))
+  const sw = src.width || src.naturalWidth
+  const sh = src.height || src.naturalHeight
+  const w = Math.max(1, Math.round((sw / sh) * h))
   const c = document.createElement('canvas')
   c.width = w
   c.height = h
   const ctx = c.getContext('2d')
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'low'
-  ctx.drawImage(src, 0, 0, w, h)
+
+  // Halved down to within reach of the target before the last draw, rather than
+  // dropped there in one step. A single big reduction samples a handful of
+  // source pixels per destination pixel and throws the rest away, which is what
+  // makes a downscaled photograph look sharpened and speckled. Halving averages
+  // every pixel on the way, and costs almost nothing: each pass works on a
+  // surface a quarter the size of the last, so the whole chain is under a third
+  // more work than the first draw alone.
+  let from = src
+  let fw = sw
+  let fh = sh
+  while (fh > h * 2 && fw > w * 2) {
+    const half = document.createElement('canvas')
+    half.width = Math.max(1, Math.round(fw / 2))
+    half.height = Math.max(1, Math.round(fh / 2))
+    const hx = half.getContext('2d')
+    hx.imageSmoothingEnabled = true
+    hx.imageSmoothingQuality = 'low'
+    hx.drawImage(from, 0, 0, half.width, half.height)
+    from = half
+    fw = half.width
+    fh = half.height
+  }
+
+  ctx.drawImage(from, 0, 0, w, h)
   return c
+}
+
+/**
+ * How tall a thumbnail has to be to fill a poster box without being blown up.
+ *
+ * A poster covers its card and crops the overflow, so a portrait picture in a
+ * wide tile is scaled by its *width* — and asking for a thumbnail by the box's
+ * height gives one far too narrow for that. A 720x1606 clip in a 46px-tall bin
+ * card came back 21 pixels wide and was stretched across two hundred, which is
+ * the blockiness this exists to stop.
+ *
+ * Never more than the asset actually has: upscaling a small source produces no
+ * detail and costs memory.
+ */
+export function posterHeight(asset, boxW, boxH, dpr = 1) {
+  const aw = Math.max(1, asset?.width || 1)
+  const ah = Math.max(1, asset?.height || 1)
+  const needW = Math.max(1, boxW) * dpr
+  const needH = Math.max(1, boxH) * dpr
+  // Cover: big enough in both axes, which for a tall picture is decided by the
+  // width and for a wide one by the height.
+  const wanted = Math.max(needH, (needW * ah) / aw)
+  return Math.max(1, Math.round(Math.min(wanted, ah)))
 }
 
 /** A thumbnail already in hand, or null. Never decodes. */

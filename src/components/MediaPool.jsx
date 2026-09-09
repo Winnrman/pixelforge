@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
-import { thumbAt } from '../engine/filmstrip.js'
+import { thumbAt, posterHeight } from '../engine/filmstrip.js'
 
 const POSTER_H = 46
 
@@ -41,18 +41,22 @@ function PoolCard({ asset, used, onOpen }) {
       // A quarter in, like the Media tab: clips that open on black or a fade
       // make a poster that identifies nothing.
       const at = asset.animated ? asset.duration * 0.25 : 0
+      const dpr = Math.min(2, window.devicePixelRatio || 1)
       let thumb = null
       try {
-        thumb = await thumbAt(asset, at, POSTER_H)
+        // By what covering the card needs rather than by its height — see
+        // `posterHeight`. A portrait clip asked for by height came back
+        // twenty-one pixels wide and was stretched across the whole tile.
+        thumb = await thumbAt(asset, at, posterHeight(asset, w, POSTER_H, dpr))
       } catch {
         thumb = null
       }
       if (cancelled || !thumb || !ref.current) return
-      const dpr = Math.min(2, window.devicePixelRatio || 1)
       ref.current.width = Math.round(w * dpr)
       ref.current.height = Math.round(POSTER_H * dpr)
       const ctx = ref.current.getContext('2d')
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.imageSmoothingQuality = 'high'
       ctx.clearRect(0, 0, w, POSTER_H)
       // Cover, not contain: the poster fills the card and is cropped to fit.
       // A portrait clip letterboxed into a wide tile is a sliver between two

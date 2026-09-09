@@ -10,6 +10,7 @@
 // that is for both to come out of the same function.
 import { TOOLS, TOOL_KEYS, toolForKey, keyHint, BRUSH_TOOLS } from '../../src/engine/tools.js'
 import { brushMetrics, previewFit, fitLabel } from '../../src/engine/brush.js'
+import { posterHeight } from '../../src/engine/filmstrip.js'
 
 const checks = []
 const check = (name, ok, detail = '') => {
@@ -126,6 +127,42 @@ const near = (a, b, tol = 0.001) => Math.abs(a - b) <= tol
 
   check('no layer means no size rather than a size of zero',
     previewFit({ size: 0.1, hardness: 1 }, 0, 1, box).px === 0)
+}
+
+// --- how big a poster's thumbnail has to be ---------------------------------------------
+// A poster covers its card and crops the overflow, so a tall picture in a wide
+// tile is scaled by its *width*. Asking for a thumbnail by the box's height is
+// what made a portrait clip come back twenty-one pixels wide and get stretched
+// across the whole tile.
+{
+  const portrait = { width: 720, height: 1606 }
+  const landscape = { width: 1920, height: 1080 }
+  const square = { width: 800, height: 800 }
+
+  // The failure this exists to stop, stated as a number: covering a 200px card
+  // with a 720x1606 picture needs a thumbnail 446 tall, not 46.
+  const tall = posterHeight(portrait, 200, 46, 1)
+  check('a tall picture is sized by the width it has to cover',
+    tall === Math.round((200 * 1606) / 720), String(tall))
+  check('which is far more than the box is high', tall > 46 * 8, `${tall} vs 46`)
+
+  check('a wide picture is sized by the height instead',
+    posterHeight(landscape, 200, 132, 1) === 132,
+    String(posterHeight(landscape, 200, 132, 1)))
+  check('a square one in a wide box follows the width',
+    posterHeight(square, 200, 132, 1) === 200, String(posterHeight(square, 200, 132, 1)))
+
+  check('a sharp screen asks for twice as much',
+    posterHeight(landscape, 200, 132, 2) === 264, String(posterHeight(landscape, 200, 132, 2)))
+
+  // Never more than the asset has. Upscaling a small source adds no detail and
+  // costs memory to hold.
+  const tiny = { width: 32, height: 24 }
+  check('a picture smaller than the box is not blown up to fill it',
+    posterHeight(tiny, 200, 132, 2) === 24, String(posterHeight(tiny, 200, 132, 2)))
+  check('and a poster is never zero pixels tall',
+    posterHeight({ width: 0, height: 0 }, 0, 0, 1) >= 1
+    && posterHeight(null, 200, 132, 1) >= 1)
 }
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')

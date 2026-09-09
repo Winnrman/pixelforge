@@ -78,6 +78,10 @@ stamp (`K`)** copies one part of a picture over another — alt-click the source
 Both store strokes as points rather than pixels, so they scale and rotate with the layer, undo
 one drag at a time, and never grow the saved project.
 
+The brush tools hide the pointer while they are in hand: the ring drawn at the cursor is
+sized to what the stroke will cover, and a crosshair inside it only clutters the thing you are
+aiming.
+
 Every brush shows itself **life-size above its sliders**, drawn by the same arithmetic that
 lays a stroke down, so the size and the softness you see are the ones you get. A brush is a
 fraction of the layer width rather than a number of pixels — which is what keeps a stroke the
@@ -445,7 +449,7 @@ pixel-identically at every sampled time.
 They live under `tests/`: `tests/browser/` for everything that drives Chrome, `tests/unit/`
 for the DOM-free suites that run under plain node in milliseconds, and `tests/` itself for the
 shared helper and the benchmarks. Forty-seven browser suites, two Electron suites, fifteen
-unit suites — **1841 checks**, in about a minute.
+unit suites — **1855 checks**, in about a minute.
 
 ```bash
 npm run dev           # in one terminal

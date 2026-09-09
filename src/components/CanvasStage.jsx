@@ -1500,7 +1500,11 @@ export default function CanvasStage() {
         const h = hitHandle(p)
         if (h) cursor = CURSORS[h.key]
         else if (st.tool === 'move') cursor = topLayerAt(p) ? 'move' : 'default'
-        else if (st.tool === 'erase' || st.tool === 'mask') cursor = 'crosshair'
+        // The ring *is* the cursor for these two — it is drawn at the pointer,
+        // sized to what the stroke will cover. A crosshair sitting inside it
+        // adds nothing and clutters the one thing you are trying to aim. The
+        // clone stamp keeps its crosshair, having no ring of its own.
+        else if (st.tool === 'erase' || st.tool === 'mask') cursor = 'none'
         else if (st.tool === 'clone') cursor = 'crosshair'
         else cursor = 'crosshair'
       }

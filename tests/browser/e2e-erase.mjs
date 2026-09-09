@@ -557,6 +557,33 @@ await page.waitForTimeout(150)
 check('the letters still work beside them',
   (await page.evaluate(() => window.__pfState().tool)) === 'move')
 
+// --- the ring is the cursor -------------------------------------------------------------
+// A crosshair sitting inside the brush ring adds nothing and clutters the one
+// thing you are trying to aim, so the tools that draw a ring hide the pointer
+// and let the ring be it. The clone stamp keeps its crosshair, having no ring.
+const cursors = {}
+for (const tool of ['erase', 'mask', 'clone', 'lasso']) {
+  cursors[tool] = await page.evaluate(async (t) => {
+    const st = window.__pfState()
+    st.setTool(t)
+    await new Promise((r) => setTimeout(r, 250))
+    const c = document.querySelector('.stage canvas')
+    const r = c.getBoundingClientRect()
+    // A real move, because the cursor is decided as the pointer travels.
+    c.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, bubbles: true, pointerId: 1,
+    }))
+    await new Promise((r2) => setTimeout(r2, 200))
+    return c.style.cursor
+  }, tool)
+}
+console.log('cursors:', JSON.stringify(cursors))
+check('the eraser hides the pointer and shows its ring', cursors.erase === 'none', cursors.erase)
+check('and so does the mask brush', cursors.mask === 'none', cursors.mask)
+check('the clone stamp keeps its crosshair, having no ring',
+  cursors.clone === 'crosshair', cursors.clone)
+check('and so does the lasso', cursors.lasso === 'crosshair', cursors.lasso)
+
 // Typing a digit into a field is typing, not a shortcut.
 const whileTyping = await page.evaluate(async () => {
   const st = window.__pfState()
