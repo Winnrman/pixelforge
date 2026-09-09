@@ -174,6 +174,33 @@ button:disabled { opacity: 0.35; cursor: default; }
 /* Actions under a tool's settings: as many as fit on a line, wrapping rather
    than squeezing, since their labels are words and not icons. */
 .rail-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+/* The brush, life-size, above the sliders that set it. Sunk into the panel
+   rather than raised off it, so the white dot reads as paint on a surface. */
+.brush-preview {
+  position: relative;
+  margin-bottom: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background:
+    linear-gradient(45deg, rgba(255,255,255,0.035) 25%, transparent 25%) 0 0 / 12px 12px,
+    linear-gradient(-45deg, rgba(255,255,255,0.035) 25%, transparent 25%) 0 6px / 12px 12px,
+    linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.035) 75%) 6px -6px / 12px 12px,
+    linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.035) 75%) -6px 0 / 12px 12px,
+    rgba(0,0,0,0.28);
+  overflow: hidden;
+  display: block;
+}
+.brush-preview canvas { display: block; }
+.brush-size {
+  position: absolute;
+  left: 6px;
+  bottom: 4px;
+  font-size: 10px;
+  color: var(--dim);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  pointer-events: none;
+}
+.brush-size em { font-style: normal; opacity: 0.7; margin-left: 5px; }
 .rail-row .btn { flex: 1 1 auto; }
 
 /* ------------------------------------------------------------------ stage */

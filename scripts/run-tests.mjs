@@ -36,6 +36,8 @@ const OWNERS = [
   ['src/engine/gradient.js', ['e2e-gradient', 'test-gradient', 'e2e-text', 'e2e-tint']],
   ['src/engine/shapes.js', ['test-mask', 'e2e-maskedit', 'e2e-lasso', 'e2e-subject', 'e2e-gradient']],
   ['src/engine/lassoedit.js', ['test-lassoedit', 'e2e-maskedit', 'e2e-lasso']],
+  ['src/engine/tools.js', ['test-tools', 'e2e-tools2', 'e2e-erase', 'e2e-maskedit']],
+  ['src/engine/brush.js', ['test-tools', 'e2e-erase', 'e2e-maskedit', 'e2e-clone']],
   ['src/engine/groups.js', ['test-groups', 'e2e-groups', 'e2e-canvas', 'e2e-gradient']],
   ['src/engine/erase.js', ['e2e-erase', 'e2e-sticker', 'e2e-tools2', 'e2e-lasso']],
   ['src/engine/clone.js', ['e2e-clone']],
@@ -71,7 +73,7 @@ const OWNERS = [
   ['src/components/ExportDialog.jsx', ['e2e-print', 'e2e-batch', 'e2e', 'e2e-editing']],
   ['src/components/Inspector.jsx', ['e2e-gradient', 'e2e-keyframes', 'e2e-text', 'e2e-subject']],
   ['src/components/LassoBar.jsx', ['e2e-lasso', 'e2e-wand', 'e2e-tools2', 'e2e-maskedit']],
-  ['src/components/ToolRail.jsx', ['e2e-clone', 'e2e-wand', 'e2e-eyedrop', 'e2e-lasso', 'e2e-erase', 'e2e-maskedit']],
+  ['src/components/ToolRail.jsx', ['e2e-clone', 'e2e-wand', 'e2e-eyedrop', 'e2e-lasso', 'e2e-erase', 'e2e-maskedit', 'e2e-tools2']],
   ['src/components/OpenDialog.jsx', ['e2e-project', 'e2e-backup']],
   ['electron/', ['desktop']],
 ]
@@ -86,6 +88,7 @@ const UNITS = [
   'test-retro', 'test-loop', 'test-cursor', 'test-collage', 'test-trace',
   'test-dpi', 'test-clips', 'test-transitions', 'test-gradient', 'test-mask',
   'test-prose', 'test-groups', 'test-richtext', 'test-snap', 'test-lassoedit',
+  'test-tools',
 ]
 
 const BROWSER = [

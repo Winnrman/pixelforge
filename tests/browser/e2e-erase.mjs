@@ -428,6 +428,154 @@ check('a file drag over the editor raises nothing', fileVeil.editor.during === f
 check('the same drag over the media bin does', fileVeil.bin.during === true)
 check('and it clears when the drag ends', fileVeil.bin.after === false)
 
+// --- the brush, life-size, above the sliders ------------------------------------------
+// A brush is a fraction of the layer width rather than a number of pixels, so
+// "6%" is a number nobody can picture. The ring on the canvas answers that once
+// the pointer is out over the artwork; this answers it while your hand is still
+// on the slider, which is when you are deciding.
+const preview = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const id = st.doc.layers[st.doc.layers.length - 1].id
+  st.select([id])
+  st.setTool('erase')
+  await new Promise((r) => setTimeout(r, 350))
+  const read = () => {
+    const el = document.querySelector('.rail-options .brush-preview')
+    const c = el?.querySelector('canvas')
+    return {
+      there: !!el,
+      canvas: c ? { w: c.width, h: c.height } : null,
+      caption: el?.querySelector('.brush-size')?.textContent || '',
+    }
+  }
+  const small = read()
+  // Same brush, twice the size: the readout has to move with it.
+  const s0 = window.__pfState().toolOptions.brush
+  window.__pfState().setToolOptions({ brush: { ...s0, size: (s0?.size ?? 0.06) * 2 } })
+  await new Promise((r) => setTimeout(r, 300))
+  const big = read()
+  // And with nothing selected there is no layer to be a fraction of.
+  window.__pfState().select([])
+  await new Promise((r) => setTimeout(r, 300))
+  const none = read()
+  window.__pfState().select([id])
+  window.__pfState().setToolOptions({ brush: s0 })
+  await new Promise((r) => setTimeout(r, 250))
+  return { small, big, none }
+})
+console.log('brush preview:', JSON.stringify(preview))
+check('the erase tool shows the brush above its sliders', preview.small.there === true)
+check('drawn on a canvas with real pixels in it',
+  preview.small.canvas?.w > 0 && preview.small.canvas?.h > 0, JSON.stringify(preview.small.canvas))
+check('and says what the brush measures on the picture',
+  /^\d+ px/.test(preview.small.caption), preview.small.caption)
+// The number is the half that cannot lie: whatever the box had to do to fit the
+// picture in, the pixels it reports are the pixels it will paint.
+const px = (s) => Number((s.match(/^(\d+) px/) || [])[1])
+check('doubling the brush doubles what it reports',
+  Math.abs(px(preview.big.caption) - px(preview.small.caption) * 2) <= 2,
+  `${preview.small.caption} -> ${preview.big.caption}`)
+check('with no layer selected it says so rather than showing a size',
+  /no layer/.test(preview.none.caption), preview.none.caption)
+
+// The clone stamp and the mask brush get the same picture, since they are the
+// same kind of thing and the question they answer is the same one.
+for (const [tool, name] of [['clone', 'the clone stamp'], ['mask', 'the mask brush']]) {
+  const has = await page.evaluate(async (t) => {
+    window.__pfState().setTool(t)
+    await new Promise((r) => setTimeout(r, 350))
+    return !!document.querySelector('.rail-options .brush-preview canvas')
+  }, tool)
+  check(`${name} shows one too`, has === true)
+}
+await page.evaluate(() => window.__pfState().setTool('erase'))
+await page.waitForTimeout(250)
+await page.screenshot({ path: path.join(OUT, '09-brush-preview.png') })
+
+// Reading the preview's own pixels, because "a canvas is present" cannot tell a
+// live picture of the brush from an empty box — and the whole promise here is
+// that what you see is what the stroke will lay down.
+const drawn = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const id = st.doc.layers[st.doc.layers.length - 1].id
+  st.select([id])
+  st.setTool('erase')
+  await new Promise((r) => setTimeout(r, 300))
+
+  // The alpha profile out from the middle: how wide the band is where the brush
+  // is neither fully on nor fully off *is* its hardness.
+  const profile = async (hardness) => {
+    const b = window.__pfState().toolOptions.brush
+    window.__pfState().setToolOptions({ brush: { ...b, size: 0.18, hardness } })
+    await new Promise((r) => setTimeout(r, 300))
+    const c = document.querySelector('.rail-options .brush-preview canvas')
+    const g = c.getContext('2d', { willReadFrequently: true })
+    const cy = Math.round(c.height / 2)
+    const row = g.getImageData(0, cy, c.width, 1).data
+    const alpha = []
+    for (let x = Math.round(c.width / 2); x < c.width; x++) alpha.push(row[x * 4 + 3])
+    return {
+      middle: alpha[0],
+      // Pixels part-way between opaque and clear: a hard edge has almost none,
+      // a soft one has a wide band of them.
+      falloff: alpha.filter((a) => a > 8 && a < 245).length,
+      edge: alpha[alpha.length - 1],
+    }
+  }
+  const hard = await profile(1)
+  const soft = await profile(0)
+  return { hard, soft }
+})
+console.log('brush profile:', JSON.stringify(drawn))
+check('the preview actually draws the brush', drawn.hard.middle > 200, String(drawn.hard.middle))
+check('a hard brush has a hard edge', drawn.hard.falloff <= 6, String(drawn.hard.falloff))
+check('a soft one fades out over many pixels', drawn.soft.falloff > drawn.hard.falloff * 3,
+  `${drawn.hard.falloff} -> ${drawn.soft.falloff}`)
+check('and neither fills the whole box, so the size reads as a size',
+  drawn.hard.edge < 8 && drawn.soft.edge < 8, `${drawn.hard.edge} / ${drawn.soft.edge}`)
+
+// --- a digit for each tool in the rail --------------------------------------------------
+// The letter is the mnemonic every editor uses; the digit is the position in the
+// rail, which is what you reach for when you are looking at it rather than
+// remembering it. `1` is the selector because getting back to plain selection is
+// the most common thing anybody asks of a tool bar.
+await page.locator('.stage canvas').hover()
+const digits = {}
+for (const [key, want] of [['1', 'move'], ['4', 'lasso'], ['7', 'mask'], ['8', 'erase'], ['0', 'wand']]) {
+  // Parked on something else first, so a digit that does nothing cannot pass by
+  // leaving the tool where the previous check put it.
+  await page.evaluate(() => window.__pfState().setTool('hand'))
+  await page.waitForTimeout(120)
+  await page.keyboard.press(key)
+  await page.waitForTimeout(150)
+  digits[key] = await page.evaluate(() => window.__pfState().tool)
+  check(`${key} arms ${want}`, digits[key] === want, digits[key])
+}
+// And the letters still do what they always did.
+await page.keyboard.press('v')
+await page.waitForTimeout(150)
+check('the letters still work beside them',
+  (await page.evaluate(() => window.__pfState().tool)) === 'move')
+
+// Typing a digit into a field is typing, not a shortcut.
+const whileTyping = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.setTool('erase')
+  await new Promise((r) => setTimeout(r, 200))
+  const input = document.querySelector('input.project-name')
+  if (!input) return { skipped: true }
+  input.focus()
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }))
+  await new Promise((r) => setTimeout(r, 200))
+  input.blur()
+  return { tool: window.__pfState().tool }
+}, null)
+console.log('digit while typing:', JSON.stringify(whileTyping))
+if (!whileTyping.skipped) {
+  check('a digit typed into a field does not change the tool', whileTyping.tool === 'erase',
+    whileTyping.tool)
+}
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

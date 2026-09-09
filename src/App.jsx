@@ -18,11 +18,7 @@ import MediaPool from './components/MediaPool.jsx'
 import MediaView from './components/MediaView.jsx'
 import LayerContextMenu from './components/LayerContextMenu.jsx'
 import OpenDialog from './components/OpenDialog.jsx'
-
-const TOOL_KEYS = {
-  v: 'move', c: 'crop', p: 'effect', l: 'lasso', s: 'shape', t: 'text', h: 'hand', e: 'erase',
-  i: 'eyedrop', w: 'wand', k: 'clone', b: 'mask',
-}
+import { toolForKey } from './engine/tools.js'
 
 export default function App() {
   const workspace = useStore((st) => st.workspace)
@@ -385,7 +381,10 @@ export default function App() {
         return
       }
 
-      const tool = TOOL_KEYS[e.key.toLowerCase()]
+      // Both keys arm a tool: the letter every editor uses, and the digit for
+      // its place in the rail. `1` is the selector, which is the one everybody
+      // wants a way back to.
+      const tool = toolForKey(e.key)
       if (tool) s.setTool(tool)
     }
 

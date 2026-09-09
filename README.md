@@ -78,6 +78,11 @@ stamp (`K`)** copies one part of a picture over another — alt-click the source
 Both store strokes as points rather than pixels, so they scale and rotate with the layer, undo
 one drag at a time, and never grow the saved project.
 
+Every brush shows itself **life-size above its sliders**, drawn by the same arithmetic that
+lays a stroke down, so the size and the softness you see are the ones you get. A brush is a
+fraction of the layer width rather than a number of pixels — which is what keeps a stroke the
+same size on the picture at any zoom, and what makes "6%" a number nobody can picture.
+
 **Masking shrink-wraps.** Cutting a subject out trims the layer box to what is left, so the
 handles, the rotation pivot and snapping are all on the thing you can see. **Trim to subject**
 does the same for a layer cut out by a matte.
@@ -359,10 +364,13 @@ missing. There is no code-signing certificate, so Windows SmartScreen will warn 
 
 ## Keys
 
+Every tool answers to two keys: the letter, and its position in the rail. `1` is the selector.
+
 | | |
 |---|---|
 | `V` `C` `P` `L` `S` `T` | move, crop, pixel overlay, lasso, shape, text |
 | `E` `B` `K` `W` `I` `H` | erase, mask brush, clone stamp, colour select, eyedropper, pan |
+| `1`…`9` `0` | the same tools, in rail order, from the selector down |
 | `Space` | play / pause (hold + drag to pan) |
 | `I` / `O` | mark in / out (`I` is the eyedropper while that tool is in hand) |
 | `,` `.` / arrows | step a frame / skip, or nudge a selected layer |
@@ -403,6 +411,8 @@ src/engine/     render.js      compositor, frame lookup, export frame timing
                 trace.js       marching squares, Douglas-Peucker
                 edges.js       colour-gradient edge maps
                 lassoedit.js   editing a run of outline points
+                tools.js       the rail's tools and both of their keys
+                brush.js       brush size, softness, and the life-size preview
                 erase.js       eraser and region strokes
                 clone.js       clone-stamp strokes
                 collage.js     collage layout maths
@@ -435,7 +445,7 @@ pixel-identically at every sampled time.
 They live under `tests/`: `tests/browser/` for everything that drives Chrome, `tests/unit/`
 for the DOM-free suites that run under plain node in milliseconds, and `tests/` itself for the
 shared helper and the benchmarks. Forty-seven browser suites, two Electron suites, fifteen
-unit suites — **1790 checks**, in about a minute.
+unit suites — **1841 checks**, in about a minute.
 
 ```bash
 npm run dev           # in one terminal

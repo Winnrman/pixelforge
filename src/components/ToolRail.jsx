@@ -1,26 +1,12 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useStore } from '../state/store.js'
 import { EFFECTS } from '../engine/effects.js'
 import { isCutOut } from '../engine/subject.js'
+import { TOOLS, keyHint } from '../engine/tools.js'
+import { previewFit, fitLabel } from '../engine/brush.js'
+import { resolveLayer } from '../engine/keyframes.js'
 import { Row, Select, Slider, Segmented, Toggle, Info } from './ui.jsx'
 
-const TOOLS = [
-  // Bounding box deliberately centred on the 24x24 viewBox (x 5.5-18.5,
-  // y 2.5-22): the original arrow measured 4-15 by 2-19, which sat visibly
-  // up and to the left of every other icon in the rail.
-  { id: 'move', key: 'V', label: 'Move / select', icon: 'M5.5 2.5 L5.5 20.5 L10 16 L13 22 L15.6 20.8 L12.7 15.1 L18.5 15.1 Z' },
-  { id: 'crop', key: 'C', label: 'Crop', icon: 'M6 2 V15 A1 1 0 0 0 7 16 H20 M2 6 H15 A1 1 0 0 1 16 7 V20' },
-  { id: 'effect', key: 'P', label: 'Pixel / blur overlay', icon: null },
-  { id: 'lasso', key: 'L', label: 'Lasso select — click to plot points, or drag to trace', icon: 'M4 14 C2 9 6 3 12 3 C18 3 21 8 18 12 C16 15 10 15 9 18 C8 20 10 21 11 20' },
-  { id: 'shape', key: 'S', label: 'Shape', icon: 'M3 3 H12 V12 H3 Z M9 9 A6 6 0 1 0 21 9 A6 6 0 1 0 9 9' },
-  { id: 'text', key: 'T', label: 'Text', icon: 'M4 4 H20 M12 4 V20 M8 20 H16' },
-  { id: 'mask', key: 'B', label: 'Mask — brush the cut-out edge, or edit its outline', icon: 'M12 2.5 a9.5 9.5 0 0 1 0 19 z M12 2.5 a9.5 9.5 0 0 0 0 19 M4.2 6 l15.6 12 M6 3.6 l12 16.8 M2.8 9.4 l18.4 5.2' },
-  { id: 'erase', key: 'E', label: 'Erase — paint away part of a layer', icon: 'M8.5 20 H20 M3.6 16.4 l8-8 a1.5 1.5 0 0 1 2.1 0 l4.9 4.9 a1.5 1.5 0 0 1 0 2.1 l-4.6 4.6 H9.2 l-5.6 -5.6 a1.5 1.5 0 0 1 0 -2.1 Z' },
-  { id: 'clone', key: 'K', label: 'Clone stamp — copy one part of a picture over another', icon: 'M9 3 h6 a2 2 0 0 1 2 2 v1 a3 3 0 0 0 3 3 v2 H4 V9 a3 3 0 0 0 3 -3 V5 a2 2 0 0 1 2 -2 z M9 11 v4 a3 3 0 0 0 3 3 v3' },
-  { id: 'wand', key: 'W', label: 'Select by colour', icon: 'M4 20 L14 10 M12.5 8.5 l3 3 M17 3 l1 2.2 l2.2 1 l-2.2 1 l-1 2.2 l-1 -2.2 l-2.2 -1 l2.2 -1 z M6 4 l0.6 1.4 l1.4 0.6 l-1.4 0.6 l-0.6 1.4 l-0.6 -1.4 l-1.4 -0.6 l1.4 -0.6 z' },
-  { id: 'eyedrop', key: 'I', label: 'Pick a colour from the picture', icon: 'M18.5 2.6 a2 2 0 0 1 2.9 2.9 l-2.2 2.2 l1 1 l-1.6 1.6 l-1 -1 l-8 8 l-4 1 l1 -4 l8 -8 l-1 -1 l1.6 -1.6 l1 1 z' },
-  { id: 'hand', key: 'H', label: 'Pan', icon: 'M6 11 V6 a1.5 1.5 0 0 1 3 0 v5 V4 a1.5 1.5 0 0 1 3 0 v7 V5 a1.5 1.5 0 0 1 3 0 v6 V8 a1.5 1.5 0 0 1 3 0 v7 a6 6 0 0 1 -6 6 h-2 a5 5 0 0 1 -4 -2 l-3 -4 a1.5 1.5 0 0 1 2.5 -2 z' },
-]
 
 const SHAPES = [
   { value: 'ellipse', label: '●', title: 'Ellipse' },
@@ -55,6 +41,101 @@ function PixelIcon() {
   )
 }
 
+/**
+ * The brush, life-size, above the sliders that set it.
+ *
+ * A brush is a fraction of the layer width rather than a number of pixels, which
+ * is what keeps a stroke the same size on the picture at any zoom — and which
+ * makes "6%" a number you cannot picture. The ring on the canvas answers that
+ * once the pointer is out over the artwork; this answers it while your hand is
+ * still on the slider, which is when you are deciding.
+ *
+ * It is drawn by the same arithmetic that lays a stroke down, so the softness
+ * you see here is the softness you get. Both sliders feed it: size is the
+ * diameter, hardness is the falloff, and there is one picture rather than two
+ * because there is one brush.
+ */
+function BrushPreview({ brush, warm = false }) {
+  const ref = useRef(null)
+  const zoom = useStore((s) => s.view.zoom)
+  // The layer a stroke would land on, resolved at the playhead so an animated
+  // layer previews the width it has *now*. A number, so this re-renders when
+  // the width changes and not when anything else does.
+  const layerW = useStore((s) => {
+    const sel = s.doc.layers.filter((l) => s.selectedIds.includes(l.id) && !l.locked
+      && l.type !== 'group' && l.type !== 'effect')
+    const l = sel[sel.length - 1]
+    return l ? Math.abs(resolveLayer(l, s.time).w) : 0
+  })
+
+  // Tall enough that an ordinary brush is life-size rather than fitted: the
+  // shorter box this started as hit its limit at about 30px of picture, which
+  // is a brush people use constantly.
+  const box = { w: 188, h: 140 }
+  const fit = previewFit(brush, layerW, zoom, box)
+  const scaled = fitLabel(fit.fit)
+
+  useEffect(() => {
+    const c = ref.current
+    if (!c) return
+    const dpr = window.devicePixelRatio || 1
+    c.width = Math.round(box.w * dpr)
+    c.height = Math.round(box.h * dpr)
+    const ctx = c.getContext('2d')
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, box.w, box.h)
+    const cx = box.w / 2
+    const cy = box.h / 2
+
+    if (!layerW) {
+      // Nothing selected is not a size of zero, it is no answer at all — so it
+      // draws the hollow, dim ring the canvas cursor uses for the same case
+      // rather than a dot that would be a lie about a brush.
+      ctx.save()
+      ctx.globalAlpha = 0.45
+      ctx.strokeStyle = '#fff'
+      ctx.setLineDash([4, 4])
+      ctx.beginPath()
+      ctx.arc(cx, cy, 14, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.restore()
+      return
+    }
+
+    // The extent first, as a faint ring: a very soft brush fades out long
+    // before its edge, and without this there is no telling how far it reaches.
+    ctx.save()
+    ctx.globalAlpha = 0.35
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 1
+    ctx.setLineDash([3, 3])
+    ctx.beginPath()
+    ctx.arc(cx, cy, Math.max(1, fit.drawn.width / 2), 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.restore()
+
+    // Then the brush itself, blurred exactly as a stroke of it would be.
+    ctx.save()
+    ctx.filter = fit.drawn.soft > 0.4 ? `blur(${fit.drawn.soft.toFixed(2)}px)` : 'none'
+    ctx.fillStyle = warm ? '#4ade80' : '#fff'
+    ctx.beginPath()
+    ctx.arc(cx, cy, fit.drawn.radius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }, [brush?.size, brush?.hardness, zoom, layerW, warm, fit.drawn.radius, fit.drawn.soft,
+    fit.drawn.width, box.w, box.h])
+
+  return (
+    <div className="brush-preview">
+      <canvas ref={ref} style={{ width: box.w, height: box.h }} />
+      <span className="brush-size">
+        {layerW ? `${fit.px} px` : 'no layer selected'}
+        {scaled && <em>{scaled}</em>}
+      </span>
+    </div>
+  )
+}
+
 export default function ToolRail() {
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
@@ -79,7 +160,7 @@ export default function ToolRail() {
           <button
             key={t.id}
             className={'tool' + (tool === t.id ? ' on' : '')}
-            title={`${t.label}  (${t.key})`}
+            title={`${t.label}  (${keyHint(t)})`}
             onClick={() => setTool(t.id)}
           >
             {t.icon ? (
@@ -103,6 +184,7 @@ export default function ToolRail() {
               scales with the layer, survives a save, and undoes cleanly.
             </Info>
           </div>
+          <BrushPreview brush={o.stamp} />
           <Row label="Brush">
             <Slider
               value={Math.round((o.stamp?.size ?? 0.08) * 100)}
@@ -244,6 +326,7 @@ export default function ToolRail() {
 
       {tool === 'erase' && (
         <div className="rail-options">
+          <BrushPreview brush={o.brush} warm={o.brush?.mode === 'restore'} />
           <div className="rail-opt-label">Brush size</div>
           <Slider
             value={Math.round((o.brush?.size ?? 0.06) * 200)}
@@ -365,6 +448,7 @@ function MaskPanel() {
         onChange={(mode) => setToolOptions({ maskBrush: { ...brush, mode } })}
         options={[{ value: 'add', label: 'Keep' }, { value: 'take', label: 'Remove' }]}
       />
+      <BrushPreview brush={brush} warm={brush.mode !== 'take'} />
       <div className="rail-opt-label">Brush size</div>
       <Slider
         value={Math.round((brush.size ?? 0.06) * 200)}
