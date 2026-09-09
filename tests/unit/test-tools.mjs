@@ -125,8 +125,12 @@ const near = (a, b, tol = 0.001) => Math.abs(a - b) <= tol
     feathered.drawn.width + feathered.drawn.soft * 2 <= box.h + 0.01,
     `${feathered.drawn.width + feathered.drawn.soft * 2} in ${box.h}`)
 
-  check('no layer means no size rather than a size of zero',
-    previewFit({ size: 0.1, hardness: 1 }, 0, 1, box).px === 0)
+  // The rail always has something to measure against — the selection, the
+  // topmost layer, or the document — so this is a guard on the arithmetic
+  // rather than a state the panel can show.
+  check('nothing to measure against reports nothing, and does not divide by it',
+    previewFit({ size: 0.1, hardness: 1 }, 0, 1, box).px === 0
+    && Number.isFinite(previewFit({ size: 0.1, hardness: 1 }, 0, 0, box).fit))
 }
 
 // --- how big a poster's thumbnail has to be ---------------------------------------------

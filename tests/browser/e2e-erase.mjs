@@ -454,16 +454,23 @@ const preview = await page.evaluate(async () => {
   window.__pfState().setToolOptions({ brush: { ...s0, size: (s0?.size ?? 0.06) * 2 } })
   await new Promise((r) => setTimeout(r, 300))
   const big = read()
-  // And with nothing selected there is no layer to be a fraction of.
+  // Painting has never needed a layer selected — the tool takes what is under
+  // the pointer — so the preview must not refuse to answer without one. It
+  // still shows a size, and still grows when the slider does.
   window.__pfState().select([])
   await new Promise((r) => setTimeout(r, 300))
   const none = read()
+  const b2 = window.__pfState().toolOptions.brush
+  window.__pfState().setToolOptions({ brush: { ...b2, size: (b2?.size ?? 0.06) * 2 } })
+  await new Promise((r) => setTimeout(r, 300))
+  const noneBigger = read()
   window.__pfState().select([id])
   window.__pfState().setToolOptions({ brush: s0 })
   await new Promise((r) => setTimeout(r, 250))
-  return { small, big, none }
+  return { small, big, none, noneBigger }
 })
 console.log('brush preview:', JSON.stringify(preview))
+const px = (s) => Number((s.match(/^(\d+) px/) || [])[1])
 check('the erase tool shows the brush above its sliders', preview.small.there === true)
 check('drawn on a canvas with real pixels in it',
   preview.small.canvas?.w > 0 && preview.small.canvas?.h > 0, JSON.stringify(preview.small.canvas))
@@ -471,12 +478,14 @@ check('and says what the brush measures on the picture',
   /^\d+ px/.test(preview.small.caption), preview.small.caption)
 // The number is the half that cannot lie: whatever the box had to do to fit the
 // picture in, the pixels it reports are the pixels it will paint.
-const px = (s) => Number((s.match(/^(\d+) px/) || [])[1])
 check('doubling the brush doubles what it reports',
   Math.abs(px(preview.big.caption) - px(preview.small.caption) * 2) <= 2,
   `${preview.small.caption} -> ${preview.big.caption}`)
-check('with no layer selected it says so rather than showing a size',
-  /no layer/.test(preview.none.caption), preview.none.caption)
+check('with nothing selected it still shows a size',
+  /^\d+ px/.test(preview.none.caption) && px(preview.none.caption) > 0, preview.none.caption)
+check('and still grows when the slider does',
+  px(preview.noneBigger.caption) > px(preview.none.caption),
+  `${preview.none.caption} -> ${preview.noneBigger.caption}`)
 
 // The clone stamp and the mask brush get the same picture, since they are the
 // same kind of thing and the question they answer is the same one.

@@ -58,14 +58,22 @@ function PixelIcon() {
 function BrushPreview({ brush, warm = false }) {
   const ref = useRef(null)
   const zoom = useStore((s) => s.view.zoom)
-  // The layer a stroke would land on, resolved at the playhead so an animated
-  // layer previews the width it has *now*. A number, so this re-renders when
-  // the width changes and not when anything else does.
+  // What the brush is a fraction *of*, resolved at the playhead so an animated
+  // layer previews the width it has now. A number, so this re-renders when that
+  // width changes and not when anything else does.
+  //
+  // The same order `eraseTarget` uses to decide where a stroke lands: the
+  // selection, then whatever is on top. Painting has never needed a layer
+  // selected — the tool takes what is under the pointer — so a preview that
+  // demanded one was refusing to answer a question the tool answers happily.
+  // With nothing on the canvas at all it falls back to the document, which is
+  // still a picture the brush would be a share of. There is always an answer.
   const layerW = useStore((s) => {
-    const sel = s.doc.layers.filter((l) => s.selectedIds.includes(l.id) && !l.locked
-      && l.type !== 'group' && l.type !== 'effect')
-    const l = sel[sel.length - 1]
-    return l ? Math.abs(resolveLayer(l, s.time).w) : 0
+    const paints = (l) => !l.locked && l.type !== 'group' && l.type !== 'effect'
+    const sel = s.doc.layers.filter((l) => s.selectedIds.includes(l.id) && paints(l))
+    const top = [...s.doc.layers].reverse().find((l) => l.visible !== false && paints(l))
+    const l = sel[sel.length - 1] || top
+    return l ? Math.abs(resolveLayer(l, s.time).w) : s.doc.width
   })
 
   // Tall enough that an ordinary brush is life-size rather than fitted: the
@@ -86,21 +94,6 @@ function BrushPreview({ brush, warm = false }) {
     ctx.clearRect(0, 0, box.w, box.h)
     const cx = box.w / 2
     const cy = box.h / 2
-
-    if (!layerW) {
-      // Nothing selected is not a size of zero, it is no answer at all — so it
-      // draws the hollow, dim ring the canvas cursor uses for the same case
-      // rather than a dot that would be a lie about a brush.
-      ctx.save()
-      ctx.globalAlpha = 0.45
-      ctx.strokeStyle = '#fff'
-      ctx.setLineDash([4, 4])
-      ctx.beginPath()
-      ctx.arc(cx, cy, 14, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.restore()
-      return
-    }
 
     // The extent first, as a faint ring: a very soft brush fades out long
     // before its edge, and without this there is no telling how far it reaches.
@@ -129,7 +122,7 @@ function BrushPreview({ brush, warm = false }) {
     <div className="brush-preview">
       <canvas ref={ref} style={{ width: box.w, height: box.h }} />
       <span className="brush-size">
-        {layerW ? `${fit.px} px` : 'no layer selected'}
+        {fit.px} px
         {scaled && <em>{scaled}</em>}
       </span>
     </div>
