@@ -475,10 +475,12 @@ const spanned = await page.evaluate(async () => {
   const perLayer = down()
   const id = window.__pfState().doc.layers.find((l) => l.id === a.id)
   window.__pfState().select([a.id])
-  for (const x of [a.id, b.id]) window.__pfState().updateLayer(x, { gradientSpan: 'group' })
+  // On one layer only: saying the gradient is the group's has to be enough, or
+  // the setting is a chore rather than a choice.
+  const applied = window.__pfState().setGradient(a.id, { span: 'group' })
   await new Promise((r) => setTimeout(r, 400))
   const perGroup = down()
-  return { grouped: !!id.parentId, perLayer, perGroup, first: a.id }
+  return { grouped: !!id.parentId, perLayer, perGroup, applied, first: a.id, second: b.id }
 })
 console.log('red down the pair:', JSON.stringify(spanned))
 check('the two shapes really are in a group', spanned.grouped === true)
@@ -486,6 +488,8 @@ check('the two shapes really are in a group', spanned.grouped === true)
 check('measuring each layer restarts the ramp on the second one',
   spanned.perLayer[2] > spanned.perLayer[1] + 100,
   `${spanned.perLayer.join(' -> ')}`)
+check('setting it on one layer applies it to the group',
+  spanned.applied?.count === 2, JSON.stringify(spanned.applied))
 check('measuring the group runs one ramp through both',
   spanned.perGroup[0] > spanned.perGroup[1]
   && spanned.perGroup[1] > spanned.perGroup[2]
@@ -543,6 +547,51 @@ const alone = await page.evaluate(async () => {
 // On a layer standing on its own the two answers are the same box, and the
 // control would be a choice between a thing and itself.
 check('a layer on its own is not', !alone.rows.includes('Across'), alone.rows.join(' '))
+
+// --- a plain layer in the group joins in ------------------------------------------
+// The case that made the first version useless: a gradient on one word and plain
+// text on the other. "Across the group" changed which box each measured itself
+// against, so the plain one stayed plain and nothing visible happened at all.
+const joined = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.doc.layers.forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 300))
+  const { makeShapeLayer } = window.__pfStore
+  const grad = window.__pfState().addLayer(makeShapeLayer({
+    shape: 'rect', x: 100, y: 100, w: 300, h: 150, fill: '#ff0000', fill2: '#0000ff',
+    fillAngle: 90, stroke: 'none', strokeWidth: 0, radius: 0,
+  }))
+  const plain = window.__pfState().addLayer(makeShapeLayer({
+    shape: 'rect', x: 100, y: 250, w: 300, h: 150, fill: '#888888',
+    stroke: 'none', strokeWidth: 0, radius: 0,
+  }))
+  window.__pfState().groupLayers([grad.id, plain.id])
+  await new Promise((r) => setTimeout(r, 350))
+  const was = window.__pfState().doc.layers.find((l) => l.id === plain.id)
+  window.__pfState().setGradient(grad.id, { span: 'group' })
+  await new Promise((r) => setTimeout(r, 350))
+  const now = window.__pfState().doc.layers.find((l) => l.id === plain.id)
+
+  // And an adjustment afterwards reaches all of them.
+  window.__pfState().setGradient(grad.id, { stop2: 0.5, angle: 30 })
+  await new Promise((r) => setTimeout(r, 300))
+  const after = window.__pfState().doc.layers.find((l) => l.id === plain.id)
+  return {
+    was: { fill: was.fill, fill2: was.fill2 },
+    now: { fill: now.fill, fill2: now.fill2, angle: now.fillAngle, span: now.gradientSpan },
+    after: { stop2: after.fillStop2, angle: after.fillAngle },
+    undone: null,
+  }
+})
+console.log('a plain layer joining the group gradient:', JSON.stringify(joined))
+check('the plain layer had no gradient to begin with', joined.was.fill2 === null,
+  JSON.stringify(joined.was))
+check('and is handed the group’s',
+  joined.now.fill === '#ff0000' && joined.now.fill2 === '#0000ff'
+  && joined.now.span === 'group', JSON.stringify(joined.now))
+// Otherwise dragging one word's knob pulls the shared ramp apart at that word.
+check('an adjustment afterwards reaches the whole group',
+  joined.after.stop2 === 0.5 && joined.after.angle === 30, JSON.stringify(joined.after))
 
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()

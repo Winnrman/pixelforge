@@ -14,7 +14,7 @@ import {
   addShapePath, corners, hitTest, layerCenter, toLocal, fromLocal, visibleBox, isCropped,
 } from '../engine/shapes.js'
 import { resolveLayer, hasTracks, trackOf, groupKeyTimes, valueAt } from '../engine/keyframes.js'
-import { gradientAxis, stopAt, stopPatch, gradientBox } from '../engine/gradient.js'
+import { gradientAxis, stopAt, gradientBox } from '../engine/gradient.js'
 import { resolveGroups, isGroup, descendantIds } from '../engine/groups.js'
 import { snapRect, unionBox, SNAP_TOLERANCE } from '../engine/snap.js'
 
@@ -1444,8 +1444,10 @@ export default function CanvasStage() {
       // on the line, which is what makes the knob feel attached to the bar.
       let t = stopAt(g, p.x, p.y)
       if (e.shiftKey) t = Math.round(t * 20) / 20
-      st.setLayerAtTime(d.id, stopPatch(base, d.key === 'grad' ? { stop: t } : { stop2: t }),
-        { relative: true })
+      // Through the store, so a knob on a gradient that belongs to the group
+      // moves it for every layer sharing it — otherwise dragging one word's knob
+      // would pull the shared ramp apart at that word.
+      st.setGradient(d.id, d.key === 'grad' ? { stop: t } : { stop2: t }, { commit: false })
       return
     }
 

@@ -165,14 +165,31 @@ export function placeIn(layer, box, { local = false } = {}) {
   return { w: box.w, h: box.h, cx: p.x, cy: p.y, rotation: -(layer.rotation || 0) }
 }
 
-/** A patch setting a layer's stops, under whichever names that layer uses. */
-export function stopPatch(l, { stop, stop2 }) {
+/** Whether a layer is the kind that can carry a gradient at all. */
+export const takesGradient = (l) => l?.type === 'shape' || l?.type === 'text'
+
+/**
+ * A patch setting any part of a gradient, under whichever names that layer uses.
+ *
+ * A shape fills and a text layer colours, so callers describe the gradient once
+ * — from, to, angle, the two stops, what it is measured against — and the
+ * spelling is worked out here. Which is what lets one gradient be written across
+ * a group of both kinds without anybody upstream caring.
+ */
+export function gradientPatch(l, spec) {
   const p = l?.type === 'text' ? 'color' : 'fill'
   const out = {}
-  if (stop !== undefined) out[`${p}Stop`] = clamp01(stop)
-  if (stop2 !== undefined) out[`${p}Stop2`] = clamp01(stop2)
+  if (spec.from !== undefined) out[p] = spec.from
+  if (spec.to !== undefined) out[`${p}2`] = spec.to
+  if (spec.angle !== undefined) out[`${p}Angle`] = spec.angle
+  if (spec.stop !== undefined) out[`${p}Stop`] = clamp01(spec.stop)
+  if (spec.stop2 !== undefined) out[`${p}Stop2`] = clamp01(spec.stop2)
+  if (spec.span !== undefined) out.gradientSpan = spec.span
   return out
 }
+
+/** A patch setting a layer's stops, under whichever names that layer uses. */
+export const stopPatch = (l, stops) => gradientPatch(l, stops)
 
 /**
  * The gradient's axis across a layer, in document coordinates.

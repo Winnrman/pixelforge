@@ -75,7 +75,7 @@ function GradientChip({ from, to, angle, onChange, commit }) {
       title={on ? 'Back to one flat colour' : 'Fade this into a second colour'}
       onClick={(e) => {
         e.preventDefault()
-        onChange(on ? { to: null } : { to: seedStop(from) })
+        onChange(on ? { to: null } : { from, to: seedStop(from) })
         commit()
       }}
     />
@@ -96,19 +96,20 @@ function GradientRows({ to, angle, span, grouped, onChange, commit, anim }) {
       {grouped && (
         <Row
           label="Across"
-          info={'What the gradient is measured against. This layer means the ramp runs '
-            + 'from one edge of it to the other, which is right for one shape and wrong '
-            + 'the moment a title is two text layers — each measures itself, so the ramp '
-            + 'restarts on the second word. The group means every layer in it reads the '
-            + 'same box, so one gradient crosses the whole title and each word takes the '
-            + 'part of it that falls where the word is.'}
+          info={'Whose gradient this is. This layer means the ramp runs from one edge of '
+            + 'it to the other, which is right for one shape and wrong the moment a title '
+            + 'is two words in two layers — each measures itself, so the ramp restarts on '
+            + 'the second. The group means the group has one gradient: this one is handed '
+            + 'to every shape and text layer in it, whatever they were before, and from '
+            + 'then on a colour, the angle or a knob dragged on the canvas moves all of '
+            + 'them together. Undo puts them back.'}
         >
           <Segmented
             value={span === 'group' ? 'group' : 'layer'}
             onChange={(v) => { onChange({ span: v }); commit() }}
             options={[
               { value: 'layer', label: 'This layer' },
-              { value: 'group', label: 'The group' },
+              { value: 'group', label: 'The whole group' },
             ]}
           />
         </Row>
@@ -216,18 +217,18 @@ export default function Inspector() {
 
   // A gradient edit is a patch of "the second stop" and "the angle", named
   // differently on the two layer types that have one.
-  const setFill = (g) => set({
-    ...(g.to !== undefined ? { fill2: g.to } : {}),
-    ...(g.angle !== undefined ? { fillAngle: g.angle } : {}),
-    // One name for both kinds of layer: a layer has one gradient, so what it is
-    // measured against needs no second spelling.
-    ...(g.span !== undefined ? { gradientSpan: g.span } : {}),
-  })
-  const setTextColor = (g) => set({
-    ...(g.to !== undefined ? { color2: g.to } : {}),
-    ...(g.angle !== undefined ? { colorAngle: g.angle } : {}),
-    ...(g.span !== undefined ? { gradientSpan: g.span } : {}),
-  })
+  // Both kinds of layer through one path: the store works out the spelling, and
+  // writes to the whole group when the gradient is the group's rather than this
+  // layer's.
+  const setGradient = useStore((st) => st.setGradient)
+  const gradient = (g) => {
+    begin()
+    if (!base) return
+    const res = setGradient(base.id, g, { commit: false })
+    if (res?.count > 1 && g.span === 'group') {
+      setNotice({ kind: 'ok', text: `One gradient across ${res.count} layers` })
+    }
+  }
 
   // Live edits are transient; history is pushed once, on the first change of a
   // gesture, via `begin()`.
@@ -1361,11 +1362,11 @@ export default function Inspector() {
             <Row label="Fill">
               <Color value={l.fill} onChange={(fill) => set({ fill })} onCommit={commit} />
               <GradientChip from={l.fill} to={l.fill2} angle={l.fillAngle}
-                onChange={setFill} commit={commit} />
+                onChange={gradient} commit={commit} />
             </Row>
             <GradientRows to={l.fill2} angle={l.fillAngle}
               span={l.gradientSpan} grouped={!!base?.parentId}
-              onChange={setFill} commit={commit} anim={animFor('fillAngle')} />
+              onChange={gradient} commit={commit} anim={animFor('fillAngle')} />
             <Row label="Stroke"><Color value={l.stroke} onChange={(stroke) => set({ stroke })} onCommit={commit} /></Row>
             <Row label="Width">
               <Slider value={l.strokeWidth} min={0} max={80}
@@ -1436,11 +1437,11 @@ export default function Inspector() {
             <Row label="Color">
               <Color value={l.color} onChange={(color) => set({ color })} onCommit={commit} />
               <GradientChip from={l.color} to={l.color2} angle={l.colorAngle}
-                onChange={setTextColor} commit={commit} />
+                onChange={gradient} commit={commit} />
             </Row>
             <GradientRows to={l.color2} angle={l.colorAngle}
               span={l.gradientSpan} grouped={!!base?.parentId}
-              onChange={setTextColor} commit={commit} anim={animFor('colorAngle')} />
+              onChange={gradient} commit={commit} anim={animFor('colorAngle')} />
             <Row label="Outline"><Color value={l.stroke} onChange={(stroke) => set({ stroke })} onCommit={commit} /></Row>
             <Row label="Outline w">
               <Slider value={l.strokeWidth} min={0} max={30}

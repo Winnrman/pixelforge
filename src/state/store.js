@@ -16,6 +16,7 @@ import {
 import { suggestLoop } from '../engine/loop.js'
 import { cardInsets, layoutCollage, defaultCollage } from '../engine/collage.js'
 import { defaultBrush, newStroke, newRegion, docToLayer } from '../engine/erase.js'
+import { gradientOf, gradientPatch, takesGradient, seedStop } from '../engine/gradient.js'
 import { DEFAULT_KIND as DEFAULT_TRANSITION, maxFade, splitFade } from '../engine/transitions.js'
 import { cursorPath, smoothPath, autoZoomTracks } from '../engine/cursor.js'
 import { exactFrame } from '../engine/video.js'
@@ -2879,6 +2880,48 @@ export const useStore = create((set, get) => ({
     s.pushHistory()
     const plus = l.mask.plus.slice(0, -1)
     s.updateLayer(id, { mask: { ...l.mask, plus: plus.length ? plus : undefined } })
+  },
+
+  /**
+   * Writes part of a gradient — to one layer, or to the whole group when the
+   * gradient belongs to the group rather than the layer.
+   *
+   * "Across: the group" has to mean the group has one gradient, or it means
+   * nothing you would ever want. The first version only changed which box each
+   * layer measured itself against, so a title of two words needed the same two
+   * colours and the same angle set on each of them by hand before the setting
+   * did anything visible — and a plain layer beside a gradient one simply stayed
+   * plain, which is not what anybody means by "across the group".
+   *
+   * So turning it on hands this layer's gradient to the rest of the group, and
+   * every adjustment afterwards — a colour, the angle, a knob dragged on the
+   * canvas — goes to all of them at once.
+   */
+  setGradient: (id, spec, { commit = true } = {}) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    if (!layer) return { ok: false, reason: 'Nothing selected.' }
+    if (commit) s.pushHistory()
+
+    // Turning the span on carries the whole gradient over, not just the switch:
+    // the others may have no gradient at all, and half a gradient is nothing.
+    const turningOn = spec.span === 'group'
+    const g = gradientOf(layer)
+    const full = turningOn && g
+      ? { from: g.from, to: g.to, angle: g.angle, stop: g.stop, stop2: g.stop2, span: 'group' }
+      : spec
+
+    const shares = turningOn
+      || (spec.span === undefined && (layer.gradientSpan === 'group'))
+    const family = shares && layer.parentId
+      ? s.doc.layers.filter((x) => x.parentId === layer.parentId && takesGradient(x)
+        && (turningOn || x.id === id || x.gradientSpan === 'group'))
+      : [layer]
+
+    for (const t of family) {
+      get().setLayerAtTime(t.id, gradientPatch(t, t.id === id ? { ...full, ...spec } : full))
+    }
+    return { ok: true, count: family.length }
   },
 
   clearMask: (id) => {
