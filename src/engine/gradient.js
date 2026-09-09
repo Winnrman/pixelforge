@@ -1,10 +1,11 @@
-// Two-stop gradients, for a shape's fill and a text layer's colour.
+// Gradients, for a shape's fill and a text layer's colour.
 //
-// Two colours and an angle, and nothing else. That is not a first instalment
-// with the rest to follow: it is what people reach for, and every extra stop is
-// a control that has to be understood before the first gradient can be made.
-// A shape with one colour is a flat shape, which is why there is no mode to
-// switch into — the second colour being unset *is* "no gradient".
+// Two colours and an angle is what people reach for, so that is what the panel
+// opens as: a shape with one colour is a flat shape, and the second colour being
+// unset *is* "no gradient" — there is no mode to switch into. Everything past
+// that pair is opt-in and stores nothing until it is asked for. A gradient with
+// no colours in the middle and no radial flag is the same document it would have
+// been before either existed.
 //
 // The angle is an ordinary number, which matters more than it sounds: it goes
 // on a keyframe track like rotation or opacity, so a gradient can sweep across
@@ -22,10 +23,18 @@ const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0))
  * whatever is behind it is a gradient and a useful one, and it is the same
  * colour at both ends.
  */
-export const isGradient = (from, to, alpha = 1, alpha2 = 1) => !!(
+export const isGradient = (from, to, alpha = 1, alpha2 = 1, mid = null) => !!(
   from && to && from !== 'none' && to !== 'none'
-  && (from !== to || Math.abs((alpha ?? 1) - (alpha2 ?? 1)) > 0.001)
+  && (from !== to || Math.abs((alpha ?? 1) - (alpha2 ?? 1)) > 0.001 || (mid?.length || 0) > 0)
 )
+
+/** The stops between the two ends, tidied: in range, in order, and real. */
+export function midStops(mid) {
+  return (mid || [])
+    .filter((m) => m && m.color)
+    .map((m) => ({ at: clamp01(m.at), color: m.color, alpha: clamp01(m.alpha ?? 1) }))
+    .sort((a, b) => a.at - b.at)
+}
 
 /**
  * A colour with an opacity of its own, ready for a canvas stop.
@@ -84,9 +93,10 @@ export function gradientLine(w, h, angle = 0) {
  */
 export function paintFor(ctx, {
   from, to, angle = 0, w, h, cx = 0, cy = 0, rotation = 0, stop = 0, stop2 = 1,
-  alpha = 1, alpha2 = 1,
+  alpha = 1, alpha2 = 1, mid = null, kind = 'linear',
 }) {
-  if (!isGradient(from, to, alpha, alpha2)) return from
+  const mids = midStops(mid)
+  if (!isGradient(from, to, alpha, alpha2, mids)) return from
   const line = gradientLine(w, h, angle)
   // A box with no area has no gradient line to draw along, and a zero-length one
   // paints nothing at all rather than the flat colour you would expect.
@@ -97,18 +107,24 @@ export function paintFor(ctx, {
   const at = (x, y) => [cx + x * cos - y * sin, cy + x * sin + y * cos]
   const [x0, y0] = at(line.x0, line.y0)
   const [x1, y1] = at(line.x1, line.y1)
-  const g = ctx.createLinearGradient(x0, y0, x1, y1)
-  // Where along the line each colour sits. Both at 0 and 1 is an even fade
+  // A radial runs from the middle outwards, so the same line gives it its
+  // radius: half of it, which puts the far colour on the corners exactly where
+  // the linear one puts it.
+  const g = kind === 'radial'
+    ? ctx.createRadialGradient(cx, cy, 0, cx, cy, line.len / 2)
+    : ctx.createLinearGradient(x0, y0, x1, y1)
+  // Where along the line each colour sits. Both ends at 0 and 1 is an even fade
   // across the whole box; pushing the second along leaves the first solid until
   // it, which is how one colour is given the majority. Sorted rather than
   // refused, because dragging one handle past the other is a thing that happens
   // and the answer is the gradient the other way round, not nothing.
   const a = clamp01(stop)
   const b = clamp01(stop2)
-  const one = withAlpha(from, alpha)
-  const two = withAlpha(to, alpha2)
-  g.addColorStop(Math.min(a, b), a <= b ? one : two)
-  g.addColorStop(Math.max(a, b), a <= b ? two : one)
+  const one = { at: a, color: withAlpha(from, alpha) }
+  const two = { at: b, color: withAlpha(to, alpha2) }
+  const all = [one, two, ...mids.map((m) => ({ at: m.at, color: withAlpha(m.color, m.alpha) }))]
+  all.sort((p, q) => p.at - q.at)
+  for (const st of all) g.addColorStop(st.at, st.color)
   return g
 }
 
@@ -129,7 +145,8 @@ export function gradientOf(l) {
   const to = p === 'fill' ? l.fill2 : l.color2
   const alpha = clamp01((p === 'fill' ? l.fillAlpha : l.colorAlpha) ?? 1)
   const alpha2 = clamp01((p === 'fill' ? l.fillAlpha2 : l.colorAlpha2) ?? 1)
-  if (!isGradient(from, to, alpha, alpha2)) return null
+  const mid = midStops(p === 'fill' ? l.fillMid : l.colorMid)
+  if (!isGradient(from, to, alpha, alpha2, mid)) return null
   return {
     prop: p,
     from,
@@ -139,6 +156,10 @@ export function gradientOf(l) {
     stop2: clamp01((p === 'fill' ? l.fillStop2 : l.colorStop2) ?? 1),
     alpha,
     alpha2,
+    mid,
+    // Linear unless it says otherwise, so every document written before radial
+    // existed opens as the gradient it was.
+    kind: (p === 'fill' ? l.fillKind : l.colorKind) === 'radial' ? 'radial' : 'linear',
   }
 }
 
@@ -219,6 +240,13 @@ export function gradientPatch(l, spec) {
   if (spec.alpha !== undefined) out[`${p}Alpha`] = clamp01(spec.alpha)
   if (spec.alpha2 !== undefined) out[`${p}Alpha2`] = clamp01(spec.alpha2)
   if (spec.span !== undefined) out.gradientSpan = spec.span
+  if (spec.kind !== undefined) out[`${p}Kind`] = spec.kind === 'radial' ? 'radial' : 'linear'
+  // An empty list is dropped rather than stored: a gradient with no colours in
+  // the middle should be the same document it was before anybody added one.
+  if (spec.mid !== undefined) {
+    const m = midStops(spec.mid)
+    out[`${p}Mid`] = m.length ? m : undefined
+  }
   return out
 }
 
@@ -245,10 +273,19 @@ export function gradientAxis(l, box = null) {
   const cos = Math.cos(t)
   const sin = Math.sin(t)
   const at = (x, y) => ({ x: c.x + x * cos - y * sin, y: c.y + x * sin + y * cos })
-  const p0 = at(line.x0, line.y0)
+  // A radial has no two ends, it has a middle and a rim — so its axis is the
+  // radius, and the same knobs mean the same thing along it.
+  const p0 = g.kind === 'radial' ? { x: c.x, y: c.y } : at(line.x0, line.y0)
   const p1 = at(line.x1, line.y1)
   const lerp = (u) => ({ x: p0.x + (p1.x - p0.x) * u, y: p0.y + (p1.y - p0.y) * u })
-  return { ...g, p0, p1, a: lerp(g.stop), b: lerp(g.stop2) }
+  return {
+    ...g,
+    p0,
+    p1,
+    a: lerp(g.stop),
+    b: lerp(g.stop2),
+    mids: g.mid.map((m, i) => ({ ...m, i, pt: lerp(m.at) })),
+  }
 }
 
 /** Where a document point falls along a gradient's axis, 0 to 1. */

@@ -98,8 +98,24 @@ function StopAlpha({ value, onChange, commit }) {
 }
 
 /** The second stop, the angle, and what the gradient measures itself against. */
-function GradientRows({ to, angle, span, grouped, alpha, alpha2, onChange, commit, anim }) {
+function GradientRows({
+  to, angle, span, grouped, alpha, alpha2, mid, kind, onChange, commit, anim,
+}) {
   if (!to) return null
+  const stops = mid || []
+  // Dropped in halfway along unless something is already there, then beside it.
+  // A new colour landing exactly on one already placed reads as nothing having
+  // happened at all.
+  const addStop = () => {
+    const taken = new Set(stops.map((m) => Math.round(m.at * 100)))
+    let at = 0.5
+    while (taken.has(Math.round(at * 100)) && at < 0.95) at += 0.1
+    onChange({ mid: [...stops, { at, color: '#ffffff', alpha: 1 }] })
+    commit()
+  }
+  const setStop = (i, patch) => onChange({
+    mid: stops.map((m, j) => (j === i ? { ...m, ...patch } : m)),
+  })
   return (
     <>
       {/* One opacity per end. The layer's own is a single number for the whole
@@ -138,15 +154,48 @@ function GradientRows({ to, angle, span, grouped, alpha, alpha2, onChange, commi
           />
         </Row>
       )}
-      <Row label="Angle" anim={anim}>
-        <Slider
-          value={Math.round(angle ?? 90)}
-          min={0}
-          max={360}
-          onChange={(v) => onChange({ angle: v })}
-          onCommit={commit}
-          suffix="°"
+      <Row
+        label="Shape"
+        info={'Linear runs across the box at the angle below. Radial runs out from the '
+          + 'middle, so the angle stops meaning anything and the stops measure from the '
+          + 'centre to the corner instead.'}
+      >
+        <Segmented
+          value={kind === 'radial' ? 'radial' : 'linear'}
+          onChange={(v) => { onChange({ kind: v }); commit() }}
+          options={[{ value: 'linear', label: 'Linear' }, { value: 'radial', label: 'Radial' }]}
         />
+      </Row>
+      {kind !== 'radial' && (
+        <Row label="Angle" anim={anim}>
+          <Slider
+            value={Math.round(angle ?? 90)}
+            min={0}
+            max={360}
+            onChange={(v) => onChange({ angle: v })}
+            onCommit={commit}
+            suffix="°"
+          />
+        </Row>
+      )}
+      {stops.map((m, i) => (
+        <Row key={i} label={i === 0 ? 'Middle' : ''}>
+          <Color value={m.color} onChange={(color) => setStop(i, { color })} onCommit={commit} />
+          <Slider
+            value={Math.round(m.at * 100)} min={0} max={100} suffix="%"
+            onChange={(v) => setStop(i, { at: v / 100 })}
+            onCommit={commit}
+          />
+          <button
+            className="mini"
+            title="Take this colour out of the gradient"
+            onClick={() => { onChange({ mid: stops.filter((_, j) => j !== i) }); commit() }}
+          >✕</button>
+        </Row>
+      ))}
+      <Row label="">
+        <button className="mini" title="Put another colour between the two ends"
+          onClick={addStop}>Add a colour</button>
       </Row>
     </>
   )
@@ -1470,6 +1519,7 @@ export default function Inspector() {
             <GradientRows to={l.fill2} angle={l.fillAngle}
               span={l.gradientSpan} grouped={!!base?.parentId}
               alpha={l.fillAlpha} alpha2={l.fillAlpha2}
+              mid={l.fillMid} kind={l.fillKind}
               onChange={gradient} commit={commit} anim={animFor('fillAngle')} />
             <Row label="Stroke"><Color value={l.stroke} onChange={(stroke) => set({ stroke })} onCommit={commit} /></Row>
             {l.strokeWidth > 0 && (
@@ -1605,6 +1655,7 @@ export default function Inspector() {
             <GradientRows to={l.color2} angle={l.colorAngle}
               span={l.gradientSpan} grouped={!!base?.parentId}
               alpha={l.colorAlpha} alpha2={l.colorAlpha2}
+              mid={l.colorMid} kind={l.colorKind}
               onChange={gradient} commit={commit} anim={animFor('colorAngle')} />
             <Row label="Outline"><Color value={l.stroke} onChange={(stroke) => set({ stroke })} onCommit={commit} /></Row>
             {l.strokeWidth > 0 && (

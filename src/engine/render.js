@@ -733,6 +733,7 @@ function drawShapeLayer(ctx, l) {
     const g = gradientOf(l)
     ctx.fillStyle = paintFor(ctx, {
       from: l.fill, to: l.fill2, angle: l.fillAngle, stop: g?.stop, stop2: g?.stop2,
+      mid: g?.mid, kind: g?.kind,
       alpha: g?.alpha, alpha2: g?.alpha2,
       // The path built its own transform and put it back, so the context here is
       // the document — which is also the frame `gradBox` is measured in.
@@ -1056,6 +1057,7 @@ function drawTextLayer(ctx, l, { outlineOnly = false, only = null, skip = null }
   const fill = paintFor(ctx, {
     from: l.color || '#fff', to: l.color2, angle: l.colorAngle,
     stop: grad?.stop, stop2: grad?.stop2, alpha: grad?.alpha, alpha2: grad?.alpha2,
+    mid: grad?.mid, kind: grad?.kind,
     // Local: the context is already centred and turned on this layer's box.
     ...placeIn(l, l.gradBox, { local: true }),
   })

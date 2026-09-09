@@ -3170,7 +3170,10 @@ export const useStore = create((set, get) => ({
     const turningOn = spec.span === 'group'
     const g = gradientOf(layer)
     const full = turningOn && g
-      ? { from: g.from, to: g.to, angle: g.angle, stop: g.stop, stop2: g.stop2, span: 'group' }
+      ? {
+          from: g.from, to: g.to, angle: g.angle, stop: g.stop, stop2: g.stop2,
+          mid: g.mid, kind: g.kind, span: 'group',
+        }
       : spec
 
     const shares = turningOn

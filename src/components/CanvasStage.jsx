@@ -18,7 +18,7 @@ import {
   layerAABB,
 } from '../engine/shapes.js'
 import { resolveLayer, hasTracks, trackOf, groupKeyTimes, valueAt } from '../engine/keyframes.js'
-import { gradientAxis, stopAt, gradientBox } from '../engine/gradient.js'
+import { gradientAxis, stopAt, gradientBox, gradientOf } from '../engine/gradient.js'
 import { resolveGroups, isGroup, descendantIds, withDescendants } from '../engine/groups.js'
 import { snapRect, unionBox, SNAP_TOLERANCE } from '../engine/snap.js'
 
@@ -773,6 +773,7 @@ export default function CanvasStage() {
       p1: shift(s1),
       a: shift(scr(g.a)),
       b: shift(scr(g.b)),
+      mids: (g.mids || []).map((m) => ({ ...m, pt: shift(scr(m.pt)) })),
     }
   }
 
@@ -811,7 +812,8 @@ export default function CanvasStage() {
     ctx.lineTo(b.x, b.y)
     ctx.stroke()
 
-    for (const [pt, colour] of [[a, g.from], [b, g.to]]) {
+    const knobs = [[a, g.from], [b, g.to], ...g.mids.map((m) => [m.pt, m.color])]
+    for (const [pt, colour] of knobs) {
       ctx.beginPath()
       ctx.arc(pt.x, pt.y, GRAD_KNOB, 0, Math.PI * 2)
       ctx.fillStyle = colour
@@ -1139,6 +1141,14 @@ export default function CanvasStage() {
       // The far stop first. Dragged together they land on the same pixel, and
       // the one you would then be stuck unable to move is the one that has
       // somewhere to go.
+      // The colours in the middle first: they sit between the two ends and are
+      // the smaller target, so a knob that overlaps an end has to win or it
+      // could never be grabbed at all.
+      for (const m of g.mids) {
+        if (Math.hypot(p.sx - m.pt.x, p.sy - m.pt.y) <= GRAD_KNOB + 4) {
+          return { key: `gradMid:${m.i}`, layer: l }
+        }
+      }
       for (const [key, q] of [['grad2', g.b], ['grad', g.a]]) {
         if (Math.hypot(p.sx - q.x, p.sy - q.y) <= GRAD_KNOB + 4) return { key, layer: l }
       }
@@ -1242,7 +1252,7 @@ export default function CanvasStage() {
     }
 
     const h = hitHandle(p)
-    if (h && (h.key === 'grad' || h.key === 'grad2')) {
+    if (h && (h.key === 'grad' || h.key === 'grad2' || h.key.startsWith('gradMid:'))) {
       st.pushHistory()
       drag.current = { mode: 'gradstop', key: h.key, id: h.layer.id }
       return
@@ -1603,6 +1613,17 @@ export default function CanvasStage() {
       // Through the store, so a knob on a gradient that belongs to the group
       // moves it for every layer sharing it — otherwise dragging one word's knob
       // would pull the shared ramp apart at that word.
+      if (d.key.startsWith('gradMid:')) {
+        // A colour in the middle moves along the same axis as the ends, and is
+        // written back into the list it came from rather than sorted on the way
+        // — dragging one past another must not renumber the knob under the
+        // pointer mid-drag.
+        const i = Number(d.key.slice(8))
+        const gr = gradientOf(st.doc.layers.find((x) => x.id === d.id) || {})
+        const mid = (gr?.mid || []).map((m, j) => (j === i ? { ...m, at: t } : m))
+        st.setGradient(d.id, { mid }, { commit: false })
+        return
+      }
       st.setGradient(d.id, d.key === 'grad' ? { stop: t } : { stop2: t }, { commit: false })
       return
     }

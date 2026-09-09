@@ -677,6 +677,75 @@ check('and leaves the fill itself alone',
   border.faint.middle[0] > 240 && border.faint.middle[1] < 20, JSON.stringify(border.faint.middle))
 check('with a row of its own', border.rows.includes('Stroke %'), border.rows.join(' '))
 
+// --- a third colour, and a radial ---------------------------------------------------
+// Both measured off the pixels, because both are the sort of thing that stores
+// correctly and draws wrongly: a stop list that reaches canvas out of order
+// throws, and a radial that keeps the linear line is simply a linear gradient
+// with a new label on it.
+const more = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  st.setDoc({ width: 200, height: 200, background: '#000000' })
+  await new Promise((r) => setTimeout(r, 250))
+  const { makeShapeLayer } = window.__pfStore
+  const layer = makeShapeLayer({
+    shape: 'rect', x: 0, y: 0, w: 200, h: 200,
+    fill: '#ff0000', fill2: '#0000ff', fillAngle: 90, strokeWidth: 0,
+  })
+  window.__pfState().addLayer(layer)
+  await new Promise((r) => setTimeout(r, 300))
+  const id = layer.id
+
+  const read = (pts) => {
+    const s2 = window.__pfState()
+    const c = document.createElement('canvas')
+    c.width = s2.doc.width
+    c.height = s2.doc.height
+    const g = c.getContext('2d', { willReadFrequently: true })
+    window.__pfRender.renderDocument(g, s2.doc, 0)
+    return pts.map(([x, y]) => {
+      const d = g.getImageData(x, y, 1, 1).data
+      return { r: d[0], g: d[1], b: d[2] }
+    })
+  }
+
+  // Top to bottom, red to blue. Nothing green anywhere.
+  const two = read([[100, 6], [100, 100], [100, 194]])
+
+  window.__pfState().setGradient(id, { mid: [{ at: 0.5, color: '#00ff00', alpha: 1 }] })
+  await new Promise((r) => setTimeout(r, 350))
+  const three = read([[100, 6], [100, 100], [100, 194]])
+
+  window.__pfState().setGradient(id, { mid: [], kind: 'radial' })
+  await new Promise((r) => setTimeout(r, 350))
+  // Centre, and a point out towards a corner.
+  const radial = read([[100, 100], [100, 6]])
+  const stored = window.__pfState().doc.layers.find((x) => x.id === id)
+  return { two, three, radial, kind: stored.fillKind, mid: stored.fillMid }
+})
+console.log('gradients:', JSON.stringify(more))
+
+check('two colours still run end to end',
+  more.two[0].r > 200 && more.two[2].b > 200 && more.two[1].g < 40,
+  JSON.stringify(more.two))
+// The whole point of a third stop: the middle is now the colour that was put
+// there, and the ends are unmoved.
+check('a colour added in the middle is drawn in the middle',
+  more.three[1].g > 200 && more.three[1].r < 60 && more.three[1].b < 60,
+  JSON.stringify(more.three[1]))
+check('and the two ends stay where they were',
+  more.three[0].r > 200 && more.three[2].b > 200, JSON.stringify(more.three))
+check('taking it out again leaves nothing behind', more.mid === undefined, JSON.stringify(more.mid))
+
+check('a radial puts the first colour in the middle',
+  more.radial[0].r > 200 && more.radial[0].b < 60, JSON.stringify(more.radial[0]))
+check('and the second one out at the rim',
+  more.radial[1].b > more.radial[1].r, JSON.stringify(more.radial[1]))
+check('which is a different picture from the linear one it replaced',
+  Math.abs(more.radial[0].r - more.two[1].r) > 100,
+  `${more.two[1].r} at the centre before, ${more.radial[0].r} after`)
+check('and it is stored as one', more.kind === 'radial', String(more.kind))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

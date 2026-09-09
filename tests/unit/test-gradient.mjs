@@ -6,7 +6,7 @@
 // colour. Neither announces itself, so it is worth pinning down.
 import {
   gradientLine, isGradient, seedStop, gradientOf, stopPatch, gradientAxis, stopAt,
-  gradientBox, placeIn, withAlpha, gradientPatch,
+  gradientBox, placeIn, withAlpha, gradientPatch, midStops,
 } from '../../src/engine/gradient.js'
 
 const checks = []
@@ -256,6 +256,71 @@ check('and at the same opacity is still not', !isGradient('#fff', '#fff', 0.5, 0
     JSON.stringify(gradientPatch({ type: 'text' }, { alpha: 0.5 })) === '{"colorAlpha":0.5}')
   check('and one end fading out makes a gradient of one colour',
     gradientOf({ type: 'shape', fill: '#f00', fill2: '#f00', fillAlpha: 1, fillAlpha2: 0 }) !== null)
+}
+
+// --- more than two colours, and a radial ---------------------------------------------
+// Both are opt-in and neither stores anything until it is asked for: a gradient
+// with nothing in the middle and no radial flag has to be the same document it
+// would have been before either existed.
+{
+  const flat = { type: 'shape', fill: '#ff0000', fill2: null }
+  check('a colour in the middle makes a gradient of one flat colour',
+    !!gradientOf({ type: 'shape', fill: '#ff0000', fill2: '#ff0000',
+      fillMid: [{ at: 0.5, color: '#0000ff' }] }),
+    'same colour at both ends, something else between them')
+  check('and without one it is still flat',
+    gradientOf({ type: 'shape', fill: '#ff0000', fill2: '#ff0000' }) === null)
+  check('nothing at all is still nothing', gradientOf(flat) === null)
+
+  const g = gradientOf({
+    type: 'text', color: '#000000', color2: '#ffffff',
+    colorMid: [{ at: 0.9, color: '#ff0000' }, { at: 0.2, color: '#00ff00', alpha: 0.5 }],
+  })
+  check('the colours in the middle come back in order',
+    g.mid.map((m) => m.at).join() === '0.2,0.9', g.mid.map((m) => m.at).join())
+  check('each with its own opacity', g.mid[0].alpha === 0.5 && g.mid[1].alpha === 1,
+    JSON.stringify(g.mid))
+  check('positions outside the run are pulled back into it',
+    midStops([{ at: 4, color: '#fff' }, { at: -2, color: '#000' }])
+      .map((m) => m.at).join() === '0,1')
+  check('and a stop with no colour is not a stop',
+    midStops([{ at: 0.5 }, null, { at: 0.5, color: '#fff' }]).length === 1)
+
+  check('linear unless it says otherwise, so old documents open as they were',
+    gradientOf({ type: 'shape', fill: '#000', fill2: '#fff' }).kind === 'linear')
+  check('and radial when it does',
+    gradientOf({ type: 'shape', fill: '#000', fill2: '#fff', fillKind: 'radial' }).kind === 'radial')
+
+  const patch = gradientPatch({ type: 'shape' }, { kind: 'radial', mid: [{ at: 0.5, color: '#f0f' }] })
+  check('a patch writes both under the layer’s own spelling',
+    patch.fillKind === 'radial' && patch.fillMid.length === 1, JSON.stringify(patch))
+  // An empty list is dropped rather than stored, so taking the last colour out
+  // leaves the document it was before anyone added one.
+  check('and an emptied list is dropped rather than stored',
+    gradientPatch({ type: 'shape' }, { mid: [] }).fillMid === undefined)
+}
+
+// --- the axis a radial is dragged along ------------------------------------------------
+{
+  const l = { type: 'shape', x: 0, y: 0, w: 200, h: 200, fill: '#000', fill2: '#fff' }
+  const lin = gradientAxis(l)
+  const rad2 = gradientAxis({ ...l, fillKind: 'radial' })
+  // A radial has no two ends, it has a middle and a rim, so its axis is the
+  // radius — which is what keeps the same knobs meaning the same thing.
+  check('a radial is dragged from the centre outwards',
+    Math.abs(rad2.p0.x - 100) < 0.01 && Math.abs(rad2.p0.y - 100) < 0.01,
+    JSON.stringify(rad2.p0))
+  check('while a linear runs edge to edge', lin.p0.y < 1 && lin.p1.y > 199,
+    JSON.stringify([lin.p0, lin.p1]))
+  check('both end at the same place, so the rim is where the far colour was',
+    Math.abs(rad2.p1.y - lin.p1.y) < 0.01, `${rad2.p1.y} vs ${lin.p1.y}`)
+
+  const mids = gradientAxis({ ...l, fillMid: [{ at: 0.25, color: '#f00' }] })
+  check('a colour in the middle gets a knob on the axis',
+    mids.mids.length === 1 && Math.abs(mids.mids[0].pt.y - 50) < 0.01,
+    JSON.stringify(mids.mids))
+  check('and it knows which one it is, so dragging it writes back to the right one',
+    mids.mids[0].i === 0)
 }
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')
