@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
+import { Info } from './ui.jsx'
 
 function Thumb({ blob }) {
   const [url, setUrl] = useState(null)
@@ -54,8 +55,10 @@ export default function OpenDialog({ onClose }) {
         <div className="modal-body">
           {!projects.length && (
             <p className="hint">
-              Nothing saved in this browser yet. Press <b>Save</b> to keep a project here,
-              or open a <code>.pfz</code> file you exported earlier.
+              Nothing saved in this browser yet.
+              <Info>
+                Press Save to keep a project here, or open a .pfz file you exported earlier.
+              </Info>
             </p>
           )}
 
@@ -102,9 +105,11 @@ export default function OpenDialog({ onClose }) {
             {showBackups && (
               <>
                 <p className="hint">
-                  Every save and every export also writes the editable project here, so an
-                  exported PNG is never the only copy. The most recent are kept; older ones
-                  are dropped as new ones arrive.
+                  Written on every save and every export.
+                  <Info>
+                    So an exported PNG is never the only copy. The most recent are kept;
+                    older ones are dropped as new ones arrive.
+                  </Info>
                 </p>
                 {!backups.length && <p className="hint">No backups yet.</p>}
                 <div className="proj-list">

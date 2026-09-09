@@ -5,6 +5,7 @@ import { hasTracks, activeGroups, groupKeyTimes, keyTimeNear } from '../engine/k
 import { stripLayers } from '../engine/filmstrip.js'
 import Filmstrip from './Filmstrip.jsx'
 import AudioRows from './AudioRow.jsx'
+import { Info } from './ui.jsx'
 import { byTrack, trackCount } from '../engine/clips.js'
 
 /**
@@ -870,8 +871,11 @@ export default function Timeline() {
 
       {!bothOpen && tab === 'keys' && !keyed.length && strips.length > 0 && (
         <p className="tl-empty">
-          Nothing is animated yet. Turn on animation for a property in the inspector,
-          or switch to Video to see the clips.
+          Nothing is animated yet.
+          <Info>
+            Turn on animation for a property in the inspector, or switch to Video to see
+            the clips.
+          </Info>
         </p>
       )}
 
@@ -939,8 +943,10 @@ export default function Timeline() {
           </div>
           {loose.length > 0 && (
             <p className="tl-note">
-              Not on a track — these play for the whole project and loop.
-              Drag one onto a track to cut it.
+              Not on a track.
+              <Info>
+                These play for the whole project and loop. Drag one onto a track to cut it.
+              </Info>
             </p>
           )}
           {loose.map(({ layer, asset }) => (

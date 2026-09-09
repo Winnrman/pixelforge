@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
 import { layoutCollage, PHOTO_SHAPES, COLLAGE_STYLES } from '../engine/collage.js'
-import { Row, Slider, Select, Color, Segmented, Toggle } from './ui.jsx'
+import { Row, Slider, Select, Color, Segmented, Toggle, Info } from './ui.jsx'
 
 export default function CollageDialog({ assetIds, onClose }) {
   const makeCollage = useStore((s) => s.makeCollage)
@@ -37,13 +37,14 @@ export default function CollageDialog({ assetIds, onClose }) {
           <Row label="Style">
             <Segmented value={o.style} onChange={(style) => set({ style })} options={COLLAGE_STYLES} />
           </Row>
-          <Row label="Photo shape">
+          <Row
+            label="Photo shape"
+            info={'Photos are cropped to fill their mount, not squashed into it — the crop '
+              + 'is the ordinary non-destructive one, so you can reframe any card '
+              + 'afterwards.'}
+          >
             <Select value={o.shape} onChange={(shape) => set({ shape })} options={PHOTO_SHAPES} />
           </Row>
-          <p className="hint">
-            Photos are cropped to fill their mount, not squashed into it — the crop is the
-            ordinary non-destructive one, so you can reframe any card afterwards.
-          </p>
 
           <Row label="Centre piece">
             <Select
@@ -63,8 +64,10 @@ export default function CollageDialog({ assetIds, onClose }) {
           )}
           {o.hero !== 'none' && plan.hero < 0 && (
             <p className="hint">
-              Too few photos for a centre piece — it needs an interior cell to sit in, or
-              enlarging one just buries the rest.
+              Too few photos for a centre piece.
+              <Info>
+                It needs an interior cell to sit in, or enlarging one just buries the rest.
+              </Info>
             </p>
           )}
 
@@ -104,7 +107,7 @@ export default function CollageDialog({ assetIds, onClose }) {
           </Row>
           <p className="hint">
             {o.gap < -0.005
-              ? `Cards overlap by ${Math.round(-o.gap * 100)}% of a cell — corners and edges lap over their neighbours, which leaves far less backdrop showing.`
+              ? `Cards overlap by ${Math.round(-o.gap * 100)}% of a cell.`
               : o.gap > 0.005
                 ? `Cards are spaced ${Math.round(o.gap * 100)}% apart, so nothing touches.`
                 : 'Cards sit flush against each other.'}
@@ -113,7 +116,13 @@ export default function CollageDialog({ assetIds, onClose }) {
             <Slider value={Math.round((o.sizeVary ?? 0) * 100)} min={0} max={35}
               onChange={(v) => set({ sizeVary: v / 100 })} suffix="%" />
           </Row>
-          <Row label="Shuffle">
+          <Row
+            label="Shuffle"
+            info={'Tilt, wobble, size and the stacking order all come from the seed rather '
+              + 'than from chance, so a collage looks the same after an undo or a reload. '
+              + 'Re-tilt picks a new one. A negative margin lets the outer cards bleed off '
+              + 'the edge.'}
+          >
             <span className="btn-group">
               <button className="btn ghost" onClick={() => set({ seed: (o.seed % 999) + 1 })}>
                 Re-tilt
@@ -121,11 +130,7 @@ export default function CollageDialog({ assetIds, onClose }) {
               <span className="readout dim">seed {o.seed}</span>
             </span>
           </Row>
-          <p className="hint">
-            Tilt, wobble, size and the stacking order all come from the seed rather than
-            from chance, so a collage looks the same after an undo or a reload. Re-tilt
-            picks a new one. A negative margin lets the outer cards bleed off the edge.
-          </p>
+
 
           <Row label="Backdrop">
             <Toggle value={o.backdrop} onChange={(backdrop) => set({ backdrop })}>

@@ -20,7 +20,22 @@ if (!fs.existsSync('dist/index.html')) {
   process.exit(1)
 }
 
+
+// Scratch, and swept up afterwards. Each of these is a full Electron user-data
+// directory — several megabytes — and a run that leaves one behind every time
+// turns a temp folder into a graveyard. Thirty runs is a gigabyte, which is
+// exactly what happened before this was here.
+const scrubDirs = []
+const scrub = () => {
+  for (const d of scrubDirs) {
+    try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 3 }) } catch { /* held open */ }
+  }
+}
+process.on('exit', scrub)
+process.on('SIGINT', () => { scrub(); process.exit(130) })
+
 const PROFILE = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-profile-'))
+scrubDirs.push(PROFILE)
 const app = await electron.launch({
   args: ['.'],
   // Its own profile, so a run never collides with an instance the user has open.
@@ -313,6 +328,7 @@ if (!fs.existsSync(PFZ)) {
   console.log('SKIP  no sample.pfz — run `node scripts/make-test-pfz.mjs`')
 } else {
   const PROFILE2 = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-open-'))
+scrubDirs.push(PROFILE2)
   const opened = await electron.launch({
     args: ['.', PFZ],
     env: { ...process.env, PF_USER_DATA: PROFILE2, PF_NO_CONFIRM: '1' },

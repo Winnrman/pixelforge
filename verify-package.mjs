@@ -25,7 +25,22 @@ const check = (name, ok, detail = '') => {
 
 // Its own profile: this is the real application, and a smoke test has no
 // business writing into the settings and backups of an actual install.
+
+// Scratch, and swept up afterwards. Each of these is a full Electron user-data
+// directory — several megabytes — and a run that leaves one behind every time
+// turns a temp folder into a graveyard. Thirty runs is a gigabyte, which is
+// exactly what happened before this was here.
+const scrubDirs = []
+const scrub = () => {
+  for (const d of scrubDirs) {
+    try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 3 }) } catch { /* held open */ }
+  }
+}
+process.on('exit', scrub)
+process.on('SIGINT', () => { scrub(); process.exit(130) })
+
 const PROFILE = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-pkg-'))
+scrubDirs.push(PROFILE)
 const app = await electron.launch({
   executablePath: EXE,
   args: [],

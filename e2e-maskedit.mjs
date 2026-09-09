@@ -208,6 +208,81 @@ console.log('trimming a repaired mask:', JSON.stringify(retrim))
 check('trimming a repaired mask measures the repair too',
   retrim.after > retrim.wide * 0.9, `${retrim.wide} -> ${retrim.after}`)
 
+// --- editing the outline itself --------------------------------------------------------
+// Adding a piece is a repair. This is the edit: the outline that cut too tight
+// comes back as an ordinary lasso with its points intact, so a corner that
+// clipped a leg can be dragged out rather than the whole shape drawn again.
+const edit = await page.evaluate(async (id) => {
+  const st = window.__pfState()
+  st.clearMask(id)
+  await new Promise((r) => setTimeout(r, 250))
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  const box = { x: l.x, y: l.y, w: l.w, h: l.h }
+  const at = (fx, fy) => [box.x + box.w * fx, box.y + box.h * fy]
+  st.select([id])
+  // Cut too tight: the right edge stops at 40% when the subject runs to 80%.
+  st.setLasso({ points: [at(0.05, 0.05), at(0.4, 0.05), at(0.4, 0.95), at(0.05, 0.95)], closed: true })
+  st.applyLasso('mask')
+  await new Promise((r) => setTimeout(r, 400))
+  const cut = window.__pfState().doc.layers.find((x) => x.id === id)
+  const trimmed = { w: Math.round(cut.w), src: Math.round(cut.src.w * 100) }
+
+  const res = window.__pfState().editMask(id)
+  await new Promise((r) => setTimeout(r, 400))
+  const s2 = window.__pfState()
+  const opened = s2.doc.layers.find((x) => x.id === id)
+  const pts = s2.lasso.points
+  const xs = pts.map((q) => q[0])
+  return {
+    res,
+    trimmed,
+    box,
+    opened: { w: Math.round(opened.w), src: Math.round((opened.src?.w ?? 1) * 100), masked: !!opened.mask },
+    tool: s2.tool,
+    outline: { n: pts.length, right: Math.round(Math.max(...xs)), left: Math.round(Math.min(...xs)) },
+  }
+}, start.id)
+console.log('editing a mask:', JSON.stringify(edit))
+check('a mask can be handed back to the lasso', edit.res.ok === true, JSON.stringify(edit.res))
+check('with the same number of points it was cut with', edit.outline.n === 4, `${edit.outline.n}`)
+check('and in the same place on the picture',
+  Math.abs(edit.outline.left - (edit.box.x + edit.box.w * 0.05)) < 3
+  && Math.abs(edit.outline.right - (edit.box.x + edit.box.w * 0.4)) < 3,
+  JSON.stringify(edit.outline))
+// Both of these are the difference between editing and merely appearing to. The
+// frame is opened back out, because the edge you are trying to win back is
+// outside a frame that was trimmed to what the cut kept — invisible, and a point
+// you cannot see is a point you cannot drag. And the mask comes off, so what you
+// drag the outline over is the photograph rather than the cut-out of it.
+check('the frame opens back out to the whole picture',
+  edit.opened.w > edit.trimmed.w * 2 && edit.opened.src > 95,
+  `${edit.trimmed.w}px/${edit.trimmed.src}% -> ${edit.opened.w}px/${edit.opened.src}%`)
+check('and the mask comes off while you work on it', edit.opened.masked === false)
+check('with the lasso tool in hand', edit.tool === 'lasso', edit.tool)
+
+// Drag the two right-hand points out, and put it back.
+const redone = await page.evaluate(async (id) => {
+  const st = window.__pfState()
+  const box = st.doc.layers.find((x) => x.id === id)
+  const wide = box.x + box.w * 0.8
+  st.setLasso({
+    points: st.lasso.points.map(([x, y]) => [x > box.x + box.w * 0.3 ? wide : x, y]),
+    closed: true,
+  })
+  const res = window.__pfState().applyLasso('mask')
+  await new Promise((r) => setTimeout(r, 500))
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  return { res, w: Math.round(l.w), outlines: 1 + (l.mask?.plus?.length || 0) }
+}, start.id)
+console.log('after dragging the edge out and re-masking:', JSON.stringify(redone))
+check('the edited outline goes back on as the mask',
+  redone.res.ok === true && redone.outlines === 1, JSON.stringify(redone))
+check('and it keeps the wider shape it was dragged to',
+  redone.w > edit.trimmed.w * 1.7, `${edit.trimmed.w} -> ${redone.w}`)
+check('the leg that was cut off is there now', await litAt(0.6, 0.5))
+check('and what was outside the outline still is not', !(await litAt(0.9, 0.5)))
+await page.screenshot({ path: path.join(OUT, '03-edited.png') })
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

@@ -1,6 +1,6 @@
 import { useStore } from '../state/store.js'
 import { EFFECTS } from '../engine/effects.js'
-import { Row, Select, Slider, Segmented, Toggle } from './ui.jsx'
+import { Row, Select, Slider, Segmented, Toggle, Info } from './ui.jsx'
 
 const TOOLS = [
   // Bounding box deliberately centred on the 24x24 viewBox (x 5.5-18.5,
@@ -91,7 +91,15 @@ export default function ToolRail() {
 
       {tool === 'clone' && (
         <div className="rail-options">
-          <div className="rail-opt-label">Clone stamp</div>
+          <div className="rail-opt-label">
+            Clone stamp
+            <Info>
+              Alt-click the part of the picture you want to copy from, then paint over what
+              you want gone. The distance between the two is held for the whole stroke, so
+              the source travels with the brush. Kept as strokes rather than pixels, so it
+              scales with the layer, survives a save, and undoes cleanly.
+            </Info>
+          </div>
           <Row label="Brush">
             <Slider
               value={Math.round((o.stamp?.size ?? 0.08) * 100)}
@@ -107,25 +115,27 @@ export default function ToolRail() {
             />
           </Row>
           <p className="rail-hint">
-            <b>Alt-click</b> the part of the picture you want to copy <i>from</i>, then paint
-            over what you want gone. The distance between the two is held for the whole
-            stroke, so the source travels with the brush.
-          </p>
-          <p className="rail-hint">
             {cloneSource
               ? 'Source set. Paint away — one drag is one undo.'
               : 'No source yet. Alt-click somewhere clean first.'}
-          </p>
-          <p className="rail-hint">
-            Kept as strokes rather than pixels, so it scales with the layer, survives a save,
-            and undoes cleanly.
           </p>
         </div>
       )}
 
       {tool === 'wand' && (
         <div className="rail-options">
-          <div className="rail-opt-label">Select by colour</div>
+          <div className="rail-opt-label">
+            Select by colour
+            <Info>
+              Click a colour and everything like it, spreading out from where you clicked,
+              is selected. What comes back is an ordinary lasso — drag its points to adjust,
+              then Copy, Cut, Mask, Erase or Pixelate as usual. For flat colour: a
+              background, a logo, a sky, a panel of a screenshot; the AI lasso looks for
+              subjects, so this is the one for everything that is not one. A lasso is a
+              single outline, so selecting a background that wraps around something takes
+              that something with it — to cut a subject out, select the subject.
+            </Info>
+          </div>
           <Row label="Tolerance">
             <Slider
               value={Math.round((o.wandTolerance ?? 0.18) * 100)}
@@ -133,30 +143,20 @@ export default function ToolRail() {
               onChange={(v) => setToolOptions({ wandTolerance: v / 100 })}
             />
           </Row>
-          <p className="rail-hint">
-            Click a colour and everything like it, spreading out from where you clicked, is
-            selected. What comes back is an ordinary lasso — drag its points to adjust,
-            then Copy, Cut, Mask, Erase or Pixelate as usual.
-          </p>
-          <p className="rail-hint">
-            For flat colour: a background, a logo, a sky, a panel of a screenshot. The AI
-            lasso looks for <i>subjects</i>, so this is the one for everything that is not one.
-          </p>
-          <p className="rail-hint">
-            A lasso is a single outline, so selecting a background that wraps around
-            something takes that something with it. To cut a subject out, select the
-            subject.
-          </p>
         </div>
       )}
 
       {tool === 'eyedrop' && (
         <div className="rail-options">
-          <div className="rail-opt-label">Eyedropper</div>
-          <p className="rail-hint">
-            Click anywhere to take that colour. It reads the picture as composited, so what
-            you sample is what you can see — through an overlay, a mask or an adjustment.
-          </p>
+          <div className="rail-opt-label">
+            Eyedropper
+            <Info>
+              Click anywhere to take that colour. It reads the picture as composited, so
+              what you sample is what you can see — through an overlay, a mask or an
+              adjustment. The pipette beside any colour box picks straight into it and hands
+              the tool back when it is done.
+            </Info>
+          </div>
           {o.sampled && (
             <>
               <Row label="">
@@ -171,30 +171,48 @@ export default function ToolRail() {
               >Copy</button>
             </>
           )}
-          <p className="rail-hint">
-            The pipette beside any colour box picks straight into it and hands the tool back
-            when it is done.
-          </p>
         </div>
       )}
 
       {tool === 'crop' && (
         <div className="rail-options">
-          <div className="rail-opt-label">Crop</div>
+          <div className="rail-opt-label">
+            Crop
+            <Info>
+              Drag the box, then Enter to crop; Escape leaves it alone. Nothing is thrown
+              away — undo brings the whole frame back. With nothing selected this crops the
+              whole canvas, so select an image first to crop just that.
+            </Info>
+          </div>
           <p className="rail-hint">
             {cropTarget
-              ? <>Drag the box, then <b>Enter</b> to crop <b>{cropTarget}</b>. Nothing is
-                thrown away — undo brings the whole frame back.</>
-              : <>Nothing is selected, so this crops the <b>whole canvas</b>. Select an
-                image first to crop just that.</>}
+              ? <>Crops <b>{cropTarget}</b>.</>
+              : <>Crops the <b>whole canvas</b>.</>}
           </p>
-          <p className="rail-hint">Escape to leave it alone.</p>
         </div>
       )}
 
       {tool === 'lasso' && (
         <div className="rail-options">
-          <div className="rail-opt-label">Lasso select</div>
+          <div className="rail-opt-label">
+            Lasso select
+            <Info>
+              Freehand: click to plot points, or press and drag to trace. Click the first
+              point, double-click or press Enter to close; Backspace removes the last point,
+              Esc cancels. Magnetic: drag roughly around the subject and the outline finds
+              the edge itself, looking for the strongest boundary between where it last
+              settled and where the pointer is — it reads colour edges, not just light and
+              dark, so a subject the same brightness as its background still has a boundary
+              to follow. AI: click the subject and the segmentation model traces it; the
+              model decides what counts as the subject and your click only picks which part
+              to take, so something in the background cannot be selected this way. The first
+              run downloads the model.
+              {' '}
+              Whichever drew it, what you get is an ordinary lasso: drag a point to move it,
+              click a hollow midpoint to add one, right-click a point to remove it, then
+              choose Copy, Cut, Mask, Erase or Pixelate from the bar beneath the outline.
+            </Info>
+          </div>
           <Segmented
             value={o.aiSelect ? 'ai' : (o.magnet ? 'magnet' : 'free')}
             onChange={(mode) => setToolOptions({
@@ -207,47 +225,14 @@ export default function ToolRail() {
               { value: 'ai', label: 'AI' },
             ]}
           />
-          {o.aiSelect ? (
-            <>
-              <p className="rail-hint">
-                Click the subject and the segmentation model traces an outline around it.
-                What comes back is an ordinary lasso — drag the points to adjust it, then
-                Copy, Cut, Mask, Erase or Pixelate as usual.
-              </p>
-              <p className="rail-hint">
-                The model decides what counts as the subject; your click only picks which
-                part of it to take. Something in the background cannot be selected this
-                way. The first run downloads the model.
-              </p>
-            </>
-          ) : o.magnet ? (
-            <>
-              <p className="rail-hint">
-                Drag roughly around the subject and the outline finds the edge itself — it
-                looks for the strongest boundary between where it last settled and where the
-                pointer is, so it can be steered without being traced.
-              </p>
-              <p className="rail-hint">
-                It reads colour edges, not just light and dark, so a subject that is the same
-                brightness as what is behind it still has a boundary to follow. Where there
-                genuinely is none it runs straight, and those points can be dragged
-                afterwards like any other.
-              </p>
-            </>
-          ) : (
-            <p className="rail-hint">
-            Click to plot points, or press and drag to trace freehand.
-            Click the first point, double-click or press Enter to close.
-            Backspace removes the last point, Esc cancels.
-          </p>
-          )}
+          {/* One line each, saying what this mode does differently. The rest is
+              behind the (i) on the heading. */}
           <p className="rail-hint">
-            Once closed, drag a point to move it, click a hollow midpoint to add one,
-            right-click a point to remove it.
-          </p>
-          <p className="rail-hint">
-            Then choose Copy, Cut, Mask, Erase or Pixelate from the bar beneath
-            the outline.
+            {o.aiSelect
+              ? 'Click the subject.'
+              : o.magnet
+                ? 'Drag roughly around the subject.'
+                : 'Click to plot points, or drag to trace.'}
           </p>
         </div>
       )}
@@ -275,13 +260,14 @@ export default function ToolRail() {
             options={[{ value: 'erase', label: 'Erase' }, { value: 'restore', label: 'Restore' }]}
           />
           <p className="rail-hint">
-            Paints away part of the selected layer — the usual way to clean up what a
-            background removal got wrong. Nothing is baked: strokes are stored as points, so
-            they scale and rotate with the layer and undo one drag at a time.
-          </p>
-          <p className="rail-hint">
-            Hold <kbd>Alt</kbd> to restore while erasing. Brush size is a share of the layer
-            width, so it stays the same size on screen as you zoom.
+            Hold <kbd>Alt</kbd> to restore while erasing.
+            <Info>
+              Paints away part of the selected layer — the usual way to clean up what a
+              background removal got wrong. Nothing is baked: strokes are stored as points,
+              so they scale and rotate with the layer and undo one drag at a time. Brush
+              size is a share of the layer width, so it stays the same size on screen as you
+              zoom.
+            </Info>
           </p>
         </div>
       )}

@@ -176,7 +176,16 @@ const ui = await page.evaluate(async () => {
     magnet: window.__pfState().toolOptions.magnet === true,
     ai: window.__pfState().toolOptions.aiSelect === true,
     hint: document.querySelector('.rail-options .rail-hint')?.textContent || '',
+
   }
+})
+// The explanation lives behind the (i) on the panel heading now — panels full of
+// paragraphs were what it was moved out of. The bubble is painted on the render
+// after the click, so it is read on the next tick.
+ui.explained = await page.evaluate(async () => {
+  document.querySelector('.rail-options .info-dot')?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  return document.querySelector('.info-bubble')?.textContent || ''
 })
 console.log('lasso modes:', JSON.stringify(ui.labels), 'magnet on:', ui.magnet)
 check('the lasso offers three modes', ui.labels.join(',') === 'Freehand,Magnetic,AI',
@@ -184,7 +193,8 @@ check('the lasso offers three modes', ui.labels.join(',') === 'Freehand,Magnetic
 check('picking Magnetic turns it on', ui.magnet === true)
 // The three are one choice, so turning one on has to turn the others off.
 check('and turns AI off, because they are one choice', ui.ai === false)
-check('with a hint that says what it does', /finds the edge/.test(ui.hint),
+check('with a line saying what to do', /drag/i.test(ui.hint), ui.hint)
+check('and the (i) saying what it does', /finds the edge/.test(ui.explained),
   ui.hint.slice(0, 70))
 
 await page.screenshot({ path: path.join(OUT, '01-magnet.png') })

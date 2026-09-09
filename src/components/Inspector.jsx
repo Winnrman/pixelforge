@@ -12,7 +12,9 @@ import {
   resolveLayer, hasTracks, activeGroups, groupKeyTimes,
   groupEaseAt, GROUP_OF, EASING_OPTIONS,
 } from '../engine/keyframes.js'
-import { Section, Row, Slider, Num, CommitNum, Select, Color, Toggle, Segmented } from './ui.jsx'
+import {
+  Section, Row, Slider, Num, CommitNum, Select, Color, Toggle, Segmented, Info,
+} from './ui.jsx'
 import { RETRO_PRESETS, RETRO_CONTROLS, retroDefaults } from '../engine/retro.js'
 import { defaultSticker, defaultTrails } from '../engine/subject.js'
 import { availableFonts } from '../engine/fonts.js'
@@ -120,6 +122,8 @@ export default function Inspector() {
   const setMask = useStore((s) => s.setMask)
   const clearMask = useStore((s) => s.clearMask)
   const undoMaskAdd = useStore((s) => s.undoMaskAdd)
+  const editMask = useStore((s) => s.editMask)
+  const setNotice = useStore((s) => s.setNotice)
   const enableTrack = useStore((s) => s.enableTrack)
   const disableTrack = useStore((s) => s.disableTrack)
   const setKeyEase = useStore((s) => s.setKeyEase)
@@ -266,7 +270,14 @@ export default function Inspector() {
                 {linkRatio ? '⛓ Linked' : '⛓ Free'}
               </Toggle>
             </Row>
-            <Row label="Content">
+            <Row
+              label="Content"
+              info={'What happens to the artwork when the canvas is resized. Leave does '
+                + 'nothing to it — the canvas is the frame, not the picture. Fit and Fill '
+                + 'scale it uniformly about the centre, so nothing is ever stretched: Fit '
+                + 'shrinks the content until all of it is inside, Fill grows it until it '
+                + 'covers and crops the overflow.'}
+            >
               <Segmented
                 value={docResize}
                 onChange={setDocResize}
@@ -277,33 +288,25 @@ export default function Inspector() {
                 ]}
               />
             </Row>
-            <p className="hint">
-              What happens to the artwork when the canvas is resized. <b>Leave</b> does nothing
-              to it — the canvas is the frame, not the picture. <b>Fit</b> and <b>Fill</b>
-              scale it uniformly about the centre, so nothing is ever stretched: Fit shrinks
-              the content until all of it is inside, Fill grows it until it covers and crops
-              the overflow.
-            </p>
-            <Row label="">
+            <Row
+              info={'Moves the canvas: it shrinks to whatever is actually on it, so empty '
+                + 'space around the artwork goes away. This is the one to reach for after '
+                + 'cropping a picture and finding the canvas still its old size.'}
+            >
               <button className="btn" onClick={fitCanvasToContent}>
                 Shrink canvas to fit content
               </button>
             </Row>
-            <p className="hint">
-              Moves the <b>canvas</b>: it shrinks to whatever is actually on it, so empty
-              space around the artwork goes away. This is the one to reach for after
-              cropping a picture and finding the canvas still its old size.
-            </p>
-            <Row label="">
+            <Row
+              info={'Moves the content: the artwork is scaled where it sits until it covers '
+                + 'the canvas, cropping whatever falls outside. The opposite direction to '
+                + 'the button above — which of the two moves is the whole difference '
+                + 'between them.'}
+            >
               <button className="btn ghost" onClick={fillCanvas}>
                 Scale content to fill canvas
               </button>
             </Row>
-            <p className="hint">
-              Moves the <b>content</b>: the artwork is scaled where it sits until it covers
-              the canvas, cropping whatever falls outside. The opposite direction to the
-              button above — which of the two moves is the whole difference between them.
-            </p>
             <Row label="Background">
               <Segmented
                 value={doc.background === 'transparent' ? 'transparent' : 'color'}
@@ -336,9 +339,11 @@ export default function Inspector() {
             )}
           </Section>
           <p className="hint">
-            Select a layer to edit it. Anything you drop in goes to <b>Media</b> first,
-            so importing a folder gives you a bin to choose from rather than a stack of
-            layers.
+            Select a layer to edit it.
+            <Info>
+              Anything you drop in goes to Media first, so importing a folder gives you a
+              bin to choose from rather than a stack of layers.
+            </Info>
           </p>
         </div>
       </div>
@@ -605,11 +610,29 @@ export default function Inspector() {
           <Section
             title="Mask"
             info={'Cut from a lasso outline. The mask is stored relative to the layer box, so it '
-              + 'follows the layer when you move, resize or rotate it. A cut that took a slice off '
-              + 'an arm or a leg is repaired rather than redrawn: lasso the missing piece and the '
-              + 'lasso bar offers Add to mask, growing the frame back if the piece reaches outside '
-              + 'it. Erase takes pieces away again, and accumulates the same way.'}
-            right={<button className="mini" onClick={() => clearMask(base.id)}>Remove</button>}
+              + 'follows the layer when you move, resize or rotate it. A cut that took a slice '
+              + 'off an arm or a leg does not have to be drawn again. Edit hands the outline '
+              + 'back to the lasso with its points intact — drag one, click a midpoint to add '
+              + 'one, right-click one to take it away — and opens the frame back out to the '
+              + 'whole picture so you can see the edge you are fixing; Mask writes it back. Or '
+              + 'lasso just the missing piece and choose Add to mask, which unions it in and '
+              + 'grows the frame if the piece reaches outside. Erase takes pieces away again, '
+              + 'and accumulates the same way.'}
+            right={(
+              <>
+                <button
+                  className="mini"
+                  title="Put the outline back on the lasso so its points can be moved"
+                  onClick={() => {
+                    const res = editMask(base.id)
+                    setNotice(res.ok
+                      ? { kind: 'ok', text: res.text }
+                      : { kind: 'warn', text: res.reason })
+                  }}
+                >Edit</button>
+                <button className="mini" onClick={() => clearMask(base.id)}>Remove</button>
+              </>
+            )}
           >
             <Row label="Keeps">
               <Toggle
@@ -640,10 +663,6 @@ export default function Inspector() {
                   onClick={() => undoMaskAdd(base.id)}>Undo last</button>
               </Row>
             )}
-            <p className="hint">
-              Missing a bit? Lasso it and choose <b>Add to mask</b>. Too much kept?
-              Lasso that and choose <b>Erase</b>.
-            </p>
           </Section>
         )}
 
@@ -966,19 +985,18 @@ export default function Inspector() {
               </Row>
               {(isCropped(l) || (l.zoom ?? 1) !== 1 || l.panX || l.panY) && (
                 <>
-                  <Row label="">
+                  <Row
+                    info={'These sliders are a moving window onto the picture, which is why '
+                      + 'the layer stays its full size while showing less — they can be '
+                      + 'keyframed, and a crop that resized its own layer would drag the '
+                      + 'subject around as it animated. Trim to crop makes it permanent '
+                      + 'instead: the layer becomes the piece you kept. Still '
+                      + 'non-destructive, so undo brings the whole frame back.'}
+                  >
                     <button className="btn" onClick={() => trimToCrop(base.id)}>
                       Trim to crop
                     </button>
                   </Row>
-                  <p className="hint">
-                    These sliders are a moving window onto the picture, which is why the
-                    layer stays its full size while showing less — they can be keyframed, and
-                    a crop that resized its own layer would drag the subject around as it
-                    animated. <b>Trim to crop</b> makes it permanent instead: the layer
-                    becomes the piece you kept. Still non-destructive, so undo brings the
-                    whole frame back.
-                  </p>
                 </>
               )}
               <Row label="Zoom" anim={animFor('zoom')}>
@@ -1099,8 +1117,12 @@ export default function Inspector() {
                 </Row>
                 <p className="hint">
                   {cursorZoom.mode === 'follow'
-                    ? 'Zoomed in and following the pointer for most of the clip, pulling out only to cross the screen. Delete the keys you do not want afterwards — they are ordinary keyframes.'
-                    : 'Out by default, pushing in only where the pointer settles somewhere for a moment.'}
+                    ? 'In for most of the clip, pulling out to cross the screen.'
+                    : 'Out by default, pushing in where the pointer settles.'}
+                  <Info>
+                    What it lays down are ordinary keyframes, so delete the ones you do not
+                    want afterwards.
+                  </Info>
                 </p>
                 <Row label="Zoom">
                   <Slider value={cursorZoom.zoom} min={1.2} max={4} step={0.1}
@@ -1209,8 +1231,11 @@ export default function Inspector() {
                       onCommit={commit} />
                   </Row>
                   <p className="hint">
-                    The card grows around the picture rather than the picture shrinking inside
-                    it, so framing something never changes the photo you framed.
+                    The card grows around the picture.
+                    <Info>
+                      Rather than the picture shrinking inside it — so framing something
+                      never changes the photo you framed.
+                    </Info>
                   </p>
                 </>
               )}
@@ -1242,9 +1267,11 @@ export default function Inspector() {
                       onCommit={commit} suffix="px" />
                   </Row>
                   <p className="hint">
-                    Export at a square scale for a sticker. The platform size presets
-                    (Telegram 512, Discord 128, Slack, WhatsApp) are defined but not yet
-                    wired into Export.
+                    Export at a square scale for a sticker.
+                    <Info>
+                      The platform size presets (Telegram 512, Discord 128, Slack, WhatsApp)
+                      are defined but not yet wired into Export.
+                    </Info>
                   </p>
                 </>
               )}
@@ -1400,7 +1427,16 @@ export default function Inspector() {
               + 'outline is all you see. One text layer does both, so there is nothing to '
               + 'keep in step when you retype it.'}
           >
-            <Row label="Outline above">
+            <Row
+              label="Outline above"
+              info={'The outline only shows where something is covering the text — over the '
+                + 'solid letters it is the same colour and invisible. So on plain text it '
+                + 'does nothing, which is correct: there is nothing in front of it to show '
+                + 'through. Pick the layer it should show through, or Everything. A layer '
+                + 'stacked below the text works too — the text is drawn behind it instead, '
+                + 'so the order in the layers panel does not have to be rearranged first. '
+                + 'Give it a different colour to see it everywhere.'}
+            >
               <Select
                 value={l.outlineAbove ? String(l.outlineAbove) : 'off'}
                 onChange={(v) => { set({ outlineAbove: v === 'off' ? false : v }); commit() }}
@@ -1416,28 +1452,23 @@ export default function Inspector() {
                 ]}
               />
             </Row>
-            <p className="hint">
-              The outline only shows where something is <b>covering</b> the text — over the
-              solid letters it is the same colour and invisible. So on plain text it does
-              nothing, which is correct: there is nothing in front of it to show through.
-              Pick the layer it should show through, or Everything. A layer stacked
-              <i> below</i> the text works too — the text is drawn behind it instead, so the
-              order in the layers panel does not have to be rearranged first.
-              {l.outlineAbove && ' Give it a different colour below to see it everywhere.'}
-            </p>
+
             {l.outlineAbove && (
               <>
-                <Row label="Letters">
+                <Row
+                  label="Letters"
+                  info={'Switch whole letters and a letter is either solid or outlined, '
+                    + 'never both — the change happens at the gap between letters rather '
+                    + 'than through the middle of one. Switch where it crosses follows the '
+                    + 'covering edge exactly, so a letter it crosses comes out part solid '
+                    + 'and part outline.'}
+                >
                   <Toggle
                     value={!!l.outlineWhole}
                     onChange={(outlineWhole) => { set({ outlineWhole }); commit() }}
                   >{l.outlineWhole ? 'Switch whole letters' : 'Switch where it crosses'}</Toggle>
                 </Row>
-                <p className="hint">
-                  {l.outlineWhole
-                    ? 'A letter is either solid or outlined, never both — the change happens at the gap between letters rather than through the middle of one.'
-                    : 'The change follows the covering edge exactly, so a letter it crosses comes out part solid and part outline.'}
-                </p>
+
                 {l.outlineWhole && (
                   <Row label="Switch at">
                     <Slider value={Math.round((l.outlineThreshold ?? 0.35) * 100)} min={5} max={90}

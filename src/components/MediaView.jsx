@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
+import { Info } from './ui.jsx'
 import { getAsset } from '../engine/assets.js'
 import { thumbAt } from '../engine/filmstrip.js'
 import CollageDialog from './CollageDialog.jsx'
@@ -181,16 +182,16 @@ export default function MediaView() {
           onClick={() => inputRef.current.click()}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current.click() }}
         >
-          <h2>Drop your footage here</h2>
-          <p>
-            Images, GIFs and MP4s land in this bin instead of going straight onto the
-            canvas — so importing ten photos gives you ten things to choose from rather
-            than ten layers stacked on top of each other.
-          </p>
-          <p>
-            Pick what you want and press <b>Add to canvas</b>, or double-click one.
-            Everything here is saved with the project whether it is on the canvas or not.
-          </p>
+          <h2>
+            Drop your footage here
+            <Info>
+              Images, GIFs and MP4s land in this bin instead of going straight onto the
+              canvas — so importing ten photos gives you ten things to choose from rather
+              than ten layers stacked on top of each other. Everything here is saved with
+              the project whether it is on the canvas or not.
+            </Info>
+          </h2>
+          <p>Pick what you want and press <b>Add to canvas</b>, or double-click one.</p>
           <p className="media-cue">Click anywhere here to choose files</p>
         </div>
       ) : (

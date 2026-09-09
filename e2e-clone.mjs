@@ -165,15 +165,27 @@ const ui = await page.evaluate(async () => {
   const opts = document.querySelector('.rail-options')?.textContent || ''
   return {
     tool: window.__pfState().tool,
-    label: document.querySelector('.rail-options .rail-opt-label')?.textContent || '',
+    // The heading carries the (i) now, so its text ends with the dot's own "i".
+    label: (document.querySelector('.rail-options .rail-opt-label')?.textContent || '')
+      .replace(/i$/, '').trim(),
     saysAlt: /alt-click/i.test(opts),
     hasBrush: /Brush/.test(opts),
   }
 })
+// How to set the source is explanation rather than status, so it moved behind
+// the (i) with the rest of the panel's prose. The bubble is painted on the
+// render after the click, so it is read on the next tick rather than in the
+// same expression.
+ui.explained = await page.evaluate(async () => {
+  document.querySelector('.rail-options .info-dot')?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  return document.querySelector('.info-bubble')?.textContent || ''
+})
 console.log('rail:', JSON.stringify(ui))
 check('the clone stamp is a tool of its own', ui.tool === 'clone' && ui.label === 'Clone stamp',
   ui.label)
-check('it says how to set the source', ui.saysAlt)
+check('it says how to set the source', /alt-click/i.test(ui.explained),
+  ui.explained.slice(0, 70))
 check('and has a brush to size', ui.hasBrush)
 
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')

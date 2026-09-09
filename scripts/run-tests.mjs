@@ -71,7 +71,7 @@ const OWNERS = [
 ]
 
 /** Suites that always run: they are the ones a change anywhere can break. */
-const ALWAYS = ['e2e']
+const ALWAYS = ['e2e', 'test-prose']
 
 // Pure node, milliseconds each. `test-edges` is not here: it is named like a
 // unit suite but drives a browser, because buildEdgeMap draws through a canvas.
@@ -79,6 +79,7 @@ const ALWAYS = ['e2e']
 const UNITS = [
   'test-retro', 'test-loop', 'test-cursor', 'test-collage', 'test-trace',
   'test-dpi', 'test-clips', 'test-transitions', 'test-gradient', 'test-mask',
+  'test-prose',
 ]
 
 const BROWSER = [

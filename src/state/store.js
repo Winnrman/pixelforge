@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { loadImageFile, getAsset } from '../engine/assets.js'
 import {
   polygonBounds, polygonToLayer, cropInsets, isCropped, fromLocal, layerAABB,
-  maskPolys, maskBounds, windSame, hasMask,
+  maskPolys, maskBounds, windSame, hasMask, polygonToDoc,
 } from '../engine/shapes.js'
 import { isGroup, withDescendants, normalize, resolveGroups } from '../engine/groups.js'
 import { trackLayer, trackTimes, simplifyTrack } from '../engine/tracker.js'
@@ -304,26 +304,51 @@ export function makeEffectLayer(partial = {}) {
 }
 
 /**
- * Grows a layer's frame, and the window it samples, until its mask fits inside.
+ * Grows a layer's frame until its mask fits inside it.
  *
  * Masking trims the box down to what was kept, so an outline that cut too tight
  * leaves the true edge just outside the frame. Adding a piece there has to bring
  * the frame back with it or the piece has nothing to be drawn on.
+ */
+function growToFitMask(layer) {
+  const b = maskBounds(layer)
+  if (!b) return null
+  return growTo(layer, {
+    u0: Math.min(0, b.u0), v0: Math.min(0, b.v0),
+    u1: Math.max(1, b.u1), v1: Math.max(1, b.v1),
+  })
+}
+
+/**
+ * Opens a layer back out to the whole picture it was cut from.
+ *
+ * Masking trims the frame to what it kept, which is right until you want to
+ * change what it kept: the edge you are trying to win back is outside the frame,
+ * so it is not drawn, and a point you cannot see is a point you cannot drag.
+ * Expressed as the growth that makes the window on the source the whole source,
+ * so it goes through the same arithmetic as everything else here.
+ */
+function untrimPatch(layer) {
+  const r = sourceRect(layer)
+  if (r.x <= 1e-6 && r.y <= 1e-6 && r.w >= 1 - 1e-6 && r.h >= 1 - 1e-6) return null
+  return growTo(layer, {
+    u0: (0 - r.x) / r.w, v0: (0 - r.y) / r.h,
+    u1: (1 - r.x) / r.w, v1: (1 - r.y) / r.h,
+  })
+}
+
+/**
+ * Grows a layer's frame, and the window it samples, to the given fractions of
+ * the frame it has now.
  *
  * Everything is expressed as fractions of the current box, which is also how
  * mask outlines and erase strokes are stored — so the same numbers that size the
  * new box rebase what is already on the old one. Growth stops at the edge of the
  * source picture, because past that there is nothing to show.
  *
- * Returns a patch, or null when the mask already fits.
+ * Returns a patch, or null when there is nothing to do.
  */
-function growToFitMask(layer) {
-  const b = maskBounds(layer)
-  if (!b) return null
-  const u0 = Math.min(0, b.u0)
-  const v0 = Math.min(0, b.v0)
-  const u1 = Math.max(1, b.u1)
-  const v1 = Math.max(1, b.v1)
+function growTo(layer, { u0, v0, u1, v1 }) {
   if (u0 > -1e-6 && v0 > -1e-6 && u1 < 1 + 1e-6 && v1 < 1 + 1e-6) return null
 
   // The window on the picture, and the same growth asked of it. Clamped to the
@@ -385,7 +410,9 @@ function growToFitMask(layer) {
     y: cy - h / 2,
     w,
     h,
-    mask: { ...layer.mask, points: rebase(polys[0]), plus: polys.slice(1).map(rebase) },
+    ...(polys.length
+      ? { mask: { ...layer.mask, points: rebase(polys[0]), plus: polys.slice(1).map(rebase) } }
+      : null),
     ...(strokes?.length
       ? { erase: { ...layer.erase, strokes: strokes.map((k) => ({ ...k, pts: rebase(k.pts || []) })) } }
       : null),
@@ -2795,6 +2822,52 @@ export const useStore = create((set, get) => ({
     return {
       ok: true,
       text: grown ? 'Added to the mask, and the frame grew to hold it' : 'Added to the mask',
+    }
+  },
+
+  /**
+   * Hands a mask's outline back to the lasso, so its points can be moved.
+   *
+   * Adding a piece is a repair; this is the edit. The outline that cut too tight
+   * comes back as an ordinary lasso — drag a point, click a midpoint to add one,
+   * right-click one to take it away — and Mask writes it back. It is the same
+   * outline, not a fresh one, which is the whole difference between editing a
+   * mask and drawing another.
+   *
+   * Two things happen alongside it, and both are the difference between this
+   * working and it merely appearing to. The frame is opened back out to the
+   * whole picture, because a mask trims the layer to what it kept and the edge
+   * you are trying to win back is outside that — invisible, and unreachable by
+   * a point you cannot see to drag. And the mask comes off while you work, so
+   * what you are dragging the outline over is the photograph rather than the
+   * cut-out of it.
+   */
+  editMask: (id) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    if (!hasMask(layer)) {
+      return { ok: false, reason: 'That layer has no mask to edit.' }
+    }
+    s.pushHistory()
+    // Opened out first, so the outline is converted against the frame it will
+    // be dropped onto rather than the one it was stored against.
+    const opened = untrimPatch(layer)
+    const shown = opened ? { ...layer, ...opened } : layer
+    const polys = maskPolys(shown)
+    get().updateLayer(id, { ...(opened || {}), mask: undefined })
+    set({
+      selectedIds: [id],
+      tool: 'lasso',
+      // Only the outline it was cut with. Pieces added since are unioned into
+      // it, and a lasso is one closed loop — handing back several would quietly
+      // lose all but the first the moment it was applied.
+      lasso: { points: polygonToDoc(polys[0], shown), closed: true },
+    })
+    return {
+      ok: true,
+      text: polys.length > 1
+        ? 'Editing the outline — the pieces added to it are not part of this'
+        : 'Drag the points, then Mask to put it back',
     }
   },
 

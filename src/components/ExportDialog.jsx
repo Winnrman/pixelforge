@@ -4,7 +4,7 @@ import { exportPNG, exportGIF, exportWebM, exportMP4, audioCandidates } from '..
 import { sampleTimes } from '../engine/render.js'
 import { runBatch, slotCandidates, FIT_MODES } from '../engine/batch.js'
 import { isDesktop, openFiles, pickFolder, listFolder, readPath, revealItem, ffmpegStatus } from '../engine/desktop.js'
-import { Row, Slider, Num, Select, Color, Segmented, Toggle } from './ui.jsx'
+import { Row, Slider, Num, Select, Color, Segmented, Toggle, Info } from './ui.jsx'
 import { UNITS, DPI_PRESETS, pxFor, sizeFor } from '../engine/dpi.js'
 
 // Windows rejects \ / : * ? " < > | outright and the others are merely awkward
@@ -271,12 +271,12 @@ export default function ExportDialog({ onClose }) {
 
           {isBatch && (
             <>
-              <p className="hint">
-                Applies this document to a whole folder. One image layer is the slot;
-                everything else — overlays, text, effects, the cutout, the palette — is
-                kept exactly as it is now.
-              </p>
-              <Row label="Replace layer">
+              <Row
+                label="Replace layer"
+                info={'Batch applies this document to a whole folder. One image layer is the '
+                  + 'slot; everything else — overlays, text, effects, the cutout, the '
+                  + 'palette — is kept exactly as it is now.'}
+              >
                 <Select
                   value={slotId}
                   onChange={setSlotId}
@@ -317,8 +317,11 @@ export default function ExportDialog({ onClose }) {
               {!slots.length && <p className="hint warn">This document has no image layer to swap.</p>}
               {!isDesktop() && (
                 <p className="hint">
-                  The browser cannot write into a folder, so the results come back as one zip.
-                  The desktop build writes them straight to disk.
+                  Results come back as one zip.
+                  <Info>
+                    The browser cannot write into a folder. The desktop build writes them
+                    straight to disk.
+                  </Info>
                 </p>
               )}
             </>
@@ -326,8 +329,11 @@ export default function ExportDialog({ onClose }) {
 
           {format === 'project' && (
             <p className="hint">
-              Writes <b>{filename}</b> — the editable project with every layer,
-              keyframe and original media file inside. Reopen it with Open Existing.
+              Writes <b>{filename}</b>.
+              <Info>
+                The editable project, with every layer, keyframe and original media file
+                inside. Reopen it with Open Existing.
+              </Info>
             </p>
           )}
 
@@ -379,10 +385,12 @@ export default function ExportDialog({ onClose }) {
               </Row>
               {sizeBy === 'print' && format === 'png' && (
                 <p className="hint">
-                  The resolution is written into the PNG itself, so it prints at{' '}
-                  {printW}{printUnit} rather than at whatever a print pipeline assumes when a
-                  file does not say. Formats other than PNG carry no such field and come out
-                  as pixels only.
+                  Prints at {printW}{printUnit}.
+                  <Info>
+                    The resolution is written into the PNG itself, rather than leaving a
+                    print pipeline to assume one when the file does not say. Formats other
+                    than PNG carry no such field and come out as pixels only.
+                  </Info>
                 </p>
               )}
             </>
@@ -450,14 +458,20 @@ export default function ExportDialog({ onClose }) {
             <>
               {!isDesktop() && (
                 <p className="hint warn">
-                  MP4 export runs a local ffmpeg, which the browser cannot do. Open the
-                  desktop build for this — or export WebM, which the browser can record.
+                  MP4 needs the desktop build — or export WebM.
+                  <Info>
+                    MP4 export runs a local ffmpeg, which the browser cannot do. WebM is the
+                    one the browser can record itself.
+                  </Info>
                 </p>
               )}
               {isDesktop() && ffmpeg && !ffmpeg.ok && (
                 <p className="hint warn">
-                  No ffmpeg found. Install it and put it on PATH, or point <b>PF_FFMPEG</b> at
-                  the binary, then reopen this dialog.
+                  No ffmpeg found.
+                  <Info>
+                    Install it and put it on PATH, or point PF_FFMPEG at the binary, then
+                    reopen this dialog.
+                  </Info>
                 </p>
               )}
               {isDesktop() && ffmpeg?.ok && (
@@ -466,14 +480,14 @@ export default function ExportDialog({ onClose }) {
               <Row label="Frame rate">
                 <Slider value={fps} min={12} max={60} onChange={setFps} suffix="fps" />
               </Row>
-              <Row label="Quality">
+              <Row
+                label="Quality"
+                info={"Lower is better. 18 is visually lossless, 23 is a sensible default "
+                  + "for sharing, above 28 starts to show. This is x264's CRF, so the file "
+                  + 'size follows the footage rather than a fixed bitrate.'}
+              >
                 <Slider value={crf} min={14} max={32} onChange={setCrf} />
               </Row>
-              <p className="hint">
-                Lower is better. 18 is visually lossless, 23 is a sensible default for sharing,
-                above 28 starts to show. This is x264's CRF, so the file size follows the
-                footage rather than a fixed bitrate.
-              </p>
               {audio.length > 0 && (
                 <Row label="Audio">
                   <Select
@@ -491,14 +505,20 @@ export default function ExportDialog({ onClose }) {
               )}
               {audio.some((a) => a.retimed && a.assetId === audioId) && (
                 <p className="hint warn">
-                  That layer has been retimed or loop-repaired, so its original audio no longer
-                  lines up with the picture. It will be muxed in unchanged and will drift.
+                  That audio will drift.
+                  <Info>
+                    The layer has been retimed or loop-repaired, so its original sound no
+                    longer lines up with the picture. It is muxed in unchanged.
+                  </Info>
                 </p>
               )}
               <p className="hint">
-                MP4 is constant frame rate — the document is sampled every {(1000 / fps).toFixed(1)}ms.
-                GIF is the export that keeps original per-frame timing. H.264 has no alpha either,
-                so a transparent document is flattened onto the matte.
+                Sampled every {(1000 / fps).toFixed(1)}ms.
+                <Info>
+                  MP4 is constant frame rate; GIF is the export that keeps original
+                  per-frame timing. H.264 has no alpha either, so a transparent document is
+                  flattened onto the matte.
+                </Info>
               </p>
               {transparent && <Row label="Matte"><Color value={matte} onChange={setMatte} /></Row>}
             </>

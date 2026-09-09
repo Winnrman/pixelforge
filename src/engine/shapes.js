@@ -274,6 +274,14 @@ export function polygonBounds(points) {
 }
 
 /** Doc-space polygon -> points normalized to a layer's box (0..1). */
+/** The inverse: a polygon stored on a layer, back in document coordinates. */
+export function polygonToDoc(points, l) {
+  return points.map(([u, v]) => {
+    const p = fromLocal(l, (u - 0.5) * l.w, (v - 0.5) * l.h)
+    return [p.x, p.y]
+  })
+}
+
 export function polygonToLayer(points, l) {
   return points.map(([x, y]) => {
     const p = toLocal(l, x, y)

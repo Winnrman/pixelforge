@@ -11,6 +11,7 @@ import CanvasStage from './components/CanvasStage.jsx'
 import LayersPanel from './components/LayersPanel.jsx'
 import Inspector from './components/Inspector.jsx'
 import Timeline from './components/Timeline.jsx'
+import { Info } from './components/ui.jsx'
 import ExportDialog from './components/ExportDialog.jsx'
 import LassoBar from './components/LassoBar.jsx'
 import MediaPool from './components/MediaPool.jsx'
@@ -438,15 +439,21 @@ export default function App() {
                     <circle cx="22" cy="21" r="4" fill="currentColor" />
                   </svg>
                 </div>
-                <h1>Nothing on the canvas yet</h1>
+                <h1>
+                  Nothing on the canvas yet
+                  <Info>
+                    GIFs and MP4s are decoded frame by frame, so pixelate and blur overlays
+                    track the motion underneath them.
+                  </Info>
+                </h1>
+
                 <p>
-                  GIFs and MP4s are decoded frame by frame, so pixelate and blur overlays
-                  track the motion underneath them.
-                </p>
-                <p>
-                  Work is autosaved {isDesktop() ? 'on this machine' : 'in this browser'}, so
-                  closing the app does not lose it. <b>Export → Project</b> writes a .pfz
-                  holding every layer, keyframe and your original media, to reopen anywhere.
+                  Work is autosaved {isDesktop() ? 'on this machine' : 'in this browser'}.
+                  <Info>
+                    So closing the app does not lose it. Export → Project writes a .pfz
+                    holding every layer, keyframe and your original media, to reopen
+                    anywhere.
+                  </Info>
                 </p>
                 {/* Each hint is one unbreakable unit — otherwise the label wraps away
                     from the key it belongs to, and "Space" ends a line with "play/pause"
