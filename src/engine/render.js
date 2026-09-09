@@ -1443,10 +1443,71 @@ function spansFor(layers, time, groups) {
   return out.size ? out : null
 }
 
-function paintLayer(ctx, l, time) {
+function paintPlain(ctx, l, time) {
   if (l.type === 'image') drawImageLayer(ctx, l, time)
   else if (l.type === 'shape') drawShapeLayer(ctx, l)
   else if (l.type === 'text') drawTextLayer(ctx, l)
+}
+
+/** Whether a layer casts anything. Zero blur at zero offset is not a shadow. */
+export const hasShadow = (l) => !!(l?.shadow?.on)
+  && ((l.shadow.blur || 0) > 0 || (l.shadow.x || 0) !== 0 || (l.shadow.y || 0) !== 0)
+
+/**
+ * A layer, and whatever it casts.
+ *
+ * The shadow is thrown by the layer's *finished alpha* rather than by its box,
+ * so a cut-out subject casts the subject's shape, text casts the letters, and a
+ * masked photograph casts what survived the mask. Which means the layer has to
+ * exist as a picture before the shadow can be taken from it: it is drawn to a
+ * surface of its own and that surface is composited once, with the canvas
+ * shadow set. One draw puts down both.
+ *
+ * Blend and opacity are lifted off the layer for the offscreen pass and applied
+ * to the composite instead. A multiply layer drawn into an empty surface
+ * multiplies against nothing and comes out black — the blend has to happen where
+ * there is something underneath to blend with.
+ */
+function paintLayer(ctx, l, time) {
+  if (!hasShadow(l)) { paintPlain(ctx, l, time); return }
+  const w = ctx.canvas.width
+  const h = ctx.canvas.height
+  const sc = eraseScratch('shadow', w, h)
+  const sx = sc.getContext('2d')
+  sx.setTransform(1, 0, 0, 1, 0, 0)
+  sx.globalAlpha = 1
+  sx.globalCompositeOperation = 'source-over'
+  sx.filter = 'none'
+  sx.clearRect(0, 0, w, h)
+  paintPlain(sx, { ...l, blend: 'source-over', opacity: 1 }, time)
+
+  // Flattened with its shadow on a second surface before it meets the document.
+  // Drawn straight onto the canvas with a blend mode set, the shadow and the
+  // layer are each blended against the backdrop on their own — so a white
+  // multiply layer came out black, its own shadow multiplied into it. Once they
+  // are one picture there is one blend, which is what the layer asked for.
+  const fx = eraseScratch('shadow-cast', w, h)
+  const fc = fx.getContext('2d')
+  fc.setTransform(1, 0, 0, 1, 0, 0)
+  fc.globalAlpha = 1
+  fc.globalCompositeOperation = 'source-over'
+  fc.filter = 'none'
+  fc.clearRect(0, 0, w, h)
+  fc.shadowColor = withAlpha(l.shadow.color || '#000000', l.shadow.opacity ?? 0.45)
+  fc.shadowBlur = Math.max(0, l.shadow.blur || 0)
+  fc.shadowOffsetX = l.shadow.x || 0
+  fc.shadowOffsetY = l.shadow.y || 0
+  fc.drawImage(sc, 0, 0)
+  fc.shadowColor = 'transparent'
+  fc.shadowBlur = 0
+  fc.shadowOffsetX = 0
+  fc.shadowOffsetY = 0
+
+  ctx.save()
+  ctx.globalAlpha = l.opacity ?? 1
+  ctx.globalCompositeOperation = l.blend || 'source-over'
+  ctx.drawImage(fx, 0, 0)
+  ctx.restore()
 }
 
 /**

@@ -465,6 +465,20 @@ export function makeShapeLayer(partial = {}) {
   }
 }
 
+/**
+ * A cast shadow, or a glow — the same control set either way. Offset it and
+ * darken it and it is a shadow; centre it and brighten it and it is a glow,
+ * which is one panel rather than two that share their whole arithmetic.
+ */
+export const defaultShadow = () => ({
+  on: false,
+  color: '#000000',
+  opacity: 0.45,
+  blur: 18,
+  x: 0,
+  y: 10,
+})
+
 export function makeTextLayer(partial = {}) {
   return {
     id: nid('l'),

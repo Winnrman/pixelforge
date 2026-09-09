@@ -181,6 +181,102 @@ await page.waitForTimeout(200)
 check('and one undo puts it back',
   JSON.stringify((await geom())[0]) === JSON.stringify(small))
 
+// --- a shadow cast by the shape, not the box ---------------------------------------------
+// The whole claim of this feature is that a layer throws what it draws: a circle
+// throws a circle, text throws letters, a cut-out throws the subject. A shadow
+// taken from the layer's rectangle would be easy and wrong, and the difference
+// only shows in the corners — which is where this looks.
+const shadow = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  st.setDoc({ width: 400, height: 400, background: '#ffffff' })
+  await new Promise((r) => setTimeout(r, 250))
+  const { makeShapeLayer } = window.__pfStore
+  // A white circle on white, so nothing but the shadow can darken a pixel.
+  const layer = makeShapeLayer({
+    shape: 'ellipse', x: 120, y: 120, w: 160, h: 160,
+    fill: '#ffffff', stroke: '#ffffff', strokeWidth: 0,
+  })
+  window.__pfState().addLayer(layer)
+  await new Promise((r) => setTimeout(r, 300))
+  const id = layer.id
+
+  const sample = () => {
+    const s2 = window.__pfState()
+    const c = document.createElement('canvas')
+    c.width = s2.doc.width
+    c.height = s2.doc.height
+    const g = c.getContext('2d', { willReadFrequently: true })
+    window.__pfRender.renderDocument(g, s2.doc, 0)
+    const at = (x, y) => g.getImageData(x, y, 1, 1).data[0]
+    return {
+      // Directly under the circle's bottom edge, where an offset shadow lands.
+      under: at(200, 292),
+      // The box corner. A shadow cast from the rectangle darkens here; one cast
+      // from the circle cannot reach it.
+      corner: at(288, 288),
+      // Well clear of everything.
+      away: at(20, 20),
+      // Inside the circle, which the shadow must never darken.
+      inside: at(200, 200),
+    }
+  }
+
+  const off = sample()
+  window.__pfState().updateLayer(id, {
+    shadow: { on: true, color: '#000000', opacity: 1, blur: 10, x: 0, y: 18 },
+  })
+  await new Promise((r) => setTimeout(r, 350))
+  const on = sample()
+
+  // Centred and bright: the same control as a glow.
+  window.__pfState().updateLayer(id, {
+    shadow: { on: true, color: '#ff0000', opacity: 1, blur: 26, x: 0, y: 0 },
+  })
+  await new Promise((r) => setTimeout(r, 350))
+  const glowCanvas = (() => {
+    const s2 = window.__pfState()
+    const c = document.createElement('canvas')
+    c.width = s2.doc.width
+    c.height = s2.doc.height
+    const g = c.getContext('2d', { willReadFrequently: true })
+    window.__pfRender.renderDocument(g, s2.doc, 0)
+    const px = g.getImageData(200, 288, 1, 1).data
+    return { r: px[0], g: px[1], b: px[2] }
+  })()
+
+  // And a shadow under a layer that is blended, which is where drawing the
+  // layer into an empty surface and blending it there would come out black.
+  window.__pfState().updateLayer(id, {
+    shadow: { on: true, color: '#000000', opacity: 1, blur: 10, x: 0, y: 18 },
+    blend: 'multiply',
+    fill: '#ffffff',
+  })
+  await new Promise((r) => setTimeout(r, 350))
+  const blended = sample()
+  return { off, on, glow: glowCanvas, blended }
+})
+console.log('shadow:', JSON.stringify(shadow))
+check('nothing is cast until it is turned on', shadow.off.under > 250, String(shadow.off.under))
+check('a shadow darkens the ground beneath the shape',
+  shadow.on.under < 120, String(shadow.on.under))
+// The one that separates a real shadow from a lazy one.
+check('and is cast by the shape rather than by the layer box',
+  shadow.on.corner > 240, `corner ${shadow.on.corner} vs under ${shadow.on.under}`)
+check('the shape itself stays exactly as it was', shadow.on.inside > 250, String(shadow.on.inside))
+check('and the far side of the canvas is untouched', shadow.on.away > 250, String(shadow.on.away))
+// On white, a red glow cannot raise the red channel — it can only hold it while
+// pulling the other two down. The tint is the claim, not the brightness.
+check('centred and coloured, the same control glows',
+  shadow.glow.r - shadow.glow.g > 40 && shadow.glow.g === shadow.glow.b,
+  JSON.stringify(shadow.glow))
+// A multiply layer drawn into an empty surface multiplies against nothing and
+// comes out black, so the blend has to be applied where there is something
+// underneath. A white multiply layer over white is still white.
+check('a blended layer with a shadow keeps its blend',
+  shadow.blended.inside > 250, String(shadow.blended.inside))
+check('and still casts', shadow.blended.under < 120, String(shadow.blended.under))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react'
 import { isCropped } from '../engine/shapes.js'
-import { useStore, BLEND_MODES, defaultAdjust } from '../state/store.js'
+import { useStore, BLEND_MODES, defaultAdjust, defaultShadow } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
 import { clipRange } from '../engine/clips.js'
 import { defaultBgRemove, analyzeKey } from '../engine/matte.js'
@@ -288,6 +288,11 @@ export default function Inspector() {
 
   const pushed = useRef(false)
   const begin = () => { if (!pushed.current) { push(); pushed.current = true } }
+  const setShadow = (patch) => {
+    begin()
+    if (base) update(base.id, { shadow: { ...defaultShadow(), ...base.shadow, ...patch } })
+  }
+
   const setBg = (patch) => {
     if (!base) return
     update(base.id, { bgRemove: { ...defaultBgRemove(), ...base.bgRemove, ...patch } })
@@ -577,6 +582,60 @@ export default function Inspector() {
                 <span className="dim"> · set by the overlap</span>
               </span>
             </Row>
+          </Section>
+        )}
+
+        {l.type !== 'group' && l.type !== 'effect' && (
+          <Section
+            title="Shadow"
+            info={'Cast from what the layer actually draws, not from its box — so a cut-out '
+              + 'subject throws the subject’s shape, text throws the letters, and a masked '
+              + 'photograph throws what survived the mask. Centre it and pick a bright colour '
+              + 'and the same control is a glow.'}
+            right={l.shadow?.on && (
+              <button className="mini" onClick={() => { push(); update(base.id, { shadow: undefined }) }}>
+                Remove
+              </button>
+            )}
+          >
+            <Row label="Shadow">
+              <Toggle
+                value={!!l.shadow?.on}
+                onChange={(on) => {
+                  push()
+                  update(base.id, { shadow: { ...defaultShadow(), ...base.shadow, on } })
+                }}
+              >{l.shadow?.on ? 'On' : 'Off'}</Toggle>
+            </Row>
+            {l.shadow?.on && (
+              <>
+                <Row label="Color">
+                  <Color value={l.shadow.color || '#000000'}
+                    onChange={(color) => setShadow({ color })} onCommit={commit} />
+                </Row>
+                <Row label="Strength">
+                  <Slider value={Math.round((l.shadow.opacity ?? 0.45) * 100)} min={0} max={100}
+                    onChange={(v) => setShadow({ opacity: v / 100 })} onCommit={commit} suffix="%" />
+                </Row>
+                <Row label="Blur">
+                  <Slider value={l.shadow.blur ?? 18} min={0} max={120}
+                    onChange={(blur) => setShadow({ blur })} onCommit={commit} suffix="px" />
+                </Row>
+                <Row label="Offset X">
+                  <Slider value={l.shadow.x ?? 0} min={-120} max={120}
+                    onChange={(x) => setShadow({ x })} onCommit={commit} suffix="px" />
+                </Row>
+                <Row label="Offset Y">
+                  <Slider value={l.shadow.y ?? 10} min={-120} max={120}
+                    onChange={(y) => setShadow({ y })} onCommit={commit} suffix="px" />
+                </Row>
+                <p className="hint">
+                  {(l.shadow.x || 0) === 0 && (l.shadow.y || 0) === 0
+                    ? 'Centred, so this reads as a glow.'
+                    : 'Offset, so this reads as a cast shadow.'}
+                </p>
+              </>
+            )}
           </Section>
         )}
 
