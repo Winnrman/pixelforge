@@ -638,7 +638,10 @@ export default function Inspector() {
               + 'arrives covering the clip it was put over, and only that one — if the shot '
               + 'has been cut into pieces it covers the piece under the playhead, and its '
               + 'right edge drags across the rest. Worth knowing when the overlay is hiding '
-              + 'something: it ends where its clip ends.'}>
+              + 'something: it ends where its clip ends. From then on it belongs to that '
+              + 'shot: move the shot and the overlay goes with it, ripple the shot out and '
+              + 'the overlay goes too. Drag the overlay somewhere else and it belongs to '
+              + 'whatever is under it there.'}>
             <Row label="Effect">
               <Select value={l.effect} onChange={(effect) => { set({ effect }); commit() }} options={EFFECTS} />
             </Row>

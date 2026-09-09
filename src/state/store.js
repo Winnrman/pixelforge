@@ -34,7 +34,7 @@ import {
 import { saveBlob } from '../engine/desktop.js'
 import {
   wholeClip, slideTo, trimTo, splitAt, closeGaps, clipRange, sourceRange, MIN_CLIP_MS,
-  trackCount, sortByTrack,
+  trackCount, sortByTrack, isOverlay, ridersOf,
 } from '../engine/clips.js'
 import { ensureAudio, setMaster } from '../engine/audio.js'
 import {
@@ -1195,13 +1195,34 @@ export const useStore = create((set, get) => ({
     get().recomputeDuration()
   },
 
-  /** Moves a clip along the timeline. `commit` false while a drag is in flight. */
+  /**
+   * Moves a clip along the timeline. `commit` false while a drag is in flight.
+   *
+   * Whatever is riding on it comes along. A censor and the shot it covers are on
+   * different rows, and a row is not a bond — slide the shot and the face moves
+   * out from under its own blur, which is the one way this feature can fail
+   * badly rather than merely annoyingly.
+   */
   slideClip: (id, start, { commit = true } = {}) => {
     const s = get()
     const l = s.doc.layers.find((x) => x.id === id)
     if (!l?.clip) return
+    const assetOf = (x) => getAsset(x.assetId)
+    const clip = slideTo(l, start)
+    const delta = (clip.start || 0) - (l.clip.start || 0)
+    const riders = delta ? ridersOf(s.doc.layers, l, assetOf) : []
     if (commit) s.pushHistory()
-    get().updateLayer(id, { clip: slideTo(l, start) })
+    const moved = new Map(riders.map((r) => [r.id, { ...r.clip, start: Math.max(0, (r.clip.start || 0) + delta) }]))
+    set({
+      dirty: true,
+      doc: {
+        ...s.doc,
+        layers: s.doc.layers.map((x) => {
+          if (x.id === id) return { ...x, clip }
+          return moved.has(x.id) ? { ...x, clip: moved.get(x.id) } : x
+        }),
+      },
+    })
     get().recomputeDuration()
   },
 
@@ -1264,9 +1285,20 @@ export const useStore = create((set, get) => ({
   /** Lays every clip end to end in its current order, closing the gaps. */
   closeClipGaps: () => {
     const s = get()
-    const moves = closeGaps(s.doc.layers, (l) => getAsset(l.assetId))
+    const assetOf = (l) => getAsset(l.assetId)
+    const moves = closeGaps(s.doc.layers, assetOf)
     if (!moves.size) return
     s.pushHistory()
+    // Overlays are not laid end to end — they sit over shots — so `closeGaps`
+    // leaves them alone, and they have to be carried by whatever moved beneath.
+    for (const l of s.doc.layers) {
+      if (!moves.has(l.id) || !l.assetId) continue
+      const delta = (moves.get(l.id).start || 0) - (l.clip.start || 0)
+      if (!delta) continue
+      for (const r of ridersOf(s.doc.layers, l, assetOf)) {
+        moves.set(r.id, { ...r.clip, start: Math.max(0, (r.clip.start || 0) + delta) })
+      }
+    }
     set({
       doc: {
         ...s.doc,
@@ -1397,15 +1429,32 @@ export const useStore = create((set, get) => ({
 
     s.pushHistory()
     const gone = new Set(picked.map((l) => l.id))
+    // A censor goes out with the shot it was censoring. Leaving it behind is
+    // worse than useless: the shot after slides up underneath it and gets blurred
+    // instead.
+    for (const l of picked) for (const r of ridersOf(s.doc.layers, l, assetOf)) gone.add(r.id)
+    // What each surviving overlay is riding on, worked out before anything moves.
+    const hosts = new Map()
+    for (const l of s.doc.layers) {
+      if (gone.has(l.id) || !l.clip || !l.assetId) continue
+      for (const r of ridersOf(s.doc.layers, l, assetOf)) hosts.set(r.id, l)
+    }
+    const shifted = (l) => {
+      const hole = holes.get(l.track || 0)
+      if (!hole) return 0
+      const start = clipRange(l, assetOf(l)).start
+      return start < hole.from ? 0 : hole.span
+    }
     const layers = s.doc.layers
       .filter((l) => !gone.has(l.id))
       .map((l) => {
         if (!l.clip) return l
-        const hole = holes.get(l.track || 0)
-        if (!hole) return l
+        // An overlay moves by whatever its host moved by, not by what the hole on
+        // its own row happens to be — the hole is on the row the shot was on.
+        const by = isOverlay(l) ? (hosts.has(l.id) ? shifted(hosts.get(l.id)) : 0) : shifted(l)
+        if (!by) return l
         const start = clipRange(l, assetOf(l)).start
-        if (start < hole.from) return l
-        return { ...l, clip: { ...l.clip, start: Math.max(0, start - hole.span) } }
+        return { ...l, clip: { ...l.clip, start: Math.max(0, start - by) } }
       })
     set({ dirty: true, doc: { ...s.doc, layers }, selectedIds: [] })
     get().recomputeDuration()

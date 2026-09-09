@@ -485,6 +485,72 @@ check('two titles share a track like anything else',
 check('but two of a kind at the same moment do not, because that would be a transition',
   grouped.clash !== grouped.pixelates[0], `${grouped.clash} against ${grouped.pixelates[0]}`)
 
+// --- an overlay travels with the shot under it -----------------------------------
+// The consequence of putting effects on their own rows: a censor and the shot it
+// covers are no longer the same object, and the timeline was happy to slide one
+// out from under the other. Sliding a clip along used to leave the blur where it
+// was, which reveals exactly the thing the blur was put there to cover.
+const riding = await page.evaluate(async () => {
+  const st = window.__pfState()
+  // Back to one shot, nothing else on the board.
+  st.doc.layers.filter((l) => !l.assetId).forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 200))
+  const shots = () => window.__pfState().doc.layers.filter((l) => l.clip && l.assetId)
+    .sort((a, b) => a.clip.start - b.clip.start)
+  for (const l of shots().slice(1)) window.__pfState().removeLayers([l.id])
+  await new Promise((r) => setTimeout(r, 200))
+  window.__pfState().slideClip(shots()[0].id, 0)
+  await new Promise((r) => setTimeout(r, 200))
+  // Cut it in half, wherever half is — earlier checks have trimmed this clip and
+  // a fixed time can land past the end of it.
+  const only = shots()[0]
+  const span = window.__pfClips.clipRange(only, window.__pfAssets.getAsset(only.assetId))
+  window.__pfState().splitClips(Math.round(span.start + span.length / 2))
+  await new Promise((r) => setTimeout(r, 400))
+
+  const { makeEffectLayer } = window.__pfStore
+  window.__pfState().setTime(Math.round(span.start + span.length / 4))
+  const fx = window.__pfState().addLayer(makeEffectLayer({
+    name: 'Censor', shape: 'rect', effect: 'pixelate', pixelSize: 24, x: 10, y: 10, w: 60, h: 60,
+  }))
+  await new Promise((r) => setTimeout(r, 300))
+  const at = (id) => Math.round(window.__pfState().doc.layers.find((l) => l.id === id)?.clip?.start ?? -1)
+  const first = shots()[0]
+  const placed = { shot: at(first.id), censor: at(fx.id), sameTrack: first.track === fx.track }
+
+  // Slide the shot along. The censor is on another row and has to come anyway.
+  window.__pfState().slideClip(first.id, 3000)
+  await new Promise((r) => setTimeout(r, 250))
+  const slid = { shot: at(first.id), censor: at(fx.id) }
+
+  // And back, so the rest of this measures from where it started.
+  window.__pfState().slideClip(first.id, 0)
+  await new Promise((r) => setTimeout(r, 250))
+
+  // Ripple the shot out. The censor was censoring *that*, so it goes with it —
+  // left behind it would sit over whatever slides up underneath.
+  window.__pfState().select([shots()[0].id])
+  window.__pfState().rippleDelete()
+  await new Promise((r) => setTimeout(r, 300))
+  const rippled = {
+    censorGone: !window.__pfState().doc.layers.some((l) => l.id === fx.id),
+    shotsLeft: shots().length,
+    firstAt: at(shots()[0]?.id),
+  }
+  return { placed, slid, rippled }
+})
+console.log('an overlay riding its shot:', JSON.stringify(riding))
+check('an overlay lands over the shot under the playhead, on its own row',
+  riding.placed.censor === riding.placed.shot && !riding.placed.sameTrack,
+  JSON.stringify(riding.placed))
+check('sliding the shot brings the censor with it',
+  riding.slid.shot === 3000 && riding.slid.censor === 3000, JSON.stringify(riding.slid))
+check('and rippling the shot out takes its censor too',
+  riding.rippled.censorGone === true, JSON.stringify(riding.rippled))
+check('leaving the next shot to slide up to the front',
+  riding.rippled.shotsLeft === 1 && riding.rippled.firstAt === 0,
+  JSON.stringify(riding.rippled))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

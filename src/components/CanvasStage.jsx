@@ -6,6 +6,7 @@ import { docToLayer } from '../engine/erase.js'
 import { deliverPick, pickRestore, cancelPick } from '../state/picker.js'
 import {
   currentTime as audioTime, play as playAudio, stop as stopAudio, isPlaying as audioPlaying,
+  retune as retuneAudio,
 } from '../engine/audio.js'
 import { getAsset } from '../engine/assets.js'
 import { fontFor } from '../engine/render.js'
@@ -237,6 +238,19 @@ export default function CanvasStage() {
     // cannot be sped up in place — changing it re-cues from where we are, which
     // is the same thing a seek does.
   }, [playing, rate])
+
+  // Moving a point on the audio lane while the sound is running is heard now.
+  // Subscribed as a string because the alternative — watching `doc.layers` —
+  // fires on every drag of every clip and would rewrite the automation for a
+  // change that has nothing to do with sound.
+  const volumeSig = useStore((s) => s.doc.layers
+    .map((l) => `${l.id}:${l.muted ? 'm' : ''}${l.volume ?? ''}:`
+      + (trackOf(l, 'volume') || []).map((k) => `${Math.round(k.t)}@${k.v.toFixed(3)}`).join('|'))
+    .join(';'))
+  useEffect(() => {
+    if (!playing) return
+    retuneAudio(useStore.getState().doc, (l) => getAsset(l.assetId))
+  }, [volumeSig, playing])
 
   // Seeking while playing has to re-cue the sound: its sources were scheduled
   // from where playback began and cannot simply be moved.

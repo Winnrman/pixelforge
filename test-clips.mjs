@@ -7,7 +7,7 @@
 import {
   sourceRange, clipRange, visibleAt, assetTimeFor, wholeClip, slideTo, trimTo,
   splitAt, clipsEnd, closeGaps, hasClip, MIN_CLIP_MS,
-  snapPoints, snapClip, snapEdge, SNAP_PX,
+  snapPoints, snapClip, snapEdge, SNAP_PX, hostOf, ridersOf, isOverlay,
 } from './src/engine/clips.js'
 
 const checks = []
@@ -194,6 +194,56 @@ check('trimming snaps the edge being dragged', edge.value === 4000 && edge.at ==
   JSON.stringify(edge))
 check('and leaves it alone when nothing is near',
   snapEdge(2000, pts, 60).at === null)
+
+// --- what an overlay is riding on -----------------------------------------------
+// A blur over a face lives on a shot, not at a number of seconds, and the rows
+// do not say so: the censor is on track 2 and the shot on track 0. The bond is
+// worked out from where things are, so there is nothing to attach and nothing
+// to go stale.
+{
+  const of = (l) => (l.assetId ? { duration: 10000 } : null)
+  const shot = { id: 'A', assetId: 'a', track: 0, clip: { start: 0, in: 0, out: 4000 } }
+  const next = { id: 'B', assetId: 'a', track: 0, clip: { start: 4000, in: 4000, out: 8000 } }
+  const censor = { id: 'C', track: 1, type: 'effect', clip: { start: 500, in: 0, out: 1500 } }
+  const title = { id: 'T', track: 2, type: 'text', clip: { start: 5000, in: 0, out: 1000 } }
+  const floating = { id: 'F', track: 3, type: 'text', clip: { start: 9000, in: 0, out: 500 } }
+  const all = [shot, next, censor, title, floating]
+
+  check('an overlay is a clip with no media of its own', isOverlay(censor) && !isOverlay(shot))
+  check('a censor rides the shot it sits over', hostOf(all, censor, of)?.id === 'A')
+  check('and a title over the next shot rides that one', hostOf(all, title, of)?.id === 'B')
+  check('an overlay over nothing rides nothing', hostOf(all, floating, of) === null)
+  check('a shot is not riding on anything', hostOf(all, shot, of) === null)
+  check('the shot knows what it is carrying',
+    ridersOf(all, shot, of).map((l) => l.id).join() === 'C')
+  check('and does not claim the other one’s',
+    ridersOf(all, next, of).map((l) => l.id).join() === 'T')
+
+  // Run past the end of its shot on purpose — a censor that has to outlast the
+  // cut. Where it *begins* is what pins it, so it still belongs to that shot.
+  const long = { ...censor, clip: { start: 3000, in: 0, out: 3000 } }
+  check('an overlay run past the cut still belongs to the shot it started on',
+    hostOf([shot, next, long], long, of)?.id === 'A')
+
+  // Two shots lapping over each other is a dissolve. An overlay dropped on the
+  // join belongs to the shot coming in.
+  const early = { id: 'A', assetId: 'a', track: 0, clip: { start: 0, in: 0, out: 4000 } }
+  const late = { id: 'B', assetId: 'a', track: 0, clip: { start: 3000, in: 0, out: 4000 } }
+  const onJoin = { id: 'C', track: 1, type: 'effect', clip: { start: 3200, in: 0, out: 2000 } }
+  check('at a dissolve an overlay belongs to the shot coming in',
+    hostOf([early, late, onJoin], onJoin, of)?.id === 'B')
+}
+
+{
+  const of = () => ({ duration: 10000 })
+  const a = { id: 'A', assetId: 'a', clip: { start: 0, in: 0, out: 2000 } }
+  const b = { id: 'B', assetId: 'a', clip: { start: 4000, in: 0, out: 2000 } }
+  const both = snapPoints([a, b], of, ['A', 'B'])
+  check('a drag can hold several ids out of the snap points',
+    !both.includes(4000) && !both.includes(2000), JSON.stringify(both))
+  check('and one id still works on its own',
+    snapPoints([a, b], of, 'A').includes(4000))
+}
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

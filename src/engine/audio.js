@@ -119,6 +119,60 @@ export function voiceFor(layer, asset, fromMs) {
  * `currentTime` means the first fraction of a second has already passed by the
  * time the graph is connected, which clicks.
  */
+/**
+ * A voice's gain over time, written onto a gain node.
+ *
+ * Two things move it, and they multiply: what the layer's volume track is doing,
+ * which is an ordinary keyframe track, and what a transition or a fade is doing
+ * to it, which is an attenuation. Turning a clip down *and* fading it out should
+ * give something quieter than either alone.
+ *
+ * Pulled out of `buildGraph` because the running graph needs it too. Volume
+ * points are dragged while the sound is playing — that is the only way to hear
+ * what you are doing — and re-cueing the whole graph to hear a point move would
+ * restart every clip under the playhead.
+ */
+export function scheduleGain(param, layer, asset, pairs, { from = 0, at = 0, rate = 1 } = {}) {
+  const vol = Math.max(0, Math.min(2, layer.muted ? 0 : (layer.volume == null ? 1 : layer.volume)))
+  const points = voiceGainPoints(layer, asset, pairs)
+  const keys = layer.muted ? [] : trackOf(layer, 'volume')
+  const level = (ms) => (keys.length
+    ? Math.max(0, Math.min(2, valueAt(layer, 'volume', ms) ?? 1))
+    : vol)
+
+  // Document milliseconds to a context time. The preview rate belongs here: the
+  // sound is running fast, so a point two seconds along the clip arrives in one
+  // second of real time, and a ramp scheduled without the divide would still be
+  // climbing long after the moment it describes had gone past.
+  const when = (ms) => at + (ms - from) / 1000 / (rate || 1)
+
+  if (!points.length && !keys.length) {
+    param.setValueAtTime(vol, at)
+    return
+  }
+  // Every time either curve has something to say, plus a sample through each
+  // volume segment: keyframes ease, and a straight ramp between two keys would
+  // flatten an ease-in-out into a line.
+  const marks = new Set([from, ...points.map((p) => p[0])])
+  for (let i = 0; i < keys.length; i++) {
+    marks.add(keys[i].t)
+    const next = keys[i + 1]
+    if (!next) continue
+    const step = Math.max(40, (next.t - keys[i].t) / 8)
+    for (let t = keys[i].t + step; t < next.t; t += step) marks.add(t)
+  }
+  const times = [...marks].filter((t) => t >= from).sort((a, b) => a - b)
+
+  // Starting in the middle of a transition is ordinary — the playhead was
+  // dropped there — so the curve is picked up at its current value rather than
+  // restarted from the top.
+  param.setValueAtTime(level(from) * gainAt(points, from), at)
+  for (const ms of times) {
+    if (ms <= from) continue
+    param.linearRampToValueAtTime(level(ms) * gainAt(points, ms), when(ms))
+  }
+}
+
 export function buildGraph(context, doc, assetOf, {
   from = 0, when = null, master = 1, muted = false, rate = 1,
 } = {}) {
@@ -138,44 +192,8 @@ export function buildGraph(context, doc, assetOf, {
     const v = voiceFor(layer, asset, from)
     if (!v) continue
     const g = context.createGain()
-    const vol = Math.max(0, Math.min(2, layer.muted ? 0 : (layer.volume == null ? 1 : layer.volume)))
     g.connect(gain)
-
-    // Two things move a voice's gain: what the layer's volume is doing, which is
-    // an ordinary keyframe track, and what a transition or fade is doing to it,
-    // which is a multiplier. They are independent and they multiply — turning a
-    // clip down and fading it out should give something quieter than either.
-    const points = voiceGainPoints(layer, asset, pairs)
-    const keys = layer.muted ? [] : trackOf(layer, 'volume')
-    const level = (ms) => (keys.length
-      ? Math.max(0, Math.min(2, valueAt(layer, 'volume', ms) ?? 1))
-      : vol)
-
-    if (!points.length && !keys.length) {
-      g.gain.value = vol
-    } else {
-      // Every time either curve has something to say, plus a sample through each
-      // volume segment: keyframes ease, and a straight ramp between two keys
-      // would flatten an ease-in-out into a line.
-      const marks = new Set([from, ...points.map((p) => p[0])])
-      for (let i = 0; i < keys.length; i++) {
-        marks.add(keys[i].t)
-        const next = keys[i + 1]
-        if (!next) continue
-        const step = Math.max(40, (next.t - keys[i].t) / 8)
-        for (let t = keys[i].t + step; t < next.t; t += step) marks.add(t)
-      }
-      const times = [...marks].filter((t) => t >= from).sort((a, b) => a - b)
-
-      // Starting the graph in the middle of a transition is ordinary — the
-      // playhead was dropped there — so the curve is picked up at its current
-      // value rather than restarted from the top.
-      g.gain.setValueAtTime(level(from) * gainAt(points, from), at)
-      for (const ms of times) {
-        if (ms <= from) continue
-        g.gain.linearRampToValueAtTime(level(ms) * gainAt(points, ms), at + (ms - from) / 1000)
-      }
-    }
+    scheduleGain(g.gain, layer, asset, pairs, { from, at, rate })
 
     const src = context.createBufferSource()
     src.buffer = asset.audio
@@ -252,6 +270,52 @@ export function currentTime() {
   // playhead has to agree with it — a clock that ignores the rate would drift
   // against the very thing it is reading.
   return live.fromMs + Math.max(0, elapsed) * 1000 * (live.rate || 1)
+}
+
+/**
+ * Re-applies every voice's volume curve to the graph that is already playing.
+ *
+ * Dragging a point on the audio lane used to do nothing you could hear. The
+ * curve went into the layer, the layer went into the document, and the document
+ * was read exactly once — when play was pressed. So the only way to hear a point
+ * was to stop and start again, which is not how you find the right level: you
+ * find it by moving the point while the sound is running.
+ *
+ * Re-cueing would work and is wrong. It restarts every source under the
+ * playhead, which is a stutter on every drag. The sources are fine; it is only
+ * the automation on their gain nodes that is stale, and automation can be
+ * rewritten in place from now forward while the sound keeps running.
+ */
+export function retune(doc, assetOf) {
+  if (!live) return false
+  const now = currentTime()
+  if (now == null) return false
+  const at = live.ctx.currentTime
+  const pairs = pairsIn(doc.layers, assetOf)
+  const byId = new Map((doc.layers || []).map((l) => [l.id, l]))
+  for (const v of live.graph.voices) {
+    const layer = byId.get(v.layerId)
+    if (!layer) continue
+    const asset = assetOf(layer)
+    if (!asset) continue
+    // Hold what the gain is doing right now and drop everything scheduled after
+    // it. Without the hold, cancelling in the middle of a ramp snaps back to
+    // where that ramp began, which is an audible jump on every point you touch.
+    const g = v.gain.gain
+    if (g.cancelAndHoldAtTime) g.cancelAndHoldAtTime(at)
+    else { const held = g.value; g.cancelScheduledValues(at); g.setValueAtTime(held, at) }
+    scheduleGain(g, layer, asset, pairs, { from: now, at, rate: live.rate || 1 })
+  }
+  return true
+}
+
+/** What each voice's gain is at this instant, by layer. For tests: the only
+ *  other way to ask whether the sound got quieter is to listen to it. */
+export function voiceGains() {
+  if (!live) return {}
+  const out = {}
+  for (const v of live.graph.voices) out[v.layerId] = v.gain.gain.value
+  return out
 }
 
 /** Master volume and mute, applied to whatever is already playing. */

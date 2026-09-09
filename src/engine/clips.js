@@ -222,6 +222,52 @@ export function closeGaps(layers, assetOf, startAt = 0) {
 // Higher track number means further forward, matching the way a timeline is
 // drawn: the top row is the one in front.
 
+// ------------------------------------------------------- overlays and hosts
+
+/** An overlay: a clip with no media of its own — a censor, a title, a shape. */
+export const isOverlay = (l) => !!l?.clip && !l.assetId
+
+/**
+ * The media clip an overlay is riding on.
+ *
+ * A blur over somebody's face is not a thing that lives at 4.2 seconds. It is a
+ * thing that lives on *that shot*, and when the shot moves it has to move with
+ * it — otherwise sliding the clip along slides the face out from under its own
+ * censor, which is the one failure this feature cannot have.
+ *
+ * The bond is worked out from where things are rather than stored on the layer.
+ * Nothing to attach, nothing to detach, nothing to go stale: drag an overlay
+ * somewhere else and it belongs to whatever is under it now. What pins it is its
+ * first frame — so an overlay deliberately run past the end of its shot is still
+ * that shot's, which is exactly what somebody does when a censor has to outlast
+ * the cut.
+ */
+export function hostOf(layers, overlay, assetOf) {
+  if (!isOverlay(overlay)) return null
+  const o = clipRange(overlay, assetOf(overlay))
+  let best = null
+  let bestScore = -1
+  for (const l of layers) {
+    if (!l.clip || !l.assetId || l.id === overlay.id) continue
+    const r = clipRange(l, assetOf(l))
+    if (o.start < r.start || o.start >= r.end) continue
+    // Two clips can cover the same instant — that overlap is a transition. The
+    // one the overlay covers more of is the one it is about.
+    const shared = Math.min(o.end, r.end) - Math.max(o.start, r.start)
+    // Ties go to whichever starts later: at a dissolve, an overlay placed on the
+    // join belongs to the shot coming in.
+    const score = shared * 1e6 + r.start
+    if (score > bestScore) { bestScore = score; best = l }
+  }
+  return best
+}
+
+/** The overlays riding on a clip. */
+export function ridersOf(layers, host, assetOf) {
+  if (!host?.clip || !host.assetId) return []
+  return layers.filter((l) => isOverlay(l) && hostOf(layers, l, assetOf)?.id === host.id)
+}
+
 export const trackOf = (l) => (l?.clip ? (l.track || 0) : null)
 
 /** How many tracks the document is using. Always at least one. */
@@ -300,9 +346,13 @@ export const SNAP_PX = 8
  * with the shot underneath is the usual reason to want this at all.
  */
 export function snapPoints(layers, assetOf, exceptId, extra = []) {
+  // One id or several. A clip being dragged takes its overlays with it, and an
+  // edge that is moving is not an edge to line up against — left in, the shot
+  // would snap to where its own censor is and stick there.
+  const skip = new Set(Array.isArray(exceptId) ? exceptId : [exceptId])
   const out = [0]
   for (const l of layers) {
-    if (!l.clip || l.id === exceptId) continue
+    if (!l.clip || skip.has(l.id)) continue
     const r = clipRange(l, assetOf(l))
     out.push(r.start, r.end)
   }

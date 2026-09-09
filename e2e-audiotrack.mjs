@@ -248,6 +248,85 @@ check('the lane draws the sound rather than filling itself',
   drawnLane.max > 0.1 && drawnLane.min < 0.95,
   `heights ${drawnLane.min?.toFixed(2)} to ${drawnLane.max?.toFixed(2)}`)
 
+// --- a point moved while it is playing is heard while it is playing -----------------
+// The bug this catches: the curve went into the layer, the layer went into the
+// document, and the document was read exactly once — when play was pressed. So
+// the points were right, the drawing was right, the offline render was right,
+// and dragging a point while listening did nothing at all. Which is the only
+// time anybody drags one.
+//
+// Measured as the gain the running voice is actually at, because the alternative
+// way to ask whether the sound got quieter is to listen to it.
+await page.evaluate(() => { window.__pfState().setPlaying(false); window.__pfState().setTime(0) })
+await page.waitForTimeout(400)
+const live = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const A = window.__pfAudio
+  const of = (x) => window.__pfAssets.getAsset(x.assetId)
+  const l = st.doc.layers[0]
+  // Start with a clean lane: earlier checks left points on it.
+  st.updateLayer(l.id, { tracks: { ...(l.tracks || {}), volume: [] } })
+  await A.play(window.__pfState().doc, of, 0, {})
+  await new Promise((r) => setTimeout(r, 300))
+  const before = A.voiceGains()[l.id]
+
+  const down = A.currentTime()
+  st.setVolumePoint(l.id, down + 40, 0.05)
+  st.setVolumePoint(l.id, down + 4000, 0.05)
+  const retuned = A.retune(window.__pfState().doc, of)
+  await new Promise((r) => setTimeout(r, 300))
+  const quiet = A.voiceGains()[l.id]
+
+  // And back up, so it is not a one-way trip into silence.
+  st.setVolumePoint(l.id, A.currentTime() + 40, 1.6)
+  A.retune(window.__pfState().doc, of)
+  await new Promise((r) => setTimeout(r, 300))
+  const loud = A.voiceGains()[l.id]
+
+  const stillPlaying = A.isPlaying()
+  A.stop()
+  return { before, retuned, quiet, loud, stillPlaying }
+})
+console.log('gain on the running voice:', JSON.stringify(live))
+check('a voice starts at its own level', Math.abs(live.before - 1) < 0.01, `${live.before}`)
+check('dragging a point down while it plays turns it down',
+  live.retuned === true && live.quiet < 0.2, `${live.quiet}`)
+check('and dragging it back up brings it back',
+  live.loud > 1.2, `${live.loud}`)
+check('without stopping the sound to do it', live.stillPlaying === true)
+
+// The preview rate belongs in the ramp times. A point two seconds along arrives
+// after one second of real time at 2x, and a ramp scheduled without the divide
+// would still be climbing towards it long after the moment had gone by.
+const fast = await page.evaluate(async () => {
+  const of = (x) => window.__pfAssets.getAsset(x.assetId)
+  const st = window.__pfState()
+  const l = st.doc.layers[0]
+  st.updateLayer(l.id, { tracks: { ...(l.tracks || {}), volume: [{ t: 0, v: 1, ease: 'linear' }, { t: 2000, v: 0, ease: 'linear' }] } })
+  const layer = window.__pfState().doc.layers[0]
+  // Rendering is the honest way to read a scheduled param: play a constant
+  // through it and look at what came out half a second later.
+  const sample = async (rate) => {
+    const ctx = new OfflineAudioContext(1, 44100, 44100)
+    const buf = ctx.createBuffer(1, 44100, 44100)
+    buf.getChannelData(0).fill(1)
+    const src = ctx.createBufferSource()
+    src.buffer = buf
+    const g = ctx.createGain()
+    window.__pfAudio.scheduleGain(g.gain, layer, of(layer), [], { from: 0, at: 0, rate })
+    src.connect(g); g.connect(ctx.destination); src.start(0)
+    const out = await ctx.startRendering()
+    return +out.getChannelData(0)[Math.floor(44100 * 0.5)].toFixed(3)
+  }
+  return { at1x: await sample(1), at2x: await sample(2) }
+})
+console.log('gain half a second in:', JSON.stringify(fast))
+// Half a second at 1x is a quarter of the way down the two-second ramp.
+check('a volume ramp follows document time at 1x',
+  Math.abs(fast.at1x - 0.75) < 0.05, `${fast.at1x}`)
+check('and runs twice as fast when the preview does',
+  Math.abs(fast.at2x - 0.5) < 0.05, `${fast.at2x}`)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

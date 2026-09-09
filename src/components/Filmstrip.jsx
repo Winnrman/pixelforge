@@ -5,7 +5,7 @@ import {
   THUMB_H, cachedThumb, nearestThumb, thumbAt, thumbsFor, stripTimes, stripWindow,
 } from '../engine/filmstrip.js'
 import {
-  trackCount, assetTimeFor, snapPoints, snapClip, snapEdge, clipRange, SNAP_PX,
+  trackCount, assetTimeFor, snapPoints, snapClip, snapEdge, clipRange, SNAP_PX, ridersOf,
 } from '../engine/clips.js'
 import { pairsIn, TRANSITIONS, maxFade } from '../engine/transitions.js'
 
@@ -260,9 +260,12 @@ export default function Filmstrip({ layer, asset, duration, time, selected, onTr
     const ceiling = trackCount(useStore.getState().doc.layers)
 
     // Edges to line up with, gathered once: they cannot change during the drag,
-    // since the only clip moving is this one.
+    // since the only things moving are this clip and whatever is riding on it —
+    // and neither is something to line up against.
     const st0 = useStore.getState()
-    const points = snapPoints(st0.doc.layers, (x) => getAsset(x.assetId), layer.id, [st0.time])
+    const assetOf = (x) => getAsset(x.assetId)
+    const moving = [layer.id, ...ridersOf(st0.doc.layers, layer, assetOf).map((l) => l.id)]
+    const points = snapPoints(st0.doc.layers, assetOf, moving, [st0.time])
     // A fixed number of *pixels*, converted to time — so it feels the same
     // whether the project is four seconds or four minutes long.
     const tol = (SNAP_PX / Math.max(1, lane.width)) * duration
