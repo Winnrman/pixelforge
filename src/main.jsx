@@ -25,6 +25,7 @@ import * as subjectApi from './engine/subject.js'
 import * as backupApi from './engine/backup.js'
 import * as dpiApi from './engine/dpi.js'
 import * as audioApi from './engine/audio.js'
+import * as gradientApi from './engine/gradient.js'
 import * as waveApi from './engine/waveform.js'
 import * as edgeApi from './engine/edges.js'
 import * as cloneApi from './engine/clone.js'
@@ -62,6 +63,7 @@ if (import.meta.env.DEV) {
   window.__pfClone = cloneApi
   window.__pfClips = clipApi
   window.__pfTransitions = transitionApi
+  window.__pfGradient = gradientApi
 }
 
 createRoot(document.getElementById('root')).render(

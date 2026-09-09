@@ -31,7 +31,9 @@ export const TRACK_GROUPS = [
   // layer has no number for. Animating it sweeps the gradient across the thing,
   // which is most of what anyone wants a gradient to do that a flat colour
   // cannot.
-  { id: 'gradient', label: 'Gradient', props: ['fillAngle', 'colorAngle'] },
+  { id: 'gradient', label: 'Gradient', props: [
+    'fillAngle', 'colorAngle', 'fillStop', 'fillStop2', 'colorStop', 'colorStop2',
+  ] },
 ]
 
 export const GROUP_BY_ID = Object.fromEntries(TRACK_GROUPS.map((g) => [g.id, g]))

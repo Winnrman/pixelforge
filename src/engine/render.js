@@ -5,7 +5,7 @@ import { pairsIn, stateAt, drawFor, revealRect, veilBox, orderForTransitions, fa
 import {
   addShapePath, addMaskPath, hasMask, cropInsets, rad, toLocal, fromLocal, layerCenter,
 } from './shapes.js'
-import { paintFor } from './gradient.js'
+import { paintFor, gradientOf } from './gradient.js'
 import { resolveLayer, keyExtent, allKeyTimes } from './keyframes.js'
 import { resolveGroups, isGroup } from './groups.js'
 import { keyedFrame } from './matte.js'
@@ -678,8 +678,9 @@ function drawShapeLayer(ctx, l) {
     // the document — the gradient has to be placed on the shape rather than
     // around the origin, and turned with it.
     const c = layerCenter(l)
+    const g = gradientOf(l)
     ctx.fillStyle = paintFor(ctx, {
-      from: l.fill, to: l.fill2, angle: l.fillAngle,
+      from: l.fill, to: l.fill2, angle: l.fillAngle, stop: g?.stop, stop2: g?.stop2,
       w: l.w, h: l.h, cx: c.x, cy: c.y, rotation: l.rotation,
     })
     ctx.fill()
@@ -846,8 +847,10 @@ function drawTextLayer(ctx, l, { outlineOnly = false, only = null, skip = null }
   // gradient runs across the text box, so a letter that happens to be drawn on
   // its own still takes the colour that belongs to where it sits. The context is
   // already centred and rotated on the box, so the line goes about the origin.
+  const grad = gradientOf(l)
   const fill = paintFor(ctx, {
-    from: l.color || '#fff', to: l.color2, angle: l.colorAngle, w: l.w, h: l.h,
+    from: l.color || '#fff', to: l.color2, angle: l.colorAngle,
+    stop: grad?.stop, stop2: grad?.stop2, w: l.w, h: l.h,
   })
 
   const paint = (text, x, y) => {

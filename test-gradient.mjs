@@ -4,7 +4,9 @@
 // the geometry — and getting it wrong does not look wrong, it looks like a
 // gradient that is subtly banded at the corners or never quite reaches its end
 // colour. Neither announces itself, so it is worth pinning down.
-import { gradientLine, isGradient, seedStop } from './src/engine/gradient.js'
+import {
+  gradientLine, isGradient, seedStop, gradientOf, stopPatch, gradientAxis, stopAt,
+} from './src/engine/gradient.js'
 
 const checks = []
 const check = (name, ok, detail = '') => {
@@ -95,6 +97,69 @@ check('nor to fade from', !isGradient('none', '#fff'))
     seedStop('not a colour'))
   check('every stop it offers is a real six-digit colour',
     ['#000000', '#ffffff', '#808080', '#ff2d78', '#0a0a0a'].every((h) => /^#[0-9a-f]{6}$/.test(seedStop(h))))
+}
+
+// --- one gradient, two spellings ------------------------------------------------
+// A shape fills and a text layer colours, so the same three things are `fill`,
+// `fill2`, `fillAngle` on one and `color`, `color2`, `colorAngle` on the other.
+// Everything downstream wants the gradient, not the spelling.
+{
+  const shape = { type: 'shape', fill: '#f00', fill2: '#00f', fillAngle: 30, fillStop: 0.2, fillStop2: 0.8 }
+  const text = { type: 'text', color: '#f00', color2: '#00f', colorAngle: 30 }
+  check('a shape gradient reads out under one name', gradientOf(shape)?.angle === 30
+    && gradientOf(shape).stop === 0.2 && gradientOf(shape).stop2 === 0.8,
+    JSON.stringify(gradientOf(shape)))
+  check('and a text one under the other', gradientOf(text)?.from === '#f00'
+    && gradientOf(text).angle === 30, JSON.stringify(gradientOf(text)))
+  check('a flat layer has no gradient at all',
+    gradientOf({ type: 'shape', fill: '#f00', fill2: null }) === null)
+  check('and neither has anything else', gradientOf({ type: 'image', fill: '#f00', fill2: '#00f' }) === null)
+  check('stops default to the whole run', gradientOf(text).stop === 0 && gradientOf(text).stop2 === 1,
+    JSON.stringify(gradientOf(text)))
+
+  check('a stop is written back under the right name',
+    JSON.stringify(stopPatch(shape, { stop2: 0.4 })) === '{"fillStop2":0.4}',
+    JSON.stringify(stopPatch(shape, { stop2: 0.4 })))
+  check('and so is a text one',
+    JSON.stringify(stopPatch(text, { stop: 0.4 })) === '{"colorStop":0.4}',
+    JSON.stringify(stopPatch(text, { stop: 0.4 })))
+  check('a stop dragged past either end is held there',
+    stopPatch(shape, { stop: -3 }).fillStop === 0 && stopPatch(shape, { stop: 9 }).fillStop === 1)
+}
+
+// --- the bar the knobs sit on ---------------------------------------------------
+{
+  const l = {
+    type: 'shape', x: 100, y: 100, w: 200, h: 100, rotation: 0,
+    fill: '#f00', fill2: '#00f', fillAngle: 0, fillStop: 0, fillStop2: 1,
+  }
+  const axis = gradientAxis(l)
+  check('the bar runs the width of the box at 0 degrees',
+    near(axis.p0.x, 100) && near(axis.p1.x, 300) && near(axis.p0.y, 150) && near(axis.p1.y, 150),
+    JSON.stringify({ p0: axis.p0, p1: axis.p1 }))
+  check('with a knob at each end while the stops are at each end',
+    near(axis.a.x, axis.p0.x) && near(axis.b.x, axis.p1.x), JSON.stringify({ a: axis.a, b: axis.b }))
+
+  const pulled = gradientAxis({ ...l, fillStop2: 0.25 })
+  check('and the second knob a quarter along when it is dragged there',
+    near(pulled.b.x, 150) && near(pulled.a.x, 100), JSON.stringify(pulled.b))
+
+  // Turning the layer turns the bar with it, because the gradient is the
+  // shape's, not the page's.
+  const turned = gradientAxis({ ...l, rotation: 90 })
+  check('a turned layer turns its bar',
+    near(turned.p0.x, 200) && near(turned.p0.y, 50) && near(turned.p1.y, 250),
+    JSON.stringify({ p0: turned.p0, p1: turned.p1 }))
+
+  // Where the pointer is *along* the bar. Off to one side is not an error and
+  // not an angle to change: it is the same place on the line, which is what
+  // lets the bar be drawn clear of the box handles it would otherwise sit on.
+  check('a point on the bar reads as its place along it', near(stopAt(axis, 150, 150), 0.25),
+    String(stopAt(axis, 150, 150)))
+  check('and a point beside the bar reads exactly the same',
+    near(stopAt(axis, 150, 400), 0.25), String(stopAt(axis, 150, 400)))
+  check('past the end is the end', stopAt(axis, -500, 150) === 0 && stopAt(axis, 5000, 150) === 1)
+  check('a flat layer has no bar', gradientAxis({ ...l, fill2: null }) === null)
 }
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')

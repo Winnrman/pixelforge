@@ -226,8 +226,14 @@ const animated = await page.evaluate(async (id) => {
   }
 }, text.id)
 console.log('the angle on a track:', JSON.stringify(animated))
-check('animating a gradient tracks its angle and nothing else',
-  animated.props.join() === 'colorAngle', animated.props.join())
+// The whole gradient goes on one track group, the way position keys x and y
+// together. A text layer has no fill angle, and `enableGroup` skips a property
+// the layer has no number for — which is what lets one group serve both kinds.
+check('animating a gradient keys the whole of it',
+  ['colorAngle', 'colorStop', 'colorStop2'].every((k) => animated.props.includes(k)),
+  animated.props.join())
+check('and nothing belonging to the other kind of layer',
+  !animated.props.some((k) => k.startsWith('fill')), animated.props.join())
 check('and it sweeps between the keys',
   animated.start === 0 && Math.abs(animated.middle - 90) < 2 && animated.end === 180,
   JSON.stringify(animated))
@@ -295,6 +301,145 @@ console.log('and clicking it again:', JSON.stringify(on))
 check('clicking it again offers a second colour that is visibly different',
   !!on.color2 && on.color2 !== on.color, JSON.stringify(on))
 await page.screenshot({ path: path.join(OUT, '03-inspector.png') })
+
+// --- the stops, dragged on the canvas -------------------------------------------
+// An angle in a panel says which way the colours run and nothing about where
+// they change, and "I want more of the first one" is something you know by
+// looking rather than by typing a number.
+const shaped = await page.evaluate(async (box) => {
+  const st = window.__pfState()
+  st.setPlaying(false)
+  st.doc.layers.forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 300))
+  const { makeShapeLayer } = window.__pfStore
+  const l = window.__pfState().addLayer(makeShapeLayer({
+    shape: 'rect', ...box, fill: '#ff0000', fill2: '#0000ff', fillAngle: 90,
+    stroke: 'none', strokeWidth: 0, radius: 0,
+  }))
+  window.__pfState().select([l.id])
+  await new Promise((r) => setTimeout(r, 500))
+  return { id: l.id }
+}, { x: 100, y: 100, w: 400, h: 400 })
+
+/** Where the bar and its knobs are, in page coordinates. */
+const barAt = () => page.evaluate(() => {
+  const st = window.__pfState()
+  const l = st.doc.layers[0]
+  const g = window.__pfGradient.gradientAxis(l)
+  if (!g) return null
+  const v = st.view
+  const c = document.querySelector('canvas').getBoundingClientRect()
+  const scr = (q) => ({ x: c.left + v.panX + q.x * v.zoom, y: c.top + v.panY + q.y * v.zoom })
+  const s0 = scr(g.p0)
+  const s1 = scr(g.p1)
+  const dx = s1.x - s0.x
+  const dy = s1.y - s0.y
+  const len = Math.hypot(dx, dy) || 1
+  // The same sideways nudge the overlay draws with, so the test grabs the knob
+  // where a person would see it.
+  const off = { x: (dy / len) * 16, y: (-dx / len) * 16 }
+  const sh = (q) => ({ x: q.x + off.x, y: q.y + off.y })
+  return { p0: sh(s0), p1: sh(s1), a: sh(scr(g.a)), b: sh(scr(g.b)), stop: g.stop, stop2: g.stop2 }
+})
+
+const bar = await barAt()
+console.log('the bar:', JSON.stringify(bar))
+check('a gradient puts a bar with two knobs on the layer',
+  !!bar && bar.stop === 0 && bar.stop2 === 1, JSON.stringify(bar))
+check('running the way the gradient does',
+  Math.abs(bar.p1.y - bar.p0.y) > 100 && Math.abs(bar.p1.x - bar.p0.x) < 1,
+  JSON.stringify({ p0: bar.p0, p1: bar.p1 }))
+
+// The knob at the far end, dragged a third of the way back: the first colour
+// then holds most of the shape, which is the whole point of the thing.
+const along = (t) => ({
+  x: bar.p0.x + (bar.p1.x - bar.p0.x) * t,
+  y: bar.p0.y + (bar.p1.y - bar.p0.y) * t,
+})
+await page.mouse.move(bar.b.x, bar.b.y)
+await page.mouse.down()
+await page.mouse.move(along(0.33).x, along(0.33).y, { steps: 8 })
+await page.mouse.up()
+await page.waitForTimeout(300)
+const dragged = await page.evaluate(() => {
+  const l = window.__pfState().doc.layers[0]
+  return { stop: l.fillStop, stop2: l.fillStop2 }
+})
+console.log('after dragging the far knob back:', JSON.stringify(dragged))
+check('dragging a knob moves that stop and only that stop',
+  Math.abs(dragged.stop2 - 0.33) < 0.04 && dragged.stop === 0, JSON.stringify(dragged))
+
+const shifted = await sample([
+  ['early', 300, 103],
+  ['mid', 300, 240],
+  ['late', 300, 420],
+  ['end', 300, 480],
+])
+console.log('down the shape now:', JSON.stringify(shifted))
+check('so the second colour arrives sooner',
+  shifted.late[2] > 250 && shifted.late[0] < 6, JSON.stringify(shifted.late))
+check('and holds the rest of the shape flat',
+  Math.abs(shifted.late[2] - shifted.end[2]) < 3 && Math.abs(shifted.late[0] - shifted.end[0]) < 3,
+  JSON.stringify({ late: shifted.late, end: shifted.end }))
+check('while the first colour still starts where it did',
+  shifted.early[0] > 245 && shifted.early[2] < 12, JSON.stringify(shifted.early))
+await page.screenshot({ path: path.join(OUT, '04-stops.png') })
+
+// Dragging one knob past the other is a thing that happens. The answer is the
+// gradient the other way round, not a refusal and not a blank shape.
+const crossed = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const l = st.doc.layers[0]
+  st.updateLayer(l.id, { fillStop: 0.8, fillStop2: 0.2 })
+  await new Promise((r) => setTimeout(r, 300))
+  const c = document.createElement('canvas')
+  c.width = st.doc.width
+  c.height = st.doc.height
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  window.__pfRender.renderDocument(ctx, window.__pfState().doc, 0)
+  const px = (x, y) => { const d = ctx.getImageData(x, y, 1, 1).data; return [d[0], d[1], d[2], d[3]] }
+  return { top: px(300, 130), bottom: px(300, 470) }
+})
+console.log('with the knobs crossed:', JSON.stringify(crossed))
+check('crossing the knobs paints the gradient the other way round rather than nothing',
+  crossed.top[3] === 255 && crossed.bottom[3] === 255
+  && crossed.top[2] > 200 && crossed.bottom[0] > 200, JSON.stringify(crossed))
+
+// --- the knobs must not eat the box handles -------------------------------------
+// On the axis itself a stop at either end lands exactly on the handle there, and
+// neither could be grabbed. The bar is drawn to one side for that reason, so the
+// north handle has to still be a north handle.
+await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.updateLayer(st.doc.layers[0].id, { fillStop: 0, fillStop2: 1 })
+  await new Promise((r) => setTimeout(r, 300))
+})
+const resize = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const l = st.doc.layers[0]
+  const v = st.view
+  const c = document.querySelector('canvas').getBoundingClientRect()
+  return {
+    before: { y: l.y, h: l.h },
+    // The north handle: top centre of the box, on the axis a stop also sits on.
+    x: c.left + v.panX + (l.x + l.w / 2) * v.zoom,
+    y: c.top + v.panY + l.y * v.zoom,
+  }
+})
+await page.mouse.move(resize.x, resize.y)
+await page.mouse.down()
+await page.mouse.move(resize.x, resize.y + 60, { steps: 6 })
+await page.mouse.up()
+await page.waitForTimeout(300)
+const afterResize = await page.evaluate(() => {
+  const l = window.__pfState().doc.layers[0]
+  return { y: Math.round(l.y), h: Math.round(l.h), stop: l.fillStop, stop2: l.fillStop2 }
+})
+console.log('dragging the north handle:', JSON.stringify(afterResize))
+check('the box handle under a stop is still a box handle',
+  afterResize.h < resize.before.h - 30, `${resize.before.h} -> ${afterResize.h}`)
+check('and dragging it left the stops alone',
+  afterResize.stop === 0 && afterResize.stop2 === 1, JSON.stringify(afterResize))
 
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()

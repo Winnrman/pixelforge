@@ -14,6 +14,7 @@ import {
   addShapePath, corners, hitTest, layerCenter, toLocal, fromLocal, visibleBox, isCropped,
 } from '../engine/shapes.js'
 import { resolveLayer, hasTracks, trackOf, groupKeyTimes, valueAt } from '../engine/keyframes.js'
+import { gradientAxis, stopAt, stopPatch } from '../engine/gradient.js'
 import { resolveGroups, isGroup } from '../engine/groups.js'
 import { snapRect, unionBox, SNAP_TOLERANCE } from '../engine/snap.js'
 
@@ -38,6 +39,19 @@ const LOUPE_N = 9
 const DRAWS_ON_DRAG = new Set(['effect', 'shape', 'lasso', 'text', 'erase'])
 const usesHandles = (tool) => !DRAWS_ON_DRAG.has(tool)
 const HANDLE_SIZE = 9
+/** The radius of a gradient stop knob, on screen. */
+const GRAD_KNOB = 6
+/**
+ * How far to one side the gradient bar is drawn, in screen pixels.
+ *
+ * On the axis itself, a stop sitting at either end lands exactly on the box
+ * handle there — a gradient running down the layer puts its first knob on top of
+ * the north handle, and neither can be grabbed. An axis is a direction rather
+ * than a particular line, so any line parallel to it describes the same
+ * gradient; moved aside, the bar collides with nothing and the projection that
+ * turns a pointer into a position along it is unchanged.
+ */
+const GRAD_OFFSET = 16
 const MIN_SIZE = 8
 
 const CURSORS = {
@@ -715,6 +729,81 @@ export default function CanvasStage() {
       ctx.fillRect(p.x - HANDLE_SIZE / 2, p.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
       ctx.strokeRect(p.x - HANDLE_SIZE / 2, p.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
     }
+
+    drawGradientBar(ctx, l, v)
+  }
+
+  /** Where a gradient's bar and knobs are on screen, drawn and grabbed alike. */
+  function gradBar(l, v) {
+    const g = gradientAxis(l)
+    if (!g) return null
+    const scr = (q) => ({ x: v.panX + q.x * v.zoom, y: v.panY + q.y * v.zoom })
+    const s0 = scr(g.p0)
+    const s1 = scr(g.p1)
+    const dx = s1.x - s0.x
+    const dy = s1.y - s0.y
+    const len = Math.hypot(dx, dy) || 1
+    const off = { x: (dy / len) * GRAD_OFFSET, y: (-dx / len) * GRAD_OFFSET }
+    const shift = (q) => ({ x: q.x + off.x, y: q.y + off.y })
+    return {
+      ...g,
+      p0: shift(s0),
+      p1: shift(s1),
+      a: shift(scr(g.a)),
+      b: shift(scr(g.b)),
+    }
+  }
+
+  /**
+   * A gradient's two stops, on the thing itself.
+   *
+   * An angle in a panel says which way the colours run and nothing about where
+   * they change, and "I want more of the first one" is a thing you know by
+   * looking, not by typing a number. The bar is the gradient's own axis and each
+   * knob is filled with the colour it carries, so what you drag is what you see.
+   */
+  function drawGradientBar(ctx, l, v) {
+    const g = gradBar(l, v)
+    if (!g) return
+    const { p0, p1, a, b } = g
+
+    ctx.save()
+    // The whole run it could use, faint, so a stop dragged near the end reads as
+    // near the end of something rather than as floating.
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'
+    ctx.lineWidth = 3
+    ctx.beginPath()
+    ctx.moveTo(p0.x, p0.y)
+    ctx.lineTo(p1.x, p1.y)
+    ctx.stroke()
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'
+    ctx.lineWidth = 1
+    ctx.stroke()
+
+    // And the stretch between the stops, solid, because that is the part the
+    // colours are actually crossing.
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(a.x, a.y)
+    ctx.lineTo(b.x, b.y)
+    ctx.stroke()
+
+    for (const [pt, colour] of [[a, g.from], [b, g.to]]) {
+      ctx.beginPath()
+      ctx.arc(pt.x, pt.y, GRAD_KNOB, 0, Math.PI * 2)
+      ctx.fillStyle = colour
+      ctx.fill()
+      ctx.lineWidth = 2
+      ctx.strokeStyle = '#fff'
+      ctx.stroke()
+      ctx.lineWidth = 1
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)'
+      ctx.beginPath()
+      ctx.arc(pt.x, pt.y, GRAD_KNOB + 1.5, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+    ctx.restore()
   }
 
   function drawGuides(ctx, v) {
@@ -938,6 +1027,19 @@ export default function CanvasStage() {
     const c = scr(layerCenter(l))
     const len = Math.hypot(n.x - c.x, n.y - c.y) || 1
     const rp = { x: n.x + ((n.x - c.x) / len) * 26, y: n.y + ((n.y - c.y) / len) * 26 }
+
+    // The gradient knobs sit over the layer rather than on its edge, so they are
+    // asked first: everything else here is on the boundary and cannot be under
+    // the same pixel.
+    const g = gradBar(l, v)
+    if (g) {
+      // The far stop first. Dragged together they land on the same pixel, and
+      // the one you would then be stuck unable to move is the one that has
+      // somewhere to go.
+      for (const [key, q] of [['grad2', g.b], ['grad', g.a]]) {
+        if (Math.hypot(p.sx - q.x, p.sy - q.y) <= GRAD_KNOB + 4) return { key, layer: l }
+      }
+    }
     if (Math.hypot(p.sx - rp.x, p.sy - rp.y) < 10) return { key: 'rot', layer: l }
     const tooNarrow = Math.abs(l.w) * v.zoom < 34
     const tooShort = Math.abs(l.h) * v.zoom < 34
@@ -1037,6 +1139,11 @@ export default function CanvasStage() {
     }
 
     const h = hitHandle(p)
+    if (h && (h.key === 'grad' || h.key === 'grad2')) {
+      st.pushHistory()
+      drag.current = { mode: 'gradstop', key: h.key, id: h.layer.id }
+      return
+    }
     if (h) {
       st.pushHistory()
       // Dragging a text box by hand means you want that width kept, so the box
@@ -1314,6 +1421,21 @@ export default function CanvasStage() {
       const local = toLocal(d.l0, p.x, p.y)
       const box = resizeBox(d.l0, d.key, local, { shift: e.shiftKey, alt: e.altKey })
       st.setLayerAtTime(d.l0.id, box, { relative: true })
+      return
+    }
+
+    if (d.mode === 'gradstop') {
+      const base = st.doc.layers.find((x) => x.id === d.id)
+      if (!base) return
+      const g = gradientAxis(resolveLayer(base, st.time))
+      if (!g) return
+      // Wherever the pointer is, its place *along* the gradient. Off to the side
+      // is not an error to reject or an angle to change — it is the same point
+      // on the line, which is what makes the knob feel attached to the bar.
+      let t = stopAt(g, p.x, p.y)
+      if (e.shiftKey) t = Math.round(t * 20) / 20
+      st.setLayerAtTime(d.id, stopPatch(base, d.key === 'grad' ? { stop: t } : { stop2: t }),
+        { relative: true })
       return
     }
 

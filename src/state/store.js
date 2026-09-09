@@ -318,6 +318,11 @@ export function makeShapeLayer(partial = {}) {
     // Degrees, clockwise from left-to-right, so 90 runs top to bottom. A plain
     // number so it keyframes like rotation does.
     fillAngle: 90,
+    // Where along that line each colour sits. 0 and 1 is an even fade across the
+    // whole shape; pushing the second along leaves the first solid until it,
+    // which is how one colour is given the majority.
+    fillStop: 0,
+    fillStop2: 1,
     stroke: '#ffffff',
     strokeWidth: 0,
     opacity: 1,
@@ -358,6 +363,8 @@ export function makeTextLayer(partial = {}) {
     // Null is flat text, the same as a shape with one colour.
     color2: null,
     colorAngle: 90,
+    colorStop: 0,
+    colorStop2: 1,
     stroke: '#000000',
     strokeWidth: 0,
     opacity: 1,
