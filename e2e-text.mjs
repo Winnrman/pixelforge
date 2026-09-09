@@ -547,6 +547,125 @@ await page.evaluate(() => {
 
 await page.screenshot({ path: path.join(OUT, '02-outline.png') })
 
+// --- one word styled differently from the rest ------------------------------------
+// A layer had one colour, one weight, one slant, which is right for a title and
+// wrong for a sentence with a word in it that matters more than the others.
+//
+// Counted in pixels by colour, because "the run was stored" says nothing about
+// whether one word came out purple and the rest did not.
+const runs = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.setPlaying(false)
+  st.doc.layers.filter((l) => l.type === 'text').forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 250))
+  const { makeTextLayer } = window.__pfStore
+  // Sized and placed against the document this suite happens to be using, rather
+  // than at coordinates that suit one of them: dropped outside the canvas the
+  // layer renders nothing and every count below is zero.
+  const doc = window.__pfState().doc
+  const size = Math.max(24, Math.round(doc.height * 0.18))
+  const t = window.__pfState().addLayer(makeTextLayer({
+    text: 'hello world',
+    x: Math.round(doc.width * 0.04),
+    y: Math.round(doc.height * 0.35),
+    w: Math.round(doc.width * 0.92),
+    h: Math.round(size * 1.3),
+    size,
+    weight: 700,
+    color: '#ffffff', strokeWidth: 0, autoSize: false, align: 'left',
+  }))
+  window.__pfState().select([t.id])
+  await new Promise((r) => setTimeout(r, 350))
+
+  const inks = () => {
+    const s2 = window.__pfState()
+    const c = document.createElement('canvas')
+    c.width = s2.doc.width
+    c.height = s2.doc.height
+    const ctx = c.getContext('2d', { willReadFrequently: true })
+    window.__pfRender.renderDocument(ctx, s2.doc, 0)
+    const d = ctx.getImageData(0, 0, c.width, c.height).data
+    let white = 0
+    let purple = 0
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 200) continue
+      if (d[i] > 240 && d[i + 1] > 240 && d[i + 2] > 240) white++
+      else if (d[i] > 130 && d[i] < 210 && d[i + 1] < 40 && d[i + 2] > 220) purple++
+    }
+    return { white, purple }
+  }
+  const before = inks()
+
+  // "world" is characters 6 to 11.
+  window.__pfState().setTextSelection({ id: t.id, from: 6, to: 11 })
+  const res = window.__pfState().styleText(t.id, { color: '#aa00ff', weight: 900 })
+  await new Promise((r) => setTimeout(r, 350))
+  const after = inks()
+  const l = window.__pfState().doc.layers.find((x) => x.id === t.id)
+  return { before, after, res, runs: l.runs, w: Math.round(l.w) }
+})
+console.log('ink before and after styling one word:', JSON.stringify(runs))
+// Counted as a share of the ink that was there to begin with, so the thresholds
+// hold whatever size document the suite is using.
+check('plain text is all one colour', runs.before.purple === 0 && runs.before.white > 300,
+  JSON.stringify(runs.before))
+check('styling a selection makes a run of it',
+  runs.res.scope === 'selection' && runs.runs.length === 1
+  && runs.runs[0].from === 6 && runs.runs[0].to === 11, JSON.stringify(runs.runs))
+check('that word comes out in the new colour',
+  runs.after.purple > runs.before.white * 0.25, JSON.stringify(runs.after))
+// The half that says it is a *run* rather than the layer having changed colour.
+check('and the rest of the line does not',
+  runs.after.white > runs.before.white * 0.25, JSON.stringify(runs.after))
+
+// Changing the layer afterwards moves the words that were left alone, and only
+// those: a run says what it says, and text that never said anything follows.
+const layerAfter = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const t = st.doc.layers.find((l) => l.type === 'text')
+  st.setTextSelection(null)
+  st.updateLayer(t.id, { color: '#00ff00' })
+  await new Promise((r) => setTimeout(r, 350))
+  const s2 = window.__pfState()
+  const c = document.createElement('canvas')
+  c.width = s2.doc.width
+  c.height = s2.doc.height
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  window.__pfRender.renderDocument(ctx, s2.doc, 0)
+  const d = ctx.getImageData(0, 0, c.width, c.height).data
+  let green = 0
+  let purple = 0
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 200) continue
+    if (d[i + 1] > 220 && d[i] < 60) green++
+    else if (d[i] > 130 && d[i] < 210 && d[i + 2] > 220) purple++
+  }
+  return { green, purple }
+})
+console.log('after changing the layer colour:', JSON.stringify(layerAfter))
+check('changing the layer moves the words that were left alone',
+  layerAfter.green > runs.before.white * 0.25, JSON.stringify(layerAfter))
+check('and leaves the styled word saying what it said',
+  layerAfter.purple > runs.before.white * 0.25, JSON.stringify(layerAfter))
+
+// Typing in front of a styled word has to carry it along, or the colour ends up
+// on whatever letters happen to sit at those offsets afterwards.
+const shifted = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const t = st.doc.layers.find((l) => l.type === 'text')
+  const was = st.doc.layers.find((l) => l.id === t.id).runs[0]
+  st.setText(t.id, { text: 'oh hello world' }, { from: 0, to: 0, insert: 3 })
+  await new Promise((r) => setTimeout(r, 300))
+  const now = window.__pfState().doc.layers.find((l) => l.id === t.id)
+  return { was, runs: now.runs, text: now.text }
+})
+console.log('after typing in front of it:', JSON.stringify(shifted))
+check('typing before a styled word carries the style along with it',
+  shifted.runs[0].from === 9 && shifted.runs[0].to === 14, JSON.stringify(shifted.runs))
+check('so it still covers the same word',
+  shifted.text.slice(shifted.runs[0].from, shifted.runs[0].to) === 'world',
+  shifted.text.slice(shifted.runs[0].from, shifted.runs[0].to))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

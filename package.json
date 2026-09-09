@@ -64,6 +64,7 @@
     "test:audiotrack": "node e2e-audiotrack.mjs",
     "test:join": "node e2e-join.mjs",
     "test:transport": "node e2e-transport.mjs",
+    "test:richtext": "node test-richtext.mjs",
     "test:groups-units": "node test-groups.mjs",
     "test:prose": "node test-prose.mjs",
     "test:tint": "node e2e-tint.mjs",

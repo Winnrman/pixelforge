@@ -19,6 +19,7 @@ import { suggestLoop } from '../engine/loop.js'
 import { cardInsets, layoutCollage, defaultCollage } from '../engine/collage.js'
 import { defaultBrush, newStroke, newRegion, docToLayer } from '../engine/erase.js'
 import { gradientOf, gradientPatch, takesGradient, seedStop } from '../engine/gradient.js'
+import { applyRun, shiftRuns, normalizeRuns, styleAt } from '../engine/richtext.js'
 import { DEFAULT_KIND as DEFAULT_TRANSITION, maxFade, splitFade } from '../engine/transitions.js'
 import { cursorPath, smoothPath, autoZoomTracks } from '../engine/cursor.js'
 import { exactFrame } from '../engine/video.js'
@@ -536,6 +537,55 @@ export const useStore = create((set, get) => ({
   enteredGroup: null,
   enterGroup: (enteredGroup) => set({ enteredGroup }),
 
+  // What is selected inside the text being edited, so the ordinary colour and
+  // weight controls can act on a word rather than on the whole layer. Held here
+  // rather than in the editor because the inspector is what reads it.
+  textSelection: null,
+  setTextSelection: (textSelection) => set({ textSelection }),
+
+  /**
+   * Styles the selected stretch of a text layer, or the layer itself.
+   *
+   * The same controls do both, which is the point: select a word and the colour
+   * swatch colours that word, select nothing and it colours the layer. There is
+   * no rich-text mode to enter and nothing extra to learn — the difference is
+   * whether anything is selected, which you can see.
+   */
+  styleText: (id, patch, { commit = true } = {}) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === id)
+    if (!l || l.type !== 'text') return { ok: false }
+    const sel = s.textSelection
+    const range = sel && sel.id === id && sel.to > sel.from ? sel : null
+    if (!range) {
+      if (commit) s.pushHistory()
+      s.updateLayer(id, patch)
+      return { ok: true, scope: 'layer' }
+    }
+    if (commit) s.pushHistory()
+    const runs = applyRun(l.runs, range.from, range.to, patch, String(l.text || '').length)
+    // Measured again: a bold word is wider, and an auto-sized box has to grow to
+    // hold the word that was made to stand out.
+    const next = { ...l, runs }
+    const m = measureText(next)
+    s.updateLayer(id, {
+      runs,
+      h: m.h,
+      ...(l.autoSize !== false ? { w: m.w } : null),
+    })
+    return { ok: true, scope: 'selection', from: range.from, to: range.to }
+  },
+
+  /** What the styling controls are pointed at right now, for the inspector. */
+  textScope: () => {
+    const s = get()
+    const sel = s.textSelection
+    if (!sel || sel.to <= sel.from) return null
+    const l = s.doc.layers.find((x) => x.id === sel.id)
+    if (!l || l.type !== 'text') return null
+    return { ...sel, style: styleAt(l.runs, sel.from) || {} }
+  },
+
   /** What a click on this layer selects, and whether it leaves a group. */
   pickForClick: (layerId) => {
     const s = get()
@@ -734,13 +784,23 @@ export const useStore = create((set, get) => ({
    * Height always follows the line count, wrapped or not, so a box can never
    * clip its own text.
    */
-  setText: (id, patch) => {
+  setText: (id, patch, edit = null) => {
     const s = get()
     const layer = s.doc.layers.find((x) => x.id === id)
     if (!layer || layer.type !== 'text') return
-    const next = { ...layer, ...patch }
+    // Runs are character offsets into the very text being changed, so they move
+    // with it: typing in the middle of a styled word extends that word rather
+    // than leaving the new letters unstyled or pushing every later run out of
+    // place. `edit` says what was replaced with what; without it the runs are
+    // simply clipped to the new length.
+    const runs = layer.runs?.length
+      ? (edit
+        ? shiftRuns(layer.runs, edit.from, edit.to, edit.insert)
+        : normalizeRuns(layer.runs, String(patch.text ?? layer.text ?? '').length))
+      : layer.runs
+    const next = { ...layer, ...patch, ...(runs ? { runs } : null) }
     const m = measureText(next)
-    const out = { ...patch, h: m.h }
+    const out = { ...patch, h: m.h, ...(runs ? { runs } : null) }
     if (next.autoSize !== false) {
       const anchorRight = next.align === 'right'
       const anchorCentre = next.align === 'center'

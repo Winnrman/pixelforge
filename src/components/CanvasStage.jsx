@@ -1619,6 +1619,7 @@ export default function CanvasStage() {
   const editLayer = useStore((st) => (
     editing ? st.doc.layers.find((x) => x.id === editing) : null))
   const setText = useStore((st) => st.setText)
+  const setTextSelection = useStore((st) => st.setTextSelection)
 
   useEffect(() => {
     editingRef.current = editing
@@ -1722,8 +1723,23 @@ export default function CanvasStage() {
           style={editStyle()}
           value={editLayer.text}
           spellCheck={false}
-          onChange={(ev) => setText(editLayer.id, { text: ev.target.value })}
-          onBlur={() => setEditing(null)}
+          onChange={(ev) => {
+            // What was replaced with what, so the runs can move with the text
+            // instead of being clipped and losing whichever word was styled.
+            const was = String(editLayer.text ?? '')
+            const now = ev.target.value
+            const end = ev.target.selectionStart
+            const insert = Math.max(0, now.length - was.length)
+            const from = Math.max(0, end - insert)
+            setText(editLayer.id, { text: now },
+              { from, to: from + Math.max(0, was.length - (now.length - insert)), insert })
+          }}
+          onSelect={(ev) => setTextSelection({
+            id: editLayer.id,
+            from: ev.target.selectionStart,
+            to: ev.target.selectionEnd,
+          })}
+          onBlur={() => { setEditing(null); setTextSelection(null) }}
           onKeyDown={(ev) => {
             // Escape leaves it; Enter makes a new line, because multi-line text
             // is the common case and there is a blur to commit with.

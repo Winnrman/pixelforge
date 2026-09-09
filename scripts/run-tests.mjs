@@ -51,6 +51,7 @@ const OWNERS = [
   ['src/engine/keyframes.js', ['e2e-keyframes', 'e2e-keysel', 'e2e-framing', 'e2e-identity', 'e2e-audiotrack']],
   ['src/engine/exporters.js', ['e2e-editing', 'e2e-print', 'e2e-batch']],
   ['src/engine/text.js', ['e2e-text']],
+  ['src/engine/richtext.js', ['test-richtext', 'e2e-text']],
   ['src/engine/collage.js', ['e2e-mount', 'test-collage']],
   ['src/engine/project.js', ['e2e-project', 'e2e-backup']],
   ['src/engine/filmstrip.js', ['e2e-filmstrip', 'e2e-clips', 'e2e-tracks', 'e2e-join']],
@@ -80,7 +81,7 @@ const ALWAYS = ['e2e', 'test-prose']
 const UNITS = [
   'test-retro', 'test-loop', 'test-cursor', 'test-collage', 'test-trace',
   'test-dpi', 'test-clips', 'test-transitions', 'test-gradient', 'test-mask',
-  'test-prose', 'test-groups',
+  'test-prose', 'test-groups', 'test-richtext',
 ]
 
 const BROWSER = [

@@ -8,6 +8,7 @@ import {
 import { paintFor, gradientOf, placeIn, gradientBox, withAlpha } from './gradient.js'
 import { resolveLayer, keyExtent, allKeyTimes } from './keyframes.js'
 import { resolveGroups, isGroup, descendantIds } from './groups.js'
+import { segments, hasRuns } from './richtext.js'
 import { keyedFrame } from './matte.js'
 import { keyedFrameAI } from './aiMatte.js'
 import { frameAt as videoFrameAt, ensureDecoded, exactFrame, indexAt } from './video.js'
@@ -309,6 +310,22 @@ let measureCtx = null
 export function measureText(l) {
   if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d')
   measureCtx.font = fontFor(l)
+  // A layer that styles part of itself is measured piece by piece: a bold word
+  // is wider than the same word plain, and a box that ignored that would clip
+  // the very word that was made to stand out.
+  if (hasRuns(l)) {
+    const rows = runLines(measureCtx, l)
+    const widths = rows.map((pieces) => pieces.reduce((sum, p) => {
+      measureCtx.font = runFont(l, p.style)
+      return sum + measureCtx.measureText(p.text).width
+    }, 0))
+    const lh0 = l.size * (l.lineHeight || 1.2)
+    return {
+      lines: rows.map((pieces) => pieces.map((p) => p.text).join('')),
+      w: Math.ceil(Math.max(1, ...widths) + l.size * 0.12),
+      h: Math.ceil(rows.length * lh0),
+    }
+  }
   const lines = l.autoSize !== false
     ? String(l.text ?? '').split('\n')
     : wrapLines(measureCtx, l.text || '', l.w)
@@ -829,6 +846,111 @@ function coverScratch(w, h) {
  * them and vanish where the solid text is already showing, because they are
  * drawn in the same colour.
  */
+/** The font one piece of styled text draws with. */
+const runFont = (l, st) =>
+  `${st.italic ? 'italic ' : ''}${st.weight || 700} ${l.size}px ${l.font || 'Inter, sans-serif'}`
+
+/**
+ * A text layer's lines, each cut into pieces that draw with one style.
+ *
+ * Wrapping has to measure as it goes here, because a bold word is wider than the
+ * same word plain and a line that fitted before it was emboldened does not fit
+ * after. Whitespace is kept rather than collapsed to single spaces, which is a
+ * small difference from the plain path and the more honest one.
+ */
+export function runLines(ctx, l) {
+  const base = { color: l.color || '#fff', weight: l.weight || 700, italic: !!l.italic }
+  const paras = [[]]
+  for (const seg of segments(l.text || '', l.runs, base)) {
+    const parts = seg.text.split('\n')
+    parts.forEach((t, i) => {
+      if (i > 0) paras.push([])
+      if (t) paras[paras.length - 1].push({ text: t, style: seg.style })
+    })
+  }
+  // An auto-sized box already fits its content and must not re-wrap.
+  if (l.autoSize !== false) return paras
+
+  const out = []
+  for (const para of paras) {
+    const words = []
+    for (const piece of para) {
+      for (const w of piece.text.split(/(\s+)/)) if (w) words.push({ text: w, style: piece.style })
+    }
+    let line = []
+    let width = 0
+    for (const w of words) {
+      ctx.font = runFont(l, w.style)
+      const ww = ctx.measureText(w.text).width
+      if (width + ww > l.w && line.length && w.text.trim()) {
+        out.push(line)
+        line = []
+        width = 0
+      }
+      // A space that only exists because a line broke is not drawn at the start
+      // of the next one.
+      if (!line.length && !w.text.trim()) continue
+      line.push(w)
+      width += ww
+    }
+    out.push(line)
+  }
+  return out
+}
+
+/**
+ * Draws a text layer that styles part of itself differently from the whole.
+ *
+ * Kept apart from the plain path rather than folded into it. Every piece needs
+ * its own font set and its own x worked out, so alignment stops being something
+ * the canvas does for us and becomes a sum over the line — and none of that is
+ * worth imposing on the ordinary case, which is most text and all of the text
+ * everything else here was tested against.
+ */
+function drawRunText(ctx, l, fill, { outlineOnly = false } = {}) {
+  const lines = runLines(ctx, l)
+  const lh = l.size * (l.lineHeight || 1.2)
+  const startY = -l.h / 2
+  const prevAlign = ctx.textAlign
+  ctx.textAlign = 'left'
+
+  lines.forEach((pieces, i) => {
+    const widths = pieces.map((p) => {
+      ctx.font = runFont(l, p.style)
+      return ctx.measureText(p.text).width
+    })
+    const total = widths.reduce((a, b) => a + b, 0)
+    // Alignment is a sum over the line now, the canvas having no idea the line
+    // is made of several drawings.
+    let x = l.align === 'center' ? -total / 2
+      : l.align === 'right' ? l.w / 2 - total
+        : -l.w / 2
+    const y = startY + i * lh
+    pieces.forEach((p, j) => {
+      ctx.font = runFont(l, p.style)
+      if (outlineOnly) {
+        ctx.strokeStyle = l.outlineColor || p.style.color || l.color || '#fff'
+        ctx.lineWidth = Math.max(0.5, l.outlineWidth ?? 2)
+        ctx.lineJoin = 'round'
+        ctx.strokeText(p.text, x, y)
+      } else {
+        if (l.strokeWidth > 0) {
+          ctx.strokeStyle = withAlpha(l.stroke || '#000', l.strokeOpacity ?? 1)
+          ctx.lineWidth = l.strokeWidth
+          ctx.lineJoin = 'round'
+          ctx.strokeText(p.text, x, y)
+        }
+        // A run that names no colour keeps the layer's, gradient and all — so a
+        // gradient across a title still crosses the words that were left alone.
+        ctx.fillStyle = p.style.color || fill
+        ctx.fillText(p.text, x, y)
+      }
+      x += widths[j]
+    })
+  })
+  ctx.textAlign = prevAlign
+}
+
 function drawTextLayer(ctx, l, { outlineOnly = false, only = null, skip = null } = {}) {
   ctx.save()
   ctx.globalAlpha = l.opacity ?? 1
@@ -859,6 +981,14 @@ function drawTextLayer(ctx, l, { outlineOnly = false, only = null, skip = null }
     // Local: the context is already centred and turned on this layer's box.
     ...placeIn(l, l.gradBox, { local: true }),
   })
+
+  // Styled in parts: a different loop entirely, and only for the layers that
+  // ask for it.
+  if (hasRuns(l)) {
+    drawRunText(ctx, l, fill, { outlineOnly })
+    ctx.restore()
+    return
+  }
 
   const paint = (text, x, y) => {
     if (outlineOnly) {

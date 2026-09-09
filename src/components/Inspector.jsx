@@ -19,6 +19,7 @@ import { RETRO_PRESETS, RETRO_CONTROLS, retroDefaults } from '../engine/retro.js
 import { defaultSticker, defaultTrails } from '../engine/subject.js'
 import { availableFonts } from '../engine/fonts.js'
 import { seedStop } from '../engine/gradient.js'
+import { styleAt } from '../engine/richtext.js'
 
 const SHAPES = [
   { value: 'ellipse', label: 'Ellipse' },
@@ -169,6 +170,16 @@ export default function Inspector() {
   const setMask = useStore((s) => s.setMask)
   const clearMask = useStore((s) => s.clearMask)
   const undoMaskAdd = useStore((s) => s.undoMaskAdd)
+  // What is selected inside the text being edited, if anything. The colour and
+  // weight controls point at it when there is one and at the layer when there
+  // is not — the same controls either way, which is the whole idea.
+  const textSel = useStore((s) => {
+    const t = s.textSelection
+    if (!t || t.to <= t.from) return null
+    const l = s.doc.layers.find((x) => x.id === t.id)
+    return l?.type === 'text' ? { ...t, text: String(l.text || '').slice(t.from, t.to) } : null
+  })
+  const styleText = useStore((s) => s.styleText)
   const editMask = useStore((s) => s.editMask)
   const setNotice = useStore((s) => s.setNotice)
   const enableTrack = useStore((s) => s.enableTrack)
@@ -251,6 +262,17 @@ export default function Inspector() {
     if (res?.count > 1 && g.span === 'group') {
       setNotice({ kind: 'ok', text: `One gradient across ${res.count} layers` })
     }
+  }
+
+  // The style controls act on the selection when there is one and on the layer
+  // when there is not.
+  const styling = textSel && base && textSel.id === base.id ? textSel : null
+  // Read from the layer rather than back out of the store, so this is a plain
+  // derivation of what is already rendered.
+  const runStyle = styling ? (styleAt(base?.runs, styling.from) || {}) : {}
+  const styleHere = (patch) => {
+    begin()
+    if (base) styleText(base.id, patch, { commit: false })
   }
 
   // Live edits are transient; history is pushed once, on the first change of a
@@ -1486,9 +1508,39 @@ export default function Inspector() {
               <Slider value={l.size} min={8} max={400}
                 onChange={(size) => setText(base.id, { size })} onCommit={commit} suffix="px" />
             </Row>
+            {styling && (
+              <p className="hint sel-scope">
+                Styling <b>{styling.text.length > 24
+                  ? `${styling.text.slice(0, 24)}…` : styling.text}</b>
+                <Info>
+                  Colour, weight and slant apply to what is selected in the text rather than
+                  to the whole layer, for as long as something is selected. Anything the
+                  selection does not say keeps following the layer, so changing the layer
+                  colour later still moves the words that were left alone. Set a property
+                  back to the layer with Reset beside it.
+                </Info>
+                <button
+                  className="mini"
+                  title="Put this stretch back to whatever the layer says"
+                  onClick={() => {
+                    styleText(base.id, { color: null, weight: null, italic: null })
+                    commit()
+                  }}
+                >Reset</button>
+              </p>
+            )}
             <Row label="Weight">
-              <Select value={String(l.weight)} onChange={(w) => { setText(base.id, { weight: Number(w) }); commit() }}
-                options={[300, 400, 500, 600, 700, 800, 900].map((n) => ({ value: String(n), label: String(n) }))} />
+              <Select
+                value={String(runStyle.weight ?? l.weight)}
+                onChange={(w) => { styleHere({ weight: Number(w) }); commit() }}
+                options={[300, 400, 500, 600, 700, 800, 900].map((n) => ({ value: String(n), label: String(n) }))}
+              />
+            </Row>
+            <Row label="Slant">
+              <Toggle
+                value={!!(runStyle.italic ?? l.italic)}
+                onChange={(italic) => { styleHere({ italic }); commit() }}
+              >{(runStyle.italic ?? l.italic) ? 'Italic' : 'Upright'}</Toggle>
             </Row>
             <Row label="Align">
               <Segmented value={l.align} onChange={(align) => { setText(base.id, { align }); commit() }}
@@ -1510,7 +1562,11 @@ export default function Inspector() {
                 : 'Text wraps at the box width; the height still follows the number of lines.'}
             </p>
             <Row label="Color">
-              <Color value={l.color} onChange={(color) => set({ color })} onCommit={commit} />
+              <Color
+                value={runStyle.color ?? l.color}
+                onChange={(color) => styleHere({ color })}
+                onCommit={commit}
+              />
               <GradientChip from={l.color} to={l.color2} angle={l.colorAngle}
                 onChange={gradient} commit={commit} />
             </Row>
