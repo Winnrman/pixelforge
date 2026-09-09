@@ -17,8 +17,15 @@
 // correctly but drifts — an editor that splits a run on every keystroke ends up
 // with a hundred of them describing one colour.
 
-/** What a run may override. Anything else stays the layer's business. */
-export const RUN_PROPS = ['color', 'weight', 'italic']
+/**
+ * What a run may override. Anything else stays the layer's business.
+ *
+ * Size and family are here because a cover is the case this exists for: one word
+ * of a line set larger, or in a different face, is the ordinary way a masthead
+ * or a standfirst is built. Tracking too — a word can be tightened without the
+ * line around it moving.
+ */
+export const RUN_PROPS = ['color', 'weight', 'italic', 'size', 'font', 'tracking']
 
 const clean = (style) => {
   const out = {}

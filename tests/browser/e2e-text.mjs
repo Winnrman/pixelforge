@@ -666,6 +666,109 @@ check('so it still covers the same word',
   shifted.text.slice(shifted.runs[0].from, shifted.runs[0].to) === 'world',
   shifted.text.slice(shifted.runs[0].from, shifted.runs[0].to))
 
+// --- tracking, and one word set differently from the rest -------------------------------
+// A masthead is mostly its tracking, and a cover line is often one word set
+// larger or in another face. Both are measured off the rendered pixels rather
+// than off the fields, because the arithmetic that lays out a line of mixed
+// sizes is the part that can be wrong while the document looks right.
+const typo = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  // Transparent, so measuring the alpha channel measures the letters. On an
+  // opaque ground every pixel is opaque and the probe reports the canvas.
+  st.setDoc({ width: 900, height: 400, background: 'transparent' })
+  await new Promise((r) => setTimeout(r, 250))
+  const { makeTextLayer } = window.__pfStore
+  const layer = makeTextLayer({
+    text: 'AESTHETIC', x: 40, y: 120, size: 80, weight: 800, color: '#ffffff', align: 'left',
+  })
+  window.__pfState().addLayer(layer)
+  await new Promise((r) => setTimeout(r, 300))
+  const id = layer.id
+
+  const box = () => {
+    const l = window.__pfState().doc.layers.find((x) => x.id === id)
+    return { w: Math.round(l.w), h: Math.round(l.h) }
+  }
+  // What the picture actually contains, so a box that grew without the letters
+  // moving cannot pass.
+  const ink = () => {
+    const s2 = window.__pfState()
+    const c = document.createElement('canvas')
+    c.width = s2.doc.width
+    c.height = s2.doc.height
+    const g = c.getContext('2d', { willReadFrequently: true })
+    window.__pfRender.renderDocument(g, s2.doc, 0)
+    const d = g.getImageData(0, 0, c.width, c.height).data
+    let minX = 1e9; let maxX = -1; let minY = 1e9; let maxY = -1
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        if (d[(y * c.width + x) * 4 + 3] > 128) {
+          if (x < minX) minX = x
+          if (x > maxX) maxX = x
+          if (y < minY) minY = y
+          if (y > maxY) maxY = y
+        }
+      }
+    }
+    return maxX < 0 ? null : { w: maxX - minX + 1, h: maxY - minY + 1, top: minY }
+  }
+
+  const plain = { box: box(), ink: ink() }
+
+  window.__pfState().setText(id, { tracking: 0.2 })
+  await new Promise((r) => setTimeout(r, 300))
+  const tracked = { box: box(), ink: ink() }
+
+  window.__pfState().setText(id, { tracking: -0.05 })
+  await new Promise((r) => setTimeout(r, 300))
+  const tight = { box: box(), ink: ink() }
+
+  // Back to normal, then style one word of a two-word line much larger.
+  window.__pfState().setText(id, { tracking: 0, text: 'THE QUIET' })
+  await new Promise((r) => setTimeout(r, 300))
+  const before = { box: box(), ink: ink() }
+  window.__pfState().setTextSelection({ id, from: 4, to: 9 })
+  window.__pfState().styleText(id, { size: 160 })
+  await new Promise((r) => setTimeout(r, 400))
+  const mixed = { box: box(), ink: ink() }
+  const runs = window.__pfState().doc.layers.find((x) => x.id === id).runs
+  window.__pfState().setTextSelection(null)
+  return { plain, tracked, tight, before, mixed, runs }
+})
+console.log('typography:', JSON.stringify({
+  plain: typo.plain, tracked: typo.tracked, tight: typo.tight,
+  before: typo.before, mixed: typo.mixed, runs: typo.runs,
+}))
+
+// Nine letters at 20% of 80px is about 144px of extra width, and the letters
+// have to actually move — a box that grew on its own would be a box that lies
+// about what is in it.
+check('tracking widens the text itself, not just the box',
+  typo.tracked.ink.w > typo.plain.ink.w + 100,
+  `${typo.plain.ink.w} -> ${typo.tracked.ink.w}`)
+check('and the box grows with it, so nothing is clipped',
+  typo.tracked.box.w > typo.plain.box.w + 100,
+  `${typo.plain.box.w} -> ${typo.tracked.box.w}`)
+check('negative tracking tightens it', typo.tight.ink.w < typo.plain.ink.w,
+  `${typo.plain.ink.w} -> ${typo.tight.ink.w}`)
+check('the height is untouched either way',
+  Math.abs(typo.tracked.ink.h - typo.plain.ink.h) <= 2,
+  `${typo.plain.ink.h} vs ${typo.tracked.ink.h}`)
+
+check('a run can carry its own size', typo.runs?.[0]?.style?.size === 160,
+  JSON.stringify(typo.runs))
+check('and the word set larger is drawn larger',
+  typo.mixed.ink.h > typo.before.ink.h * 1.6,
+  `${typo.before.ink.h} -> ${typo.mixed.ink.h}`)
+// The line is as tall as the largest thing on it, or the big word overlaps
+// whatever is above it and the box clips its own text.
+check('the box grows to hold the taller line',
+  typo.mixed.box.h > typo.before.box.h * 1.6,
+  `${typo.before.box.h} -> ${typo.mixed.box.h}`)
+check('and the text still starts inside its own box',
+  typo.mixed.ink.top >= 118, String(typo.mixed.ink.top))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

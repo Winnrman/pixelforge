@@ -478,6 +478,10 @@ export function makeTextLayer(partial = {}) {
     weight: 800,
     italic: false,
     lineHeight: 1.2,
+    // Letter spacing, as a share of the size rather than as pixels: tracking
+    // is a proportion, so a masthead set at 12% is still at 12% when it is
+    // scaled up. Zero is the font's own spacing, and negative tightens.
+    tracking: 0,
     align: 'left',
     // The box hugs the text until the layer is resized by hand, at which point
     // the width becomes a wrap width instead.
@@ -570,7 +574,11 @@ export const useStore = create((set, get) => ({
     const range = sel && sel.id === id && sel.to > sel.from ? sel : null
     if (!range) {
       if (commit) s.pushHistory()
-      s.updateLayer(id, patch)
+      // Through `setText`, not `updateLayer`: with nothing selected these are
+      // ordinary layer properties, and size, family and tracking all change how
+      // wide the text is. An auto-sized box that did not re-measure would clip
+      // the very word that was just made bigger.
+      s.setText(id, patch)
       return { ok: true, scope: 'layer' }
     }
     if (commit) s.pushHistory()

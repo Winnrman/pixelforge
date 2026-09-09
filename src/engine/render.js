@@ -297,6 +297,19 @@ export function fontFor(l) {
   return `${l.italic ? 'italic ' : ''}${l.weight || 700} ${l.size}px ${l.font || 'Inter, sans-serif'}`
 }
 
+/**
+ * Letter spacing, in pixels, for a layer or one of its runs.
+ *
+ * Stored as a share of the size rather than as pixels, because tracking is a
+ * typographic proportion: a masthead set at 12% stays set at 12% when it is
+ * scaled up, where a stored `8px` would quietly tighten as the type grew.
+ */
+export function trackingPx(l, st = null) {
+  const size = st?.size ?? l.size ?? 0
+  const t = st?.tracking ?? l.tracking ?? 0
+  return `${(t * size).toFixed(3)}px`
+}
+
 let measureCtx = null
 
 /**
@@ -310,20 +323,21 @@ let measureCtx = null
 export function measureText(l) {
   if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d')
   measureCtx.font = fontFor(l)
+  // Set every time: the context is shared, and a layer with no tracking must not
+  // inherit the last one's.
+  measureCtx.letterSpacing = trackingPx(l)
   // A layer that styles part of itself is measured piece by piece: a bold word
   // is wider than the same word plain, and a box that ignored that would clip
   // the very word that was made to stand out.
   if (hasRuns(l)) {
     const rows = runLines(measureCtx, l)
-    const widths = rows.map((pieces) => pieces.reduce((sum, p) => {
-      measureCtx.font = runFont(l, p.style)
-      return sum + measureCtx.measureText(p.text).width
-    }, 0))
-    const lh0 = l.size * (l.lineHeight || 1.2)
+    // Each line is as tall as the largest thing on it, so a word set at three
+    // times the size does not overlap the line above it.
+    const metrics = rows.map((pieces) => lineMetrics(measureCtx, l, pieces))
     return {
       lines: rows.map((pieces) => pieces.map((p) => p.text).join('')),
-      w: Math.ceil(Math.max(1, ...widths) + l.size * 0.12),
-      h: Math.ceil(rows.length * lh0),
+      w: Math.ceil(Math.max(1, ...metrics.map((m) => m.width)) + l.size * 0.12),
+      h: Math.ceil(metrics.reduce((sum, m) => sum + m.height, 0)),
     }
   }
   const lines = l.autoSize !== false
@@ -870,7 +884,44 @@ function coverScratch(w, h) {
  */
 /** The font one piece of styled text draws with. */
 const runFont = (l, st) =>
-  `${st.italic ? 'italic ' : ''}${st.weight || 700} ${l.size}px ${l.font || 'Inter, sans-serif'}`
+  `${st.italic ? 'italic ' : ''}${st.weight || 700} ${st.size ?? l.size}px `
+  + `${st.font || l.font || 'Inter, sans-serif'}`
+
+/**
+ * Puts a run's font and tracking on a context, and hands back what it measures.
+ *
+ * The ascent is what lets a line of mixed sizes sit on one baseline. Canvas
+ * aligns `top` to the top of the em box, so a big word and a small one drawn at
+ * the same y have their *tops* level and their baselines nowhere near each
+ * other — which is not typesetting, it is two words that happen to overlap.
+ */
+function setRun(ctx, l, st) {
+  ctx.font = runFont(l, st)
+  ctx.letterSpacing = trackingPx(l, st)
+  const m = ctx.measureText('H')
+  return {
+    size: st.size ?? l.size,
+    ascent: m.fontBoundingBoxAscent || (st.size ?? l.size) * 0.8,
+  }
+}
+
+/**
+ * A line of pieces measured as one line: how wide, how tall, and where its
+ * baseline sits relative to the top of it.
+ */
+function lineMetrics(ctx, l, pieces) {
+  let width = 0
+  let size = 0
+  let ascent = 0
+  for (const p of pieces) {
+    const m = setRun(ctx, l, p.style)
+    width += ctx.measureText(p.text).width
+    size = Math.max(size, m.size)
+    ascent = Math.max(ascent, m.ascent)
+  }
+  const one = pieces.length ? size : (l.size || 0)
+  return { width, size: one, ascent, height: one * (l.lineHeight || 1.2) }
+}
 
 /**
  * A text layer's lines, each cut into pieces that draw with one style.
@@ -931,14 +982,14 @@ export function runLines(ctx, l) {
  */
 function drawRunText(ctx, l, fill, { outlineOnly = false } = {}) {
   const lines = runLines(ctx, l)
-  const lh = l.size * (l.lineHeight || 1.2)
-  const startY = -l.h / 2
   const prevAlign = ctx.textAlign
   ctx.textAlign = 'left'
+  let top = -l.h / 2
 
-  lines.forEach((pieces, i) => {
+  lines.forEach((pieces) => {
+    const line = lineMetrics(ctx, l, pieces)
     const widths = pieces.map((p) => {
-      ctx.font = runFont(l, p.style)
+      setRun(ctx, l, p.style)
       return ctx.measureText(p.text).width
     })
     const total = widths.reduce((a, b) => a + b, 0)
@@ -947,25 +998,29 @@ function drawRunText(ctx, l, fill, { outlineOnly = false } = {}) {
     let x = l.align === 'center' ? -total / 2
       : l.align === 'right' ? l.w / 2 - total
         : -l.w / 2
-    const y = startY + i * lh
+    const y = top
+    top += line.height
     pieces.forEach((p, j) => {
-      ctx.font = runFont(l, p.style)
+      const m = setRun(ctx, l, p.style)
+      // Dropped by the difference in ascent, which puts every piece on the
+      // line's baseline. Uniform text has no difference and does not move.
+      const dy = line.ascent - m.ascent
       if (outlineOnly) {
         ctx.strokeStyle = l.outlineColor || p.style.color || l.color || '#fff'
         ctx.lineWidth = Math.max(0.5, l.outlineWidth ?? 2)
         ctx.lineJoin = 'round'
-        ctx.strokeText(p.text, x, y)
+        ctx.strokeText(p.text, x, y + dy)
       } else {
         if (l.strokeWidth > 0) {
           ctx.strokeStyle = withAlpha(l.stroke || '#000', l.strokeOpacity ?? 1)
           ctx.lineWidth = l.strokeWidth
           ctx.lineJoin = 'round'
-          ctx.strokeText(p.text, x, y)
+          ctx.strokeText(p.text, x, y + dy)
         }
         // A run that names no colour keeps the layer's, gradient and all — so a
         // gradient across a title still crosses the words that were left alone.
         ctx.fillStyle = p.style.color || fill
-        ctx.fillText(p.text, x, y)
+        ctx.fillText(p.text, x, y + dy)
       }
       x += widths[j]
     })
@@ -980,6 +1035,7 @@ function drawTextLayer(ctx, l, { outlineOnly = false, only = null, skip = null }
   ctx.translate(l.x + l.w / 2, l.y + l.h / 2)
   if (l.rotation) ctx.rotate(rad(l.rotation))
   ctx.font = fontFor(l)
+  ctx.letterSpacing = trackingPx(l)
   ctx.textBaseline = 'top'
   ctx.textAlign = l.align || 'left'
   // An auto-sized box already fits its content, so it must not re-wrap: the

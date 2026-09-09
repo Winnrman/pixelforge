@@ -49,8 +49,18 @@ const shape = (runs) => runs.map((r) => `${r.from}-${r.to}:${JSON.stringify(r.st
   check('nothing reaches past the end of the text',
     clipped[0].to === 5, shape(clipped))
   check('only the properties a run may carry survive',
-    JSON.stringify(normalizeRuns([{ from: 0, to: 3, style: { color: '#f00', size: 90 } }])[0].style)
+    JSON.stringify(normalizeRuns([{ from: 0, to: 3, style: { color: '#f00', align: 'left' } }])[0].style)
       === '{"color":"#f00"}')
+  // Size and family are among them, because one word of a line set larger or in
+  // another face is how a masthead is built.
+  check('a run may carry its own size, family and tracking',
+    JSON.stringify(normalizeRuns([{ from: 0, to: 3, style: { size: 90, font: 'Bodoni', tracking: 0.1 } }])[0].style)
+      === '{"size":90,"font":"Bodoni","tracking":0.1}')
+  check('and two runs differing only in size are not folded together',
+    normalizeRuns([
+      { from: 0, to: 3, style: { size: 40 } },
+      { from: 3, to: 6, style: { size: 90 } },
+    ]).length === 2)
 }
 
 // --- applying a style to a stretch ---------------------------------------------
@@ -155,7 +165,7 @@ const shape = (runs) => runs.map((r) => `${r.from}-${r.to}:${JSON.stringify(r.st
 }
 
 check('the properties a run may carry are the ones the inspector offers',
-  RUN_PROPS.join() === 'color,weight,italic', RUN_PROPS.join())
+  RUN_PROPS.join() === 'color,weight,italic,size,font,tracking', RUN_PROPS.join())
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

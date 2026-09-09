@@ -40,6 +40,51 @@ export const FONT_CHOICES = [
   { label: 'Comic Sans MS', stack: `"Comic Sans MS", cursive`, probe: 'Comic Sans MS' },
   { label: 'Brush Script', stack: `"Brush Script MT", cursive`, probe: 'Brush Script MT' },
   { label: 'Papyrus', stack: `Papyrus, fantasy`, probe: 'Papyrus' },
+
+  // --- display and editorial faces ------------------------------------------
+  // Added for cover work, where the face is most of the design. A masthead
+  // wants something condensed and heavy, or a high-contrast serif; the general
+  // list above has neither. Everything here still ships with Windows or macOS —
+  // and the probe below drops whatever is not actually installed, so a machine
+  // with only half of them shows only half of them.
+  { label: 'Haettenschweiler', stack: `Haettenschweiler, Impact${STACK}`, probe: 'Haettenschweiler' },
+  { label: 'Bahnschrift', stack: `Bahnschrift, "DIN Condensed"${STACK}`, probe: 'Bahnschrift' },
+  { label: 'Oswald', stack: `Oswald${STACK}`, probe: 'Oswald' },
+  { label: 'Bebas Neue', stack: `"Bebas Neue"${STACK}`, probe: 'Bebas Neue' },
+  { label: 'Anton', stack: `Anton${STACK}`, probe: 'Anton' },
+  { label: 'Stencil', stack: `Stencil, fantasy`, probe: 'Stencil' },
+  { label: 'Playbill', stack: `Playbill, fantasy`, probe: 'Playbill' },
+  { label: 'Copperplate', stack: `Copperplate, "Copperplate Gothic Light"${STACK}`, probe: 'Copperplate' },
+  { label: 'Rockwell', stack: `Rockwell, "Rockwell Nova"${SERIF}`, probe: 'Rockwell' },
+  { label: 'Bodoni', stack: `"Bodoni MT", "Bodoni 72", Didot${SERIF}`, probe: 'Bodoni MT' },
+  { label: 'Didot', stack: `Didot, "Bodoni MT"${SERIF}`, probe: 'Didot' },
+  { label: 'Perpetua', stack: `Perpetua${SERIF}`, probe: 'Perpetua' },
+  { label: 'Bookman', stack: `"Bookman Old Style", Bookman${SERIF}`, probe: 'Bookman Old Style' },
+  { label: 'Constantia', stack: `Constantia${SERIF}`, probe: 'Constantia' },
+  { label: 'Hoefler Text', stack: `"Hoefler Text"${SERIF}`, probe: 'Hoefler Text' },
+  { label: 'Charter', stack: `Charter, "Bitstream Charter"${SERIF}`, probe: 'Charter' },
+  { label: 'Sitka', stack: `"Sitka Heading", Sitka${SERIF}`, probe: 'Sitka Heading' },
+  { label: 'Avenir Next', stack: `"Avenir Next", Avenir${STACK}`, probe: 'Avenir Next' },
+  { label: 'Helvetica Neue', stack: `"Helvetica Neue", Helvetica${STACK}`, probe: 'Helvetica Neue' },
+  { label: 'Candara', stack: `Candara${STACK}`, probe: 'Candara' },
+  { label: 'Corbel', stack: `Corbel${STACK}`, probe: 'Corbel' },
+  { label: 'Lucida Sans', stack: `"Lucida Sans", "Lucida Grande"${STACK}`, probe: 'Lucida Sans' },
+  { label: 'Segoe UI Light', stack: `"Segoe UI Light", "Segoe UI"${STACK}`, probe: 'Segoe UI Light' },
+
+  // --- written by hand -------------------------------------------------------
+  { label: 'Segoe Script', stack: `"Segoe Script", cursive`, probe: 'Segoe Script' },
+  { label: 'Segoe Print', stack: `"Segoe Print", cursive`, probe: 'Segoe Print' },
+  { label: 'Ink Free', stack: `"Ink Free", cursive`, probe: 'Ink Free' },
+  { label: 'Gabriola', stack: `Gabriola, cursive`, probe: 'Gabriola' },
+  { label: 'Snell Roundhand', stack: `"Snell Roundhand", cursive`, probe: 'Snell Roundhand' },
+  { label: 'Marker Felt', stack: `"Marker Felt", cursive`, probe: 'Marker Felt' },
+  { label: 'Chalkduster', stack: `Chalkduster, fantasy`, probe: 'Chalkduster' },
+  { label: 'Bradley Hand', stack: `"Bradley Hand", cursive`, probe: 'Bradley Hand' },
+
+  // --- fixed width -----------------------------------------------------------
+  { label: 'Cascadia Mono', stack: `"Cascadia Mono", "Cascadia Code"${MONO}`, probe: 'Cascadia Mono' },
+  { label: 'Lucida Console', stack: `"Lucida Console"${MONO}`, probe: 'Lucida Console' },
+  { label: 'SF Mono', stack: `"SF Mono", Menlo${MONO}`, probe: 'SF Mono' },
 ]
 
 /**

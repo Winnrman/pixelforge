@@ -1452,8 +1452,8 @@ export default function Inspector() {
             <p className="hint">Or double-click the text on the canvas to edit it in place.</p>
             <Row label="Font">
               <Select
-                value={l.font}
-                onChange={(font) => { setText(base.id, { font }); commit() }}
+                value={runStyle.font ?? l.font}
+                onChange={(font) => { styleHere({ font }); commit() }}
                 options={availableFonts().map((f) => ({
                   value: f.stack,
                   label: f.label,
@@ -1464,25 +1464,39 @@ export default function Inspector() {
               />
             </Row>
             <Row label="Size">
-              <Slider value={l.size} min={8} max={400}
-                onChange={(size) => setText(base.id, { size })} onCommit={commit} suffix="px" />
+              <Slider value={runStyle.size ?? l.size} min={8} max={400}
+                onChange={(size) => styleHere({ size })} onCommit={commit} suffix="px" />
+            </Row>
+            <Row label="Tracking" info={'Letter spacing, as a share of the size — so type scaled up '
+              + 'keeps the spacing it was given. Negative tightens. It is most of what separates a '
+              + 'masthead from a word set in a heavy font.'}>
+              <Slider
+                value={Math.round((runStyle.tracking ?? l.tracking ?? 0) * 100)}
+                min={-10} max={60} suffix="%"
+                onChange={(v) => styleHere({ tracking: v / 100 })}
+                onCommit={commit}
+              />
             </Row>
             {styling && (
               <p className="hint sel-scope">
                 Styling <b>{styling.text.length > 24
                   ? `${styling.text.slice(0, 24)}…` : styling.text}</b>
                 <Info>
-                  Colour, weight and slant apply to what is selected in the text rather than
-                  to the whole layer, for as long as something is selected. Anything the
-                  selection does not say keeps following the layer, so changing the layer
-                  colour later still moves the words that were left alone. Set a property
-                  back to the layer with Reset beside it.
+                  Font, size, tracking, weight, slant and colour all apply to what is
+                  selected rather than to the whole layer, for as long as something is
+                  selected — which is how one word of a line is set larger, or in another
+                  face. Anything the selection does not say keeps following the layer, so
+                  changing the layer colour later still moves the words that were left
+                  alone. Set a property back to the layer with Reset beside it.
                 </Info>
                 <button
                   className="mini"
                   title="Put this stretch back to whatever the layer says"
                   onClick={() => {
-                    styleText(base.id, { color: null, weight: null, italic: null })
+                    styleText(base.id, {
+                      color: null, weight: null, italic: null,
+                      size: null, font: null, tracking: null,
+                    })
                     commit()
                   }}
                 >Reset</button>
