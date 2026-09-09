@@ -15,7 +15,7 @@ import {
 } from '../engine/shapes.js'
 import { resolveLayer, hasTracks, trackOf, groupKeyTimes, valueAt } from '../engine/keyframes.js'
 import { gradientAxis, stopAt, gradientBox } from '../engine/gradient.js'
-import { resolveGroups, isGroup, descendantIds } from '../engine/groups.js'
+import { resolveGroups, isGroup, descendantIds, withDescendants } from '../engine/groups.js'
 import { snapRect, unionBox, SNAP_TOLERANCE } from '../engine/snap.js'
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
@@ -1216,22 +1216,34 @@ export default function CanvasStage() {
       const l = held ? resolveLayer(held, st.time) : top
       if (!l) {
         st.select([])
+        // A click on nothing is also a step back out of whatever group you had
+        // gone into — the same gesture that clears the selection.
+        st.enterGroup(null)
         return
       }
-      const alreadySelected = st.selectedIds.includes(l.id)
+      // Clicking a word of a title selects the title. Going deeper is a second
+      // gesture, so the group is a thing you can pick up rather than something
+      // that exists only in the layers panel.
+      const pick = held ? l.id : (st.pickForClick(l.id) || l.id)
+      const alreadySelected = st.selectedIds.includes(pick)
       if (e.shiftKey) {
         st.select(alreadySelected
-          ? st.selectedIds.filter((id) => id !== l.id)
-          : [...st.selectedIds, l.id])
+          ? st.selectedIds.filter((id) => id !== pick)
+          : [...st.selectedIds, pick])
       } else if (!alreadySelected) {
-        st.select([l.id])
+        st.select([pick])
       }
       st.pushHistory()
       const ids = useStore.getState().selectedIds
       const now = useStore.getState()
+      // A group holds no geometry of its own, so what moves is everything inside
+      // it. Without this a selected group produced origins with no x or y and
+      // the drag arrived at NaN — which is why groups could not be moved.
+      const movable = withDescendants(now.doc.layers, ids)
       const picked = now.doc.layers
-        .filter((x) => ids.includes(x.id))
+        .filter((x) => movable.includes(x.id) && !isGroup(x) && !x.locked)
         .map((x) => resolveLayer(x, now.time))
+      if (!picked.length) return
       drag.current = {
         mode: 'move',
         p0: p,
@@ -1579,11 +1591,23 @@ export default function CanvasStage() {
 
   const onDoubleClick = (e) => {
     const p = toDoc(e)
-    if (useStore.getState().tool === 'lasso') { closeLasso(); return }
+    const st = useStore.getState()
+    if (st.tool === 'lasso') { closeLasso(); return }
     const l = topLayerAt(p)
-    if (l?.type === 'text' && !l.locked) {
-      useStore.getState().select([l.id])
-      useStore.getState().pushHistory()
+    if (!l) return
+    // Inside a group, and not yet inside it: go in one level and take what is
+    // under the pointer. Only once you are all the way down does a double-click
+    // on text mean "edit this", which is what keeps one gesture from having to
+    // mean two things at once.
+    const pick = st.pickForClick(l.id)
+    if (pick && pick !== l.id) {
+      st.enterGroup(pick)
+      st.select([st.pickForClick(l.id) || l.id])
+      return
+    }
+    if (l.type === 'text' && !l.locked) {
+      st.select([l.id])
+      st.pushHistory()
       setEditing(l.id)
     }
   }

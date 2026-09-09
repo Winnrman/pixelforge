@@ -246,6 +246,81 @@ await page.waitForTimeout(300)
 check('an edited outline still applies as a mask',
   (await page.evaluate(() => !!window.__pfState().doc.layers[0].mask)) === true)
 
+// --- a group is something you can pick up ------------------------------------------
+// Clicking a word of a title selected the word, so a group existed in the layers
+// panel and nowhere else — and because a group holds no geometry of its own, a
+// selected one produced a drag with no coordinates in it and moved nothing.
+const setup = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.setPlaying(false)
+  st.setTool('move')
+  st.doc.layers.forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 300))
+  const { makeShapeLayer } = window.__pfStore
+  const mk = (y, fill) => makeShapeLayer({
+    shape: 'rect', x: 100, y, w: 200, h: 120, fill, stroke: 'none', strokeWidth: 0, radius: 0,
+  })
+  const a = window.__pfState().addLayer(mk(100, '#ff0000'))
+  const b = window.__pfState().addLayer(mk(260, '#00c000'))
+  window.__pfState().groupLayers([a.id, b.id])
+  window.__pfState().select([])
+  await new Promise((r) => setTimeout(r, 350))
+  const g = window.__pfState().doc.layers.find((l) => l.type === 'group')
+  const v = window.__pfState().view
+  // The stage canvas specifically. The media pool's posters are canvases too and
+  // come first in the document, so the plain selector measures a thumbnail.
+  const box = document.querySelector('.stage canvas').getBoundingClientRect()
+  const at = (x, y) => ({ x: box.left + v.panX + x * v.zoom, y: box.top + v.panY + y * v.zoom })
+  return { a: a.id, b: b.id, g: g.id, on: at(200, 160) }
+})
+const picked = () => page.evaluate(() => ({
+  sel: window.__pfState().selectedIds, entered: window.__pfState().enteredGroup,
+}))
+
+await page.mouse.click(setup.on.x, setup.on.y)
+await page.waitForTimeout(250)
+const once = await picked()
+console.log('clicking a member:', JSON.stringify(once))
+check('one click on a grouped layer selects the group',
+  once.sel.length === 1 && once.sel[0] === setup.g)
+
+await page.mouse.dblclick(setup.on.x, setup.on.y)
+await page.waitForTimeout(300)
+const twice = await picked()
+console.log('double-clicking it:', JSON.stringify(twice))
+check('double-clicking goes inside and takes the layer under the pointer',
+  twice.sel[0] === setup.a && twice.entered === setup.g)
+
+await page.keyboard.press('Escape')
+await page.waitForTimeout(250)
+const back = await picked()
+console.log('escape:', JSON.stringify(back))
+check('escape steps back out to the group', back.sel[0] === setup.g && back.entered === null)
+
+// The part that was simply missing: a group that moves.
+const wasAt = await page.evaluate(([a, b]) => [a, b].map((id) => {
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  return [Math.round(l.x), Math.round(l.y)]
+}), [setup.a, setup.b])
+await page.mouse.move(setup.on.x, setup.on.y)
+await page.mouse.down()
+await page.mouse.move(setup.on.x + 120, setup.on.y + 40, { steps: 8 })
+await page.mouse.up()
+await page.waitForTimeout(300)
+const nowAt = await page.evaluate(([a, b]) => [a, b].map((id) => {
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  return [Math.round(l.x), Math.round(l.y)]
+}), [setup.a, setup.b])
+console.log('dragging the group:', JSON.stringify(wasAt), '->', JSON.stringify(nowAt))
+check('dragging a group moves what is inside it',
+  nowAt[0][0] > wasAt[0][0] + 60 && nowAt[0][1] > wasAt[0][1] + 15)
+// Both by the same amount, or it is not a group being moved, it is two layers
+// being moved badly.
+check('and moves all of it by the same amount',
+  nowAt[1][0] - wasAt[1][0] !== 0
+  && nowAt[0][0] - wasAt[0][0] === nowAt[1][0] - wasAt[1][0]
+  && nowAt[0][1] - wasAt[0][1] === nowAt[1][1] - wasAt[1][1])
+
 console.log(errors.length ? '\nCONSOLE ERRORS:\n  ' + errors.slice(0, 10).join('\n  ') : '\nno console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

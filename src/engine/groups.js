@@ -81,6 +81,37 @@ export function withDescendants(layers, ids) {
   return [...out]
 }
 
+/**
+ * What a click on a layer selects, given how far into the groups you have gone.
+ *
+ * Clicking a word of a title selects the title, not the word. That is the only
+ * way a group is a thing you can pick up: otherwise every click reaches straight
+ * through to whatever is under the pointer and the group exists in the layers
+ * panel and nowhere else.
+ *
+ * Going deeper is a second gesture — double-click enters the group, and from
+ * then on clicks inside it reach one level further in. `entered` is that group,
+ * and a click outside it starts again from the top.
+ */
+export function clickTarget(layers, layer, entered = null) {
+  if (!layer) return null
+  const chain = ancestors(layers, layer)     // parent first, outermost last
+  if (!chain.length) return layer.id
+  const idx = entered ? chain.findIndex((g) => g.id === entered) : -1
+  // Outside whatever we are inside: the outermost group is the thing.
+  if (idx < 0) return chain[chain.length - 1].id
+  // Inside it: the child of it that leads down to what was clicked.
+  return idx === 0 ? layer.id : chain[idx - 1].id
+}
+
+/** Whether `id` is `group` or sits inside it. */
+export function isInside(layers, id, group) {
+  if (!group || !id) return false
+  if (id === group) return true
+  const l = layers.find((x) => x.id === id)
+  return ancestors(layers, l).some((g) => g.id === group)
+}
+
 export const childrenOf = (layers, id) => layers.filter((l) => (l.parentId || null) === (id || null))
 
 /**

@@ -4,7 +4,9 @@ import {
   polygonBounds, polygonToLayer, cropInsets, isCropped, fromLocal, layerAABB,
   maskPolys, maskBounds, windSame, hasMask, polygonToDoc,
 } from '../engine/shapes.js'
-import { isGroup, withDescendants, normalize, resolveGroups } from '../engine/groups.js'
+import {
+  isGroup, withDescendants, normalize, resolveGroups, clickTarget, isInside,
+} from '../engine/groups.js'
 import { trackLayer, trackTimes, simplifyTrack } from '../engine/tracker.js'
 import { defaultBgRemove } from '../engine/matte.js'
 import {
@@ -527,6 +529,22 @@ export const useStore = create((set, get) => ({
   // Which half of the app is on screen: the canvas, or the media bin.
   workspace: 'editor',
   setWorkspace: (workspace) => set({ workspace }),
+
+  // The group you have gone inside, if any. Clicking a word of a title selects
+  // the title; double-clicking goes in, and from then on clicks reach one level
+  // further. Clicking outside comes back out.
+  enteredGroup: null,
+  enterGroup: (enteredGroup) => set({ enteredGroup }),
+
+  /** What a click on this layer selects, and whether it leaves a group. */
+  pickForClick: (layerId) => {
+    const s = get()
+    const l = s.doc.layers.find((x) => x.id === layerId)
+    if (!l) return null
+    const entered = isInside(s.doc.layers, layerId, s.enteredGroup) ? s.enteredGroup : null
+    if (entered !== s.enteredGroup) set({ enteredGroup: entered })
+    return clickTarget(s.doc.layers, l, entered)
+  },
 
   doc: emptyDoc(),
   selectedIds: [],

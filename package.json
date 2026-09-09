@@ -64,6 +64,7 @@
     "test:audiotrack": "node e2e-audiotrack.mjs",
     "test:join": "node e2e-join.mjs",
     "test:transport": "node e2e-transport.mjs",
+    "test:groups-units": "node test-groups.mjs",
     "test:prose": "node test-prose.mjs",
     "test:maskedit": "node e2e-maskedit.mjs",
     "test:mask-units": "node test-mask.mjs",

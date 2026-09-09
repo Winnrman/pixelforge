@@ -35,6 +35,7 @@ const OWNERS = [
   ['src/engine/clips.js', ['e2e-clips', 'e2e-tracks', 'e2e-transitions', 'test-clips', 'e2e-filmstrip', 'e2e-join']],
   ['src/engine/gradient.js', ['e2e-gradient', 'test-gradient', 'e2e-text']],
   ['src/engine/shapes.js', ['test-mask', 'e2e-maskedit', 'e2e-lasso', 'e2e-subject', 'e2e-gradient']],
+  ['src/engine/groups.js', ['test-groups', 'e2e-groups', 'e2e-canvas', 'e2e-gradient']],
   ['src/engine/erase.js', ['e2e-erase', 'e2e-sticker', 'e2e-tools2', 'e2e-lasso']],
   ['src/engine/clone.js', ['e2e-clone']],
   ['src/engine/wand.js', ['e2e-wand']],
@@ -79,7 +80,7 @@ const ALWAYS = ['e2e', 'test-prose']
 const UNITS = [
   'test-retro', 'test-loop', 'test-cursor', 'test-collage', 'test-trace',
   'test-dpi', 'test-clips', 'test-transitions', 'test-gradient', 'test-mask',
-  'test-prose',
+  'test-prose', 'test-groups',
 ]
 
 const BROWSER = [

@@ -288,7 +288,13 @@ export default function App() {
         }
         return
       }
-      if (e.key === 'Escape') { s.select([]); return }
+      if (e.key === 'Escape') {
+        // Out of the group first, then out of the selection: one step back per
+        // press, which is what Escape means everywhere else.
+        if (s.enteredGroup) { s.enterGroup(null); s.select([s.enteredGroup]); return }
+        s.select([])
+        return
+      }
       if (e.code === 'Space') { e.preventDefault(); return }
       if (e.key === ' ') return
 
