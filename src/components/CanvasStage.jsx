@@ -12,6 +12,7 @@ import { getAsset } from '../engine/assets.js'
 import { fontFor } from '../engine/render.js'
 import {
   addShapePath, corners, hitTest, layerCenter, toLocal, fromLocal, visibleBox, isCropped,
+  layerAABB,
 } from '../engine/shapes.js'
 import { resolveLayer, hasTracks, trackOf, groupKeyTimes, valueAt } from '../engine/keyframes.js'
 import { gradientAxis, stopAt, gradientBox } from '../engine/gradient.js'
@@ -816,25 +817,55 @@ export default function CanvasStage() {
     ctx.restore()
   }
 
+  /**
+   * The boxes a drag can line up against: every visible layer that is not part
+   * of the drag itself.
+   *
+   * Groups are skipped — they hold no geometry of their own, and their members
+   * are in the list anyway — and so is anything being moved, which would
+   * otherwise snap to where it used to be and refuse to leave.
+   */
+  function otherBoxes(st, origins) {
+    const moving = new Set(origins.map((o) => o.id))
+    const groups = resolveGroups(st.doc.layers)
+    const out = []
+    for (const raw of st.doc.layers) {
+      if (isGroup(raw) || moving.has(raw.id)) continue
+      if (!groups.visible.get(raw.id)) continue
+      const l = resolveLayer(raw, st.time)
+      if (!(l.w > 0 && l.h > 0)) continue
+      out.push(layerAABB(l))
+    }
+    return out
+  }
+
   function drawGuides(ctx, v) {
     const guides = guidesRef.current
     if (!guides.length) return
     ctx.save()
     ctx.lineWidth = 1
     for (const g of guides) {
-      // Centre lines read differently from edge lines so it is obvious which
-      // one a layer has landed on.
-      ctx.strokeStyle = g.kind === 'center' ? '#ff2d78' : '#4ea1ff'
-      ctx.setLineDash(g.kind === 'center' ? [] : [5, 4])
+      // Three kinds, three looks: the canvas centre, a canvas edge, and another
+      // layer. Which one you have landed on is the whole information.
+      ctx.strokeStyle = g.kind === 'layer' ? '#ff2d78'
+        : g.kind === 'center' ? '#ff2d78' : '#4ea1ff'
+      ctx.setLineDash(g.kind === 'edge' ? [5, 4] : [])
       ctx.beginPath()
       if (g.axis === 'x') {
         const x = Math.round(v.panX + g.at * v.zoom) + 0.5
-        ctx.moveTo(x, v.panY - 16)
-        ctx.lineTo(x, v.panY + v.sh + 16)
+        // Against another layer the guide reaches between the two boxes and no
+        // further: a line across the whole frame claims agreement with
+        // everything it crosses.
+        const from = g.span ? v.panY + g.span.from * v.zoom - 8 : v.panY - 16
+        const to = g.span ? v.panY + g.span.to * v.zoom + 8 : v.panY + v.sh + 16
+        ctx.moveTo(x, from)
+        ctx.lineTo(x, to)
       } else {
         const y = Math.round(v.panY + g.at * v.zoom) + 0.5
-        ctx.moveTo(v.panX - 16, y)
-        ctx.lineTo(v.panX + v.sw + 16, y)
+        const from = g.span ? v.panX + g.span.from * v.zoom - 8 : v.panX - 16
+        const to = g.span ? v.panX + g.span.to * v.zoom + 8 : v.panX + v.sw + 16
+        ctx.moveTo(from, y)
+        ctx.lineTo(to, y)
       }
       ctx.stroke()
     }
@@ -1425,7 +1456,7 @@ export default function CanvasStage() {
       if (!e.altKey && d.box) {
         const moved = { x: d.box.x + dx, y: d.box.y + dy, w: d.box.w, h: d.box.h }
         const tol = SNAP_TOLERANCE / Math.max(0.0001, st.view.zoom)
-        const snapped = snapRect(moved, st.doc, tol)
+        const snapped = snapRect(moved, st.doc, tol, otherBoxes(st, d.origins))
         if (!e.shiftKey || dx !== 0) dx += snapped.dx
         if (!e.shiftKey || dy !== 0) dy += snapped.dy
         guidesRef.current = snapped.guides

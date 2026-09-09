@@ -40,6 +40,7 @@ const OWNERS = [
   ['src/engine/clone.js', ['e2e-clone']],
   ['src/engine/wand.js', ['e2e-wand']],
   ['src/engine/edges.js', ['e2e-magnet', 'test-edges']],
+  ['src/engine/snap.js', ['test-snap', 'e2e-snap']],
   ['src/engine/dpi.js', ['e2e-print', 'test-dpi']],
   ['src/engine/waveform.js', ['e2e-audio', 'e2e-tracks']],
   ['src/engine/audio.js', ['e2e-audio', 'e2e-transitions', 'e2e-audiotrack']],
@@ -81,7 +82,7 @@ const ALWAYS = ['e2e', 'test-prose']
 const UNITS = [
   'test-retro', 'test-loop', 'test-cursor', 'test-collage', 'test-trace',
   'test-dpi', 'test-clips', 'test-transitions', 'test-gradient', 'test-mask',
-  'test-prose', 'test-groups', 'test-richtext',
+  'test-prose', 'test-groups', 'test-richtext', 'test-snap',
 ]
 
 const BROWSER = [

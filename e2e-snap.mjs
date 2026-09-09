@@ -114,6 +114,83 @@ check('no guides are drawn while Alt is held', escaped.guides.length === 0)
 check('guides are cleared once the drag ends',
   (await page.evaluate(() => window.__pfSnapGuides())).length === 0)
 
+// --- lining up with another layer -------------------------------------------------
+// Snapping only to the canvas is the useful half of nothing: laying a word over
+// a picture, what it has to line up with is the other word.
+const pair = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.setPlaying(false)
+  st.setTool('move')
+  st.doc.layers.forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 300))
+  const { makeShapeLayer } = window.__pfStore
+  const anchor = window.__pfState().addLayer(makeShapeLayer({
+    shape: 'rect', x: 200, y: 120, w: 300, h: 80, fill: '#ff0000',
+    stroke: 'none', strokeWidth: 0, radius: 0,
+  }))
+  const mover = window.__pfState().addLayer(makeShapeLayer({
+    shape: 'rect', x: 260, y: 300, w: 120, h: 60, fill: '#00c000',
+    stroke: 'none', strokeWidth: 0, radius: 0,
+  }))
+  window.__pfState().select([mover.id])
+  await new Promise((r) => setTimeout(r, 350))
+  const v = window.__pfState().view
+  const box = document.querySelector('.stage canvas').getBoundingClientRect()
+  const at = (x, y) => ({ x: box.left + v.panX + x * v.zoom, y: box.top + v.panY + y * v.zoom })
+  return { anchor: anchor.id, mover: mover.id, grab: at(320, 330), zoom: v.zoom }
+})
+
+// Dragged so the mover's left edge lands three pixels short of the anchor's.
+await page.mouse.move(pair.grab.x, pair.grab.y)
+await page.mouse.down()
+await page.mouse.move(pair.grab.x + (200 - 260 + 3) * pair.zoom, pair.grab.y, { steps: 10 })
+const held = await page.evaluate(() => ({
+  guides: (window.__pfSnapGuides() || []).map((g) => ({
+    axis: g.axis, at: Math.round(g.at), kind: g.kind,
+    span: g.span ? [Math.round(g.span.from), Math.round(g.span.to)] : null,
+  })),
+  x: Math.round(window.__pfState().doc.layers.find((l) => l.fill === '#00c000').x),
+}))
+await page.mouse.up()
+await page.waitForTimeout(200)
+console.log('dragged alongside another layer:', JSON.stringify(held))
+check('a layer lines up with another layer, not just the canvas', held.x === 200, String(held.x))
+check('and the guide says it was a layer it landed on',
+  held.guides.some((g) => g.kind === 'layer' && g.at === 200), JSON.stringify(held.guides))
+// A line across the whole frame claims agreement with everything it crosses.
+check('the guide reaches between the two boxes and no further',
+  held.guides[0]?.span?.[0] === 120 && held.guides[0]?.span?.[1] === 360,
+  JSON.stringify(held.guides[0]?.span))
+check('and it stays where it was put', await page.evaluate(
+  () => Math.round(window.__pfState().doc.layers.find((l) => l.fill === '#00c000').x)) === 200)
+
+// Nothing snaps to itself: a layer that did would refuse to leave where it was.
+const alone = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const mover = st.doc.layers.find((l) => l.fill === '#00c000')
+  st.removeLayers([st.doc.layers.find((l) => l.fill === '#ff0000').id])
+  await new Promise((r) => setTimeout(r, 300))
+  return { x: Math.round(mover.x) }
+})
+const box2 = await page.evaluate(() => {
+  const v = window.__pfState().view
+  const r = document.querySelector('.stage canvas').getBoundingClientRect()
+  const l = window.__pfState().doc.layers.find((x) => x.fill === '#00c000')
+  return {
+    grab: { x: r.left + v.panX + (l.x + 60) * v.zoom, y: r.top + v.panY + (l.y + 30) * v.zoom },
+    zoom: v.zoom,
+  }
+})
+await page.mouse.move(box2.grab.x, box2.grab.y)
+await page.mouse.down()
+await page.mouse.move(box2.grab.x + 40 * box2.zoom, box2.grab.y + 20 * box2.zoom, { steps: 8 })
+await page.mouse.up()
+await page.waitForTimeout(200)
+const freed = await page.evaluate(
+  () => Math.round(window.__pfState().doc.layers.find((l) => l.fill === '#00c000').x))
+console.log('with nothing else on the canvas:', alone.x, '->', freed)
+check('a layer does not snap to where it already is', freed > alone.x + 20, `${alone.x} -> ${freed}`)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)
