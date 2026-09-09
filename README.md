@@ -1,4 +1,6 @@
-# PixelForge
+# pixelforge
+
+![banner](banner.png)
 
 A browser image, GIF and video editor built around one idea: **shaped pixelate and blur
 overlays that track an animated GIF frame by frame**, with keyframes so an overlay can move
