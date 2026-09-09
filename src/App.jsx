@@ -20,8 +20,23 @@ import LayerContextMenu from './components/LayerContextMenu.jsx'
 import OpenDialog from './components/OpenDialog.jsx'
 import { toolForKey } from './engine/tools.js'
 
+/**
+ * The picture the palette is read from: the biggest image on the canvas, else
+ * the first thing in the bin. Returned as an id rather than a layer so this can
+ * run on every store change and only wake the effect when the picture itself
+ * changes.
+ */
+function paletteSource(s) {
+  const images = s.doc.layers
+    .filter((l) => l.type === 'image' && l.visible !== false && l.assetId)
+    .sort((a, b) => Math.abs(b.w * b.h) - Math.abs(a.w * a.h))
+  return images[0]?.assetId || s.doc.media?.[0] || null
+}
+
 export default function App() {
   const workspace = useStore((st) => st.workspace)
+  const paletteKey = useStore(paletteSource)
+  const refreshPalette = useStore((st) => st.refreshPalette)
   const tool = useStore((st) => st.tool)
   const [dragOver, setDragOver] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -46,6 +61,11 @@ export default function App() {
   // ---- crash recovery ----------------------------------------------------
   // Offer the previous session rather than restoring silently: reopening to
   // someone else's half-finished document would be worse than an empty canvas.
+  // The colours under every colour control, read back off the artwork. Keyed on
+  // which picture it is rather than on the document, so moving a layer around
+  // does not re-count a million pixels.
+  useEffect(() => { refreshPalette() }, [paletteKey, refreshPalette])
+
   useEffect(() => {
     if (!autosaveAvailable()) return
     let cancelled = false

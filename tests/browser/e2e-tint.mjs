@@ -119,6 +119,98 @@ check('it has a colour and a strength to set',
   ui.rows.includes('Recolour') && ui.rows.includes('Colour') && ui.rows.includes('Strength'),
   ui.rows.join(' '))
 
+// --- the picture's own colours, under every colour control -------------------------------
+// A cover looks designed rather than assembled when the type picks up a colour
+// that is in the photograph. Nothing is turned on for this: the palette is read
+// back off whatever picture is on the canvas.
+const palette = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  await new Promise((r) => setTimeout(r, 300))
+  // Two thirds teal, one third orange, and nothing else.
+  const c = document.createElement('canvas')
+  c.width = 300
+  c.height = 300
+  const g = c.getContext('2d')
+  g.fillStyle = '#0d6e6e'
+  g.fillRect(0, 0, 300, 200)
+  g.fillStyle = '#e07a1f'
+  g.fillRect(0, 200, 300, 100)
+  const blob = await new Promise((r) => c.toBlob(r))
+  await st.addImages([new File([blob], 'two-tone.png', { type: 'image/png' })], { place: true })
+  await new Promise((r) => setTimeout(r, 1500))
+
+  const colours = window.__pfState().palette
+  // And that they reach the controls rather than only the store.
+  window.__pfState().setTool('shape')
+  const { makeShapeLayer } = window.__pfStore
+  const sh = makeShapeLayer({ x: 10, y: 10, w: 40, h: 40, fill: '#ffffff' })
+  window.__pfState().addLayer(sh)
+  await new Promise((r) => setTimeout(r, 600))
+  const dots = [...document.querySelectorAll('.inspector .swatch-dot')]
+  const first = dots[0]
+  const before = window.__pfState().doc.layers.find((x) => x.id === sh.id).fill
+  first?.click()
+  await new Promise((r) => setTimeout(r, 400))
+  const after = window.__pfState().doc.layers.find((x) => x.id === sh.id).fill
+  return { colours, dots: dots.length, swatch: first?.style.background || '', before, after }
+})
+console.log('palette:', JSON.stringify(palette))
+check('the picture is read for its colours without being asked',
+  palette.colours.length >= 2, JSON.stringify(palette.colours))
+// Most of the frame first, so the colour offered first is the one the picture is
+// mostly made of.
+check('and the one it is mostly made of comes first',
+  /^#0[cd]6[cde]6[cde]$/.test(palette.colours[0]), palette.colours[0])
+check('the other one is there too',
+  palette.colours.some((c) => /^#e0[78]/.test(c)), JSON.stringify(palette.colours))
+check('they appear under the colour controls', palette.dots > 0, String(palette.dots))
+check('and clicking one sets the colour', palette.after !== palette.before,
+  `${palette.before} -> ${palette.after}`)
+
+// --- duotone ------------------------------------------------------------------------------
+// A photograph reprinted in two inks. It goes in beside the other looks rather
+// than in a panel of its own, because it is the same machinery: a palette
+// mapping applied last in the draw.
+const duo = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const img = st.doc.layers.find((l) => l.type === 'image')
+  const read = () => {
+    const s2 = window.__pfState()
+    const c = document.createElement('canvas')
+    c.width = s2.doc.width
+    c.height = s2.doc.height
+    const g = c.getContext('2d', { willReadFrequently: true })
+    window.__pfRender.renderDocument(g, s2.doc, 0)
+    const at = (x, y) => [...g.getImageData(x, y, 1, 1).data].slice(0, 3)
+    return { top: at(150, 60), bottom: at(150, 260) }
+  }
+  const before = read()
+  window.__pfState().updateLayer(img.id, {
+    retro: { on: true, preset: 'duotone', opts: { shadow: '#12123a', highlight: '#f2e3c2', contrast: 1 } },
+  })
+  await new Promise((r) => setTimeout(r, 500))
+  return { before, after: read() }
+})
+console.log('duotone:', JSON.stringify(duo))
+// Teal above, orange below: two hues. Afterwards both are on the line between
+// one ink and the other, which is the whole of what a duotone is.
+const onInkLine = (c) => {
+  const lo = [0x12, 0x12, 0x3a]
+  const hi = [0xf2, 0xe3, 0xc2]
+  // Where this colour sits between the inks, judged on red, and how far the
+  // other two channels stray from where that says they should be.
+  const t = (c[0] - lo[0]) / (hi[0] - lo[0])
+  const want = lo.map((v, i) => v + (hi[i] - v) * t)
+  return Math.max(...c.map((v, i) => Math.abs(v - want[i])))
+}
+check('the picture had two different hues to begin with',
+  Math.abs(duo.before.top[0] - duo.before.bottom[0]) > 100, JSON.stringify(duo.before))
+check('after a duotone both are on the line between the two inks',
+  onInkLine(duo.after.top) < 12 && onInkLine(duo.after.bottom) < 12, JSON.stringify(duo.after))
+check('and the darker half is still the darker half',
+  duo.after.top[0] < duo.after.bottom[0], JSON.stringify(duo.after))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

@@ -11,6 +11,7 @@
 import { TOOLS, TOOL_KEYS, toolForKey, keyHint, BRUSH_TOOLS } from '../../src/engine/tools.js'
 import { brushMetrics, previewFit, fitLabel } from '../../src/engine/brush.js'
 import { posterHeight } from '../../src/engine/filmstrip.js'
+import { paletteFromPixels, colorDistance } from '../../src/engine/palette.js'
 
 const checks = []
 const check = (name, ok, detail = '') => {
@@ -167,6 +168,52 @@ const near = (a, b, tol = 0.001) => Math.abs(a - b) <= tol
   check('and a poster is never zero pixels tall',
     posterHeight({ width: 0, height: 0 }, 0, 0, 1) >= 1
     && posterHeight(null, 200, 132, 1) >= 1)
+}
+
+// --- the colours a picture is made of ----------------------------------------------------
+// A cover looks designed when the type picks up a colour that is in the
+// photograph. The thinning is the part that makes this useful rather than merely
+// correct: a photograph of a room is nine hundred shades of one brown, and a
+// palette of nine hundred browns is not a palette.
+{
+  const px = (list) => {
+    const d = new Uint8ClampedArray(list.length * 4)
+    list.forEach(([r, g, b, a = 255], i) => {
+      d[i * 4] = r; d[i * 4 + 1] = g; d[i * 4 + 2] = b; d[i * 4 + 3] = a
+    })
+    return d
+  }
+
+  const red = [220, 30, 30]
+  const blue = [30, 40, 220]
+  // Red twice as common as blue, so it has to come back first.
+  const two = paletteFromPixels(px([red, red, red, red, blue, blue]))
+  check('the colours come back, most of the picture first',
+    two.length === 2 && two[0] === '#dc1e1e' && two[1] === '#1e28dc', two.join(' '))
+
+  // Nine near-identical browns and one blue: the browns are one colour.
+  const browns = []
+  for (let i = 0; i < 40; i++) browns.push([120 + (i % 4), 90 + (i % 3), 60])
+  const mixed = paletteFromPixels(px([...browns, blue, blue]))
+  check('near neighbours are one colour, not forty',
+    mixed.length === 2, mixed.join(' '))
+  check('and the odd one out survives being outnumbered',
+    mixed[1] === '#1e28dc', mixed.join(' '))
+
+  check('it stops when it is asked to',
+    paletteFromPixels(px([red, blue, [20, 200, 20], [230, 230, 20]]), { count: 2 }).length === 2)
+
+  // A cut-out subject should give the subject's colours, not a majority vote for
+  // whatever used to be behind it.
+  const cut = paletteFromPixels(px([[9, 9, 9, 0], [9, 9, 9, 0], [9, 9, 9, 0], red]))
+  check('transparent pixels are not colours', cut.length === 1 && cut[0] === '#dc1e1e', cut.join())
+  check('and a picture of nothing has no palette',
+    paletteFromPixels(px([[0, 0, 0, 0]])).length === 0 && paletteFromPixels(null).length === 0)
+
+  // Green carries most of the luminance, so an equal step in green has to read
+  // as a bigger difference than the same step in blue.
+  check('distance is weighted the way the eye is',
+    colorDistance([0, 0, 0], [0, 40, 0]) > colorDistance([0, 0, 0], [0, 0, 40]))
 }
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')

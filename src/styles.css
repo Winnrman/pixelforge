@@ -174,6 +174,18 @@ button:disabled { opacity: 0.35; cursor: default; }
 /* Actions under a tool's settings: as many as fit on a line, wrapping rather
    than squeezing, since their labels are words and not icons. */
 .rail-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+/* The picture's own colours, under every colour control. Small enough to sit
+   on one line beside the field rather than becoming a panel of its own. */
+.swatches { display: inline-flex; gap: 3px; margin-left: 6px; align-items: center; }
+.swatch-dot {
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.25);
+  cursor: pointer;
+}
+.swatch-dot:hover { transform: scale(1.25); border-color: #fff; }
 /* The brush, life-size, above the sliders that set it. Sunk into the panel
    rather than raised off it, so the white dot reads as paint on a surface. */
 .brush-preview {

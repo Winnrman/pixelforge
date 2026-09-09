@@ -209,6 +209,34 @@ export function Color({ value, onChange, onCommit }) {
           setTool('eyedrop')
         }}
       >⦿</button>
+      <Swatches onPick={(hex) => { onChange(hex); onCommit?.() }} />
+    </span>
+  )
+}
+
+/**
+ * The colours already in the picture, under every colour control.
+ *
+ * A cover looks designed rather than assembled when the type picks up a colour
+ * that is in the photograph. Finding it by eye is the eyedropper, a guess, and a
+ * second guess; here it is one click, and there is nothing to turn on — the
+ * palette is read from whatever picture is on the canvas.
+ */
+function Swatches({ onPick }) {
+  const palette = useStore((s) => s.palette)
+  if (!palette?.length) return null
+  return (
+    <span className="swatches">
+      {palette.map((c) => (
+        <button
+          key={c}
+          type="button"
+          className="swatch-dot"
+          style={{ background: c }}
+          title={`${c} — from the picture`}
+          onClick={() => onPick(c)}
+        />
+      ))}
     </span>
   )
 }

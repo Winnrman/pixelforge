@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { loadImageFile, getAsset } from '../engine/assets.js'
+import { thumbAt } from '../engine/filmstrip.js'
+import { paletteOf } from '../engine/palette.js'
 import {
   polygonBounds, polygonToLayer, cropInsets, isCropped, fromLocal, layerAABB,
   maskPolys, maskBounds, windSame, hasMask, polygonToDoc,
@@ -674,6 +676,11 @@ export const useStore = create((set, get) => ({
   savedProjects: [],
   dirty: false,           // unsaved changes since the last save/open
   notice: null,           // transient message shown under the toolbar
+  // The colours the picture on the canvas is made of, offered under every
+  // colour control. Derived rather than saved: it is read back off the
+  // artwork whenever the artwork changes, so there is nothing to keep in
+  // step and nothing to go stale in a project file.
+  palette: [],
 
   // ---- history ----------------------------------------------------------
   pushHistory: () =>
@@ -3187,6 +3194,38 @@ export const useStore = create((set, get) => ({
       get().setLayerAtTime(t.id, gradientPatch(t, t.id === id ? { ...full, ...spec } : full))
     }
     return { ok: true, count: family.length }
+  },
+
+  /**
+   * Reads the palette back off whatever picture is on the canvas.
+   *
+   * The biggest visible image, because on a cover that is the cover photograph
+   * — the thing the type has to agree with. With nothing placed it falls back to
+   * the first thing in the bin, so the colours are there before the picture is.
+   */
+  refreshPalette: async () => {
+    const s = get()
+    const images = s.doc.layers
+      .filter((l) => l.type === 'image' && l.visible !== false && l.assetId)
+      .sort((a, b) => Math.abs(b.w * b.h) - Math.abs(a.w * a.h))
+    const id = images[0]?.assetId || s.doc.media?.[0]
+    if (!id) {
+      if (s.palette.length) set({ palette: [] })
+      return
+    }
+    const asset = getAsset(id)
+    if (!asset) return
+    try {
+      // A quarter in for anything that moves, matching the posters: a clip that
+      // opens on black has no colours to report.
+      const at = asset.animated ? (asset.duration || 0) * 0.25 : 0
+      const thumb = await thumbAt(asset, at, 96)
+      if (!thumb) return
+      const next = paletteOf(thumb, { count: 6 })
+      // Only when it actually changed: this runs off a subscription, and setting
+      // an identical array would be a render for nothing.
+      if (next.join() !== get().palette.join()) set({ palette: next })
+    } catch { /* a picture that will not decode has no palette to give */ }
   },
 
   clearMask: (id) => {

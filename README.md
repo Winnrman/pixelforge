@@ -103,8 +103,14 @@ resize handle switches it to a fixed width, at which point the width becomes a w
 size, colour, alignment and rotation, so what you see while typing is the layer with a caret
 in it.
 
-**Style part of a line.** Select a word and give it its own colour, weight or slant; the runs
-move with the text as you edit around them.
+**Style part of a line.** Select a word and give it its own colour, weight, slant, size, face
+or tracking; the runs move with the text as you edit around them. A line is as tall as the
+largest thing on it and every piece shares one baseline, so a word set at three times the size
+sits on the line rather than on top of it.
+
+**Tracking** is a share of the size rather than a number of pixels, so type scaled up keeps
+the spacing it was given. It is most of what separates a masthead from a word in a heavy
+font.
 
 **Text behind the subject** leaves the photo whole underneath, puts the text on top and lays a
 cut-out copy of the same image above it. Both copies share one asset, so the model runs once.
@@ -121,9 +127,18 @@ one shape. *Switch whole letters* changes at the gap between letters instead of 
 Vector shape layers with fill, stroke, corner radius and per-property opacity.
 
 **Gradients** on any shape or text layer: two colours, an angle, and colour stops you drag on
-the canvas itself rather than in a panel. Each end carries its own opacity. Set the span to
-*the group* and one ramp sweeps across every layer in it, so a title of three words reads as
-one gradient instead of three.
+the canvas itself rather than in a panel. Each end carries its own opacity, any number of
+colours can be put between them, and a gradient can run out from the middle instead of across
+the box. Set the span to *the group* and one ramp sweeps across every layer in it, so a title
+of three words reads as one gradient instead of three.
+
+**A shadow, or a glow**, on any layer — cast by what the layer draws rather than by its box,
+so a cut-out throws the subject's shape and text throws the letters. Centre it and colour it
+and the same five controls are a glow.
+
+**The picture's own colours** sit under every colour control. Whatever image is on the canvas
+is read for the colours it is mostly made of, and one click puts one into any field — which is
+most of what makes type look chosen for a photograph rather than dropped on it.
 
 **Snapping** compares a dragged layer's edges and centres against the canvas *and* against
 every other layer, drawing a guide at whatever it caught. The tolerance is in screen pixels,
@@ -266,7 +281,8 @@ logo becomes a white one.
 
 **Retro looks** are palette quantisation with real dithering, applied last in the draw so they
 colour a cut-out and its sticker border too — 1-bit, Game Boy, VHS, halftone, C64 and NES,
-each a few milliseconds a frame.
+each a few milliseconds a frame. **Duotone** sits beside them: a photograph reprinted in two
+inks, every pixel keeping its brightness and giving up its hue.
 
 **Sticker mode** grows a border around a cut-out and casts the shadow from the silhouette
 rather than the artwork, so it takes the shape of the sticker. Any cut-out will do — a
@@ -415,6 +431,7 @@ src/engine/     render.js      compositor, frame lookup, export frame timing
                 trace.js       marching squares, Douglas-Peucker
                 edges.js       colour-gradient edge maps
                 lassoedit.js   editing a run of outline points
+                palette.js     the colours a picture is made of
                 tools.js       the rail's tools and both of their keys
                 brush.js       brush size, softness, and the life-size preview
                 erase.js       eraser and region strokes

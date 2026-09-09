@@ -278,6 +278,55 @@ console.log('\n--- timing: one 640x480 frame ---')
   check('the slowest preset stays under 250 ms for a 640x480 frame', slowest < 250)
 }
 
+// --- duotone -----------------------------------------------------------------------
+// A photograph reprinted in two inks: every pixel keeps its brightness and gives
+// up its hue. Which is the claim to check — that the shape of the picture
+// survives while its colour is replaced, rather than a tint laid over the top.
+{
+  const px = (list) => {
+    const d = new Uint8ClampedArray(list.length * 4)
+    list.forEach(([r, g, b, a = 255], i) => {
+      d[i * 4] = r; d[i * 4 + 1] = g; d[i * 4 + 2] = b; d[i * 4 + 3] = a
+    })
+    return { data: d, width: list.length, height: 1 }
+  }
+  const at = (d, i) => [d[i * 4], d[i * 4 + 1], d[i * 4 + 2]]
+
+  // Black, mid, white — plus a saturated red and a saturated blue at nearly the
+  // same brightness, which is the pair that separates a duotone from a filter.
+  const img = px([[0, 0, 0], [128, 128, 128], [255, 255, 255], [237, 28, 36], [0, 114, 188]])
+  const out = applyRetro(img, 'duotone', { shadow: '#000080', highlight: '#ffff00', contrast: 1 })
+  const d = out.data
+
+  check('the dark end of the picture takes the shadow ink', at(d, 0).join() === '0,0,128')
+  check('the light end takes the highlight ink', at(d, 2).join() === '255,255,0')
+  check('and the middle lands between the two',
+    at(d, 1)[0] > 100 && at(d, 1)[0] < 160 && at(d, 1)[2] > 40 && at(d, 1)[2] < 100)
+
+  // Two colours that look nothing alike but sit at nearly one brightness come
+  // out nearly one colour, because brightness is all that is kept.
+  check('two hues of one brightness come out as one colour',
+    Math.abs(at(d, 3)[0] - at(d, 4)[0]) < 45)
+
+  // Contrast pushes the inks apart at both ends rather than dragging the whole
+  // picture towards one of them.
+  const pair = [[96, 96, 96], [160, 160, 160]]
+  const spread = (k) => {
+    const o = applyRetro(px(pair), 'duotone', { shadow: '#000000', highlight: '#ffffff', contrast: k })
+    return at(o.data, 1)[0] - at(o.data, 0)[0]
+  }
+  check('contrast pushes the two ends apart', spread(3) > spread(1) * 2)
+
+  const clear = applyRetro(px([[10, 200, 30, 0]]), 'duotone', {})
+  check('a transparent pixel is left alone rather than inked',
+    at(clear.data, 0).join() === '10,200,30')
+
+  check('it is offered beside the other looks',
+    RETRO_PRESETS.some((p) => p.id === 'duotone' && p.label === 'Duotone'))
+  check('with an ink at each end and a contrast, and nothing else to learn',
+    Object.keys(retroDefaults('duotone')).sort().join() === 'contrast,highlight,shadow')
+}
+
 const failed = checks.filter(([, ok]) => !ok)
 console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`)
 if (failed.length) console.log('FAILED: ' + failed.map(([n]) => n).join(' | '))

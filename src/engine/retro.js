@@ -159,6 +159,11 @@ export const RETRO_PRESETS = [
     defaults: { cell: 6, angleOffset: 0, mono: false },
   },
   {
+    id: 'duotone',
+    label: 'Duotone',
+    defaults: { shadow: '#12123a', highlight: '#f2e3c2', contrast: 1 },
+  },
+  {
     id: 'c64',
     label: 'Commodore 64',
     defaults: { dither: 'bayer', strength: 0.6 },
@@ -178,6 +183,8 @@ export const RETRO_PRESETS = [
 export const RETRO_CONTROLS = {
   threshold: { label: 'Threshold', min: 0, max: 255, step: 1 },
   ink: { label: 'Ink', color: true },
+  shadow: { label: 'Shadows', color: true },
+  highlight: { label: 'Highlights', color: true },
   paper: { label: 'Paper', color: true },
   dither: { label: 'Dither', options: ['none', 'bayer', 'fs'] },
   contrast: { label: 'Contrast', min: 0.2, max: 3, step: 0.05 },
@@ -191,6 +198,31 @@ export const RETRO_CONTROLS = {
   angleOffset: { label: 'Screen angle', min: 0, max: 90, step: 1, suffix: '°' },
   mono: { label: 'Single screen', bool: true },
   strength: { label: 'Dither strength', min: 0, max: 1, step: 0.05 },
+}
+
+/**
+ * Two colours, one for the dark end of the picture and one for the light.
+ *
+ * The magazine look: a photograph reprinted in two inks. Every pixel keeps its
+ * *brightness* and gives up its hue, so the shape of the picture survives
+ * completely while its colour is replaced — which is why this reads as a
+ * deliberate treatment rather than as a tint laid over the top.
+ *
+ * Contrast pivots about mid grey rather than acting as a gamma, so turning it up
+ * pushes the two inks apart at both ends instead of dragging the whole picture
+ * towards one of them.
+ */
+function duotone(d, w, h, o) {
+  const lo = hexToRgb(o.shadow || '#12123a')
+  const hi = hexToRgb(o.highlight || '#f2e3c2')
+  const k = Math.max(0.2, Math.min(3, o.contrast ?? 1))
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) continue
+    const t = Math.max(0, Math.min(1, (luma(d[i], d[i + 1], d[i + 2]) / 255 - 0.5) * k + 0.5))
+    d[i] = lo[0] + (hi[0] - lo[0]) * t
+    d[i + 1] = lo[1] + (hi[1] - lo[1]) * t
+    d[i + 2] = lo[2] + (hi[2] - lo[2]) * t
+  }
 }
 
 export const retroDefaults = (id) => {
@@ -621,6 +653,9 @@ export function applyRetro(imageData, preset, opts) {
       break
     case 'gameboy':
       gameboy(d, w, h, o)
+      break
+    case 'duotone':
+      duotone(d, w, h, o)
       break
     case 'c64':
       paletteQuantize(d, w, h, c64Palette(), o.dither || 'none', o.strength)
