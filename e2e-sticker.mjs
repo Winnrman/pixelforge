@@ -209,6 +209,94 @@ check('and the mask does not clip its own border', outside.border > 20,
   `${outside.border} border px outside the mask`)
 await page.screenshot({ path: path.join(OUT, '03-lasso.png') })
 
+// --- a lasso cutout is a cutout ---------------------------------------------------
+// The switch demanded background removal while the renderer had always accepted
+// a lasso mask, so cutting a subject out with the AI lasso — the natural route,
+// and the one that produces the better edge — left the sticker refusing to turn
+// on. The way through was to enable background removal and set it to zero: a
+// step that does nothing, to satisfy a check that was wrong.
+const bare = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.setPlaying(false)
+  st.doc.layers.forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 250))
+  const c = document.createElement('canvas')
+  c.width = 300
+  c.height = 300
+  const g = c.getContext('2d')
+  g.fillStyle = '#2266cc'
+  g.fillRect(0, 0, 300, 300)
+  g.fillStyle = '#ffcc44'
+  g.beginPath()
+  g.arc(150, 150, 90, 0, Math.PI * 2)
+  g.fill()
+  const blob = await new Promise((r) => c.toBlob(r))
+  await window.__pfState().addImages([new File([blob], 'subject.png', { type: 'image/png' })],
+    { place: true })
+  await new Promise((r) => setTimeout(r, 800))
+  const l = window.__pfState().doc.layers[0]
+  window.__pfState().select([l.id])
+  window.__pfState().toggleSticker(l.id, true)
+  await new Promise((r) => setTimeout(r, 250))
+  return {
+    id: l.id,
+    box: { x: l.x, y: l.y, w: l.w, h: l.h },
+    on: !!window.__pfState().doc.layers[0].sticker?.on,
+    notice: window.__pfState().notice?.text || '',
+  }
+})
+console.log('with nothing cut out:', JSON.stringify(bare.notice))
+check('a layer that is not cut out still refuses to be a sticker', bare.on === false)
+// And says both ways through, not only the one it used to insist on.
+check('and names the lasso as well as background removal',
+  /lasso/i.test(bare.notice) && /background/i.test(bare.notice), bare.notice)
+
+const lassoed = await page.evaluate(async ([id, box]) => {
+  const st = window.__pfState()
+  const pt = (fx, fy) => [box.x + box.w * fx, box.y + box.h * fy]
+  const ring = []
+  for (let i = 0; i < 32; i++) {
+    const a = (i / 32) * Math.PI * 2
+    ring.push(pt(0.5 + Math.cos(a) * 0.31, 0.5 + Math.sin(a) * 0.31))
+  }
+  st.select([id])
+  st.setLasso({ points: ring, closed: true })
+  st.applyLasso('mask')
+  await new Promise((r) => setTimeout(r, 400))
+  window.__pfState().toggleSticker(id, true)
+  await new Promise((r) => setTimeout(r, 400))
+
+  const now = window.__pfState().doc.layers.find((x) => x.id === id)
+  const s2 = window.__pfState()
+  const cv = document.createElement('canvas')
+  cv.width = s2.doc.width
+  cv.height = s2.doc.height
+  const ctx = cv.getContext('2d', { willReadFrequently: true })
+  window.__pfRender.renderDocument(ctx, s2.doc, 0)
+  const d = ctx.getImageData(0, 0, cv.width, cv.height).data
+  let white = 0
+  let subject = 0
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 200) continue
+    if (d[i] > 240 && d[i + 1] > 240 && d[i + 2] > 240) white++
+    else if (d[i] > 220 && d[i + 1] > 180 && d[i + 2] < 110) subject++
+  }
+  return {
+    bgRemove: !!now.bgRemove?.on,
+    mask: now.mask?.points?.length || 0,
+    on: !!now.sticker?.on,
+    white,
+    subject,
+  }
+}, [bare.id, bare.box])
+console.log('after lassoing the subject:', JSON.stringify(lassoed))
+check('a lasso mask is a cutout as far as the sticker is concerned',
+  lassoed.mask >= 3 && lassoed.on === true, JSON.stringify(lassoed))
+// The point of the complaint: no background removal anywhere in this.
+check('with background removal never turned on', lassoed.bgRemove === false)
+check('and the border is actually drawn round it',
+  lassoed.white > 500 && lassoed.subject > 2000, JSON.stringify(lassoed))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

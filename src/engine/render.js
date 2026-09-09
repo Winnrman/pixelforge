@@ -12,7 +12,7 @@ import { segments, hasRuns } from './richtext.js'
 import { keyedFrame } from './matte.js'
 import { keyedFrameAI } from './aiMatte.js'
 import { frameAt as videoFrameAt, ensureDecoded, exactFrame, indexAt } from './video.js'
-import { subjectFrame, stickerFrame } from './subject.js'
+import { subjectFrame, stickerFrame, isCutOut } from './subject.js'
 import {
   assetTimeFor, visibleAt as clipVisibleAt, clipRange,
 } from './clips.js'
@@ -460,8 +460,7 @@ function layerFracToAsset(l, u, v) {
  * lockstep with `stickerCut` — `withMask` reads this to know the mask and the
  * erase strokes have already been accounted for.
  */
-const stickerBakes = (l) =>
-  l?.type === 'image' && l.sticker?.on && (l.bgRemove?.on || hasMask(l) || hasErase(l))
+const stickerBakes = (l) => !!l?.sticker?.on && isCutOut(l)
 
 // One cutout per layer, rebuilt only when something that shapes it changes. The
 // canvas identity is the cache key `stickerFrame` uses for the dilated border,

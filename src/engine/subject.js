@@ -89,6 +89,28 @@ export function unionBounds(list) {
   return { x, y, w: x2 - x, h: y2 - y }
 }
 
+/**
+ * Whether a layer has been cut out of its background at all, by any route.
+ *
+ * A sticker needs a subject standing free of its surroundings; it does not care
+ * *how* that happened. Removing the background is one way, drawing round the
+ * subject with the lasso — the AI one included — is another, and rubbing the
+ * background out with the eraser is a third. All three leave the same thing: a
+ * layer with transparency where the background used to be.
+ *
+ * It lives here so the renderer and the switch that turns stickers on read the
+ * same definition. They did not: the renderer had always accepted a lasso mask
+ * and the switch had always demanded background removal, so the way through was
+ * to turn background removal on and set it to zero — a step that did nothing,
+ * to satisfy a check that was wrong.
+ */
+export const isCutOut = (l) => !!(
+  l?.type === 'image'
+  && (l.bgRemove?.on
+    || (l.mask?.points?.length || 0) >= 3
+    || (l.erase?.strokes?.length || 0) > 0)
+)
+
 export const defaultSticker = () => ({
   on: false,
   outline: 12,          // px of border, measured on the source image

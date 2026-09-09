@@ -13,7 +13,7 @@ import {
   sourceFor, docDuration, sourceRect, docToAsset, assetToDoc, measureText, visibleBounds,
 } from '../engine/render.js'
 import {
-  defaultSticker, defaultTrails, subjectFrame, alphaBounds, unionBounds,
+  defaultSticker, defaultTrails, subjectFrame, alphaBounds, unionBounds, isCutOut,
 } from '../engine/subject.js'
 import { suggestLoop } from '../engine/loop.js'
 import { cardInsets, layoutCollage, defaultCollage } from '../engine/collage.js'
@@ -2043,8 +2043,17 @@ export const useStore = create((set, get) => ({
     const s = get()
     const layer = s.doc.layers.find((x) => x.id === id)
     if (!layer) return
-    if (on && !layer.bgRemove?.on) {
-      set({ notice: { kind: 'warn', text: 'A sticker needs a cutout — remove the background first.' } })
+    // Any route out of the background will do — the renderer has always thought
+    // so, and this asking for one particular route is what made people turn
+    // background removal on at zero strength to get past it.
+    if (on && !isCutOut(layer)) {
+      set({
+        notice: {
+          kind: 'warn',
+          text: 'A sticker needs a cutout — remove the background, or lasso the subject '
+            + 'and choose Mask.',
+        },
+      })
       return
     }
     s.pushHistory()
