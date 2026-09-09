@@ -593,6 +593,90 @@ check('and is handed the group’s',
 check('an adjustment afterwards reaches the whole group',
   joined.after.stop2 === 0.5 && joined.after.angle === 30, JSON.stringify(joined.after))
 
+// --- an opacity for each end -------------------------------------------------------
+// The layer's own opacity is one number for the whole thing. Wanting the pink
+// end at 30% and the blue one at 90% is not something it can express, and it is
+// an ordinary thing to want.
+const ends = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.doc.layers.forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 300))
+  const { makeShapeLayer } = window.__pfStore
+  const l = window.__pfState().addLayer(makeShapeLayer({
+    shape: 'rect', x: 100, y: 100, w: 300, h: 300, fill: '#ff00aa', fill2: '#0000ff',
+    fillAngle: 90, stroke: 'none', strokeWidth: 0, radius: 0,
+  }))
+  window.__pfState().select([l.id])
+  const alphaDown = () => {
+    const s2 = window.__pfState()
+    const c = document.createElement('canvas')
+    c.width = s2.doc.width
+    c.height = s2.doc.height
+    const ctx = c.getContext('2d', { willReadFrequently: true })
+    window.__pfRender.renderDocument(ctx, s2.doc, 0)
+    return [110, 390].map((y) => ctx.getImageData(250, y, 1, 1).data[3])
+  }
+  await new Promise((r) => setTimeout(r, 350))
+  const solid = alphaDown()
+  window.__pfState().setGradient(l.id, { alpha: 0.3, alpha2: 0.9 })
+  await new Promise((r) => setTimeout(r, 350))
+  const graded = alphaDown()
+  // The same colour at both ends, one of them fading out: still a gradient, and
+  // the useful one for a caption melting into a photograph.
+  window.__pfState().setGradient(l.id, { to: '#ff00aa', alpha: 1, alpha2: 0 })
+  await new Promise((r) => setTimeout(r, 350))
+  const melt = alphaDown()
+  return { solid, graded, melt, rows: [...document.querySelectorAll('.row-label')].map((x) => x.textContent.trim()) }
+})
+console.log('alpha down the shape:', JSON.stringify(ends))
+check('a plain gradient is solid at both ends',
+  ends.solid[0] > 250 && ends.solid[1] > 250, JSON.stringify(ends.solid))
+check('an opacity per end is honoured',
+  Math.abs(ends.graded[0] - 77) < 22 && Math.abs(ends.graded[1] - 230) < 22,
+  JSON.stringify(ends.graded))
+check('and one colour fading out is still a gradient',
+  ends.melt[0] > 230 && ends.melt[1] < 25, JSON.stringify(ends.melt))
+check('with a row for each end', ends.rows.includes('From %') && ends.rows.includes('To %'),
+  ends.rows.join(' '))
+
+// --- the border’s own opacity ----------------------------------------------------
+// A solid shape behind a half-there outline is a thing to want, and one number
+// for the whole layer cannot say it.
+const border = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.doc.layers.forEach((l) => st.removeLayers([l.id]))
+  await new Promise((r) => setTimeout(r, 300))
+  const { makeShapeLayer } = window.__pfStore
+  const l = window.__pfState().addLayer(makeShapeLayer({
+    shape: 'rect', x: 150, y: 150, w: 200, h: 200, fill: '#ff0000', fill2: null,
+    stroke: '#ffffff', strokeWidth: 16, radius: 0,
+  }))
+  window.__pfState().select([l.id])
+  const look = () => {
+    const s2 = window.__pfState()
+    const c = document.createElement('canvas')
+    c.width = s2.doc.width
+    c.height = s2.doc.height
+    const ctx = c.getContext('2d', { willReadFrequently: true })
+    window.__pfRender.renderDocument(ctx, s2.doc, 0)
+    const px = (x, y) => [...ctx.getImageData(x, y, 1, 1).data].slice(0, 3)
+    return { edge: px(150, 250), middle: px(250, 250) }
+  }
+  await new Promise((r) => setTimeout(r, 350))
+  const full = look()
+  window.__pfState().updateLayer(l.id, { strokeOpacity: 0.25 })
+  await new Promise((r) => setTimeout(r, 350))
+  const faint = look()
+  return { full, faint, rows: [...document.querySelectorAll('.row-label')].map((x) => x.textContent.trim()) }
+})
+console.log('the border at full then a quarter:', JSON.stringify(border))
+check('a solid border draws its own colour', border.full.edge[1] > 200, JSON.stringify(border.full.edge))
+check('turning it down lets the fill through',
+  border.faint.edge[1] < border.full.edge[1] - 80, JSON.stringify(border.faint.edge))
+check('and leaves the fill itself alone',
+  border.faint.middle[0] > 240 && border.faint.middle[1] < 20, JSON.stringify(border.faint.middle))
+check('with a row of its own', border.rows.includes('Stroke %'), border.rows.join(' '))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

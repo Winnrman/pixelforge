@@ -15,10 +15,35 @@ import { layerCenter, layerAABB, toLocal } from './shapes.js'
 const rad = (deg) => (deg * Math.PI) / 180
 const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0))
 
-/** Whether a pair of colours describes a gradient rather than a flat fill. */
-export const isGradient = (from, to) => !!(
-  from && to && from !== 'none' && to !== 'none' && from !== to
+/**
+ * Whether a pair of ends describes a gradient rather than a flat fill.
+ *
+ * The opacities count, not only the colours: one end of a colour fading into
+ * whatever is behind it is a gradient and a useful one, and it is the same
+ * colour at both ends.
+ */
+export const isGradient = (from, to, alpha = 1, alpha2 = 1) => !!(
+  from && to && from !== 'none' && to !== 'none'
+  && (from !== to || Math.abs((alpha ?? 1) - (alpha2 ?? 1)) > 0.001)
 )
+
+/**
+ * A colour with an opacity of its own, ready for a canvas stop.
+ *
+ * A gradient's two ends are two colours, and the whole point of a gradient is
+ * that they differ — which they may want to do in how solid they are as much as
+ * in hue. The layer's own opacity cannot say that: it is one number for the
+ * whole thing, so a pink end at 30% and a blue end at 90% is not something it
+ * can express. Canvas takes rgba stops, so this is only a matter of saying so.
+ */
+export function withAlpha(hex, alpha = 1) {
+  const a = Math.max(0, Math.min(1, Number.isFinite(alpha) ? alpha : 1))
+  if (a >= 0.999) return hex
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim())
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a.toFixed(3)})`
+}
 
 /**
  * The two ends of a gradient line across a `w` by `h` box centred on the origin.
@@ -59,8 +84,9 @@ export function gradientLine(w, h, angle = 0) {
  */
 export function paintFor(ctx, {
   from, to, angle = 0, w, h, cx = 0, cy = 0, rotation = 0, stop = 0, stop2 = 1,
+  alpha = 1, alpha2 = 1,
 }) {
-  if (!isGradient(from, to)) return from
+  if (!isGradient(from, to, alpha, alpha2)) return from
   const line = gradientLine(w, h, angle)
   // A box with no area has no gradient line to draw along, and a zero-length one
   // paints nothing at all rather than the flat colour you would expect.
@@ -79,8 +105,10 @@ export function paintFor(ctx, {
   // and the answer is the gradient the other way round, not nothing.
   const a = clamp01(stop)
   const b = clamp01(stop2)
-  g.addColorStop(Math.min(a, b), a <= b ? from : to)
-  g.addColorStop(Math.max(a, b), a <= b ? to : from)
+  const one = withAlpha(from, alpha)
+  const two = withAlpha(to, alpha2)
+  g.addColorStop(Math.min(a, b), a <= b ? one : two)
+  g.addColorStop(Math.max(a, b), a <= b ? two : one)
   return g
 }
 
@@ -99,7 +127,9 @@ export function gradientOf(l) {
   if (!p) return null
   const from = p === 'fill' ? l.fill : l.color
   const to = p === 'fill' ? l.fill2 : l.color2
-  if (!isGradient(from, to)) return null
+  const alpha = clamp01((p === 'fill' ? l.fillAlpha : l.colorAlpha) ?? 1)
+  const alpha2 = clamp01((p === 'fill' ? l.fillAlpha2 : l.colorAlpha2) ?? 1)
+  if (!isGradient(from, to, alpha, alpha2)) return null
   return {
     prop: p,
     from,
@@ -107,6 +137,8 @@ export function gradientOf(l) {
     angle: (p === 'fill' ? l.fillAngle : l.colorAngle) ?? 90,
     stop: clamp01((p === 'fill' ? l.fillStop : l.colorStop) ?? 0),
     stop2: clamp01((p === 'fill' ? l.fillStop2 : l.colorStop2) ?? 1),
+    alpha,
+    alpha2,
   }
 }
 
@@ -184,6 +216,8 @@ export function gradientPatch(l, spec) {
   if (spec.angle !== undefined) out[`${p}Angle`] = spec.angle
   if (spec.stop !== undefined) out[`${p}Stop`] = clamp01(spec.stop)
   if (spec.stop2 !== undefined) out[`${p}Stop2`] = clamp01(spec.stop2)
+  if (spec.alpha !== undefined) out[`${p}Alpha`] = clamp01(spec.alpha)
+  if (spec.alpha2 !== undefined) out[`${p}Alpha2`] = clamp01(spec.alpha2)
   if (spec.span !== undefined) out.gradientSpan = spec.span
   return out
 }

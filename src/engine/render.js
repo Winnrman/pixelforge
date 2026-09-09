@@ -5,7 +5,7 @@ import { pairsIn, stateAt, drawFor, revealRect, veilBox, orderForTransitions, fa
 import {
   addShapePath, addMaskPath, hasMask, cropInsets, rad, toLocal, fromLocal, layerCenter,
 } from './shapes.js'
-import { paintFor, gradientOf, placeIn, gradientBox } from './gradient.js'
+import { paintFor, gradientOf, placeIn, gradientBox, withAlpha } from './gradient.js'
 import { resolveLayer, keyExtent, allKeyTimes } from './keyframes.js'
 import { resolveGroups, isGroup, descendantIds } from './groups.js'
 import { keyedFrame } from './matte.js'
@@ -680,6 +680,7 @@ function drawShapeLayer(ctx, l) {
     const g = gradientOf(l)
     ctx.fillStyle = paintFor(ctx, {
       from: l.fill, to: l.fill2, angle: l.fillAngle, stop: g?.stop, stop2: g?.stop2,
+      alpha: g?.alpha, alpha2: g?.alpha2,
       // The path built its own transform and put it back, so the context here is
       // the document — which is also the frame `gradBox` is measured in.
       ...placeIn(l, l.gradBox),
@@ -687,7 +688,10 @@ function drawShapeLayer(ctx, l) {
     ctx.fill()
   }
   if (l.strokeWidth > 0) {
-    ctx.strokeStyle = l.stroke || '#fff'
+    // The border's own opacity, separate from the layer's: a solid shape behind
+    // a half-there outline is a thing to want, and one number for the whole
+    // layer cannot say it.
+    ctx.strokeStyle = withAlpha(l.stroke || '#fff', l.strokeOpacity ?? 1)
     ctx.lineWidth = l.strokeWidth
     ctx.lineJoin = 'round'
     ctx.stroke()
@@ -851,7 +855,7 @@ function drawTextLayer(ctx, l, { outlineOnly = false, only = null, skip = null }
   const grad = gradientOf(l)
   const fill = paintFor(ctx, {
     from: l.color || '#fff', to: l.color2, angle: l.colorAngle,
-    stop: grad?.stop, stop2: grad?.stop2,
+    stop: grad?.stop, stop2: grad?.stop2, alpha: grad?.alpha, alpha2: grad?.alpha2,
     // Local: the context is already centred and turned on this layer's box.
     ...placeIn(l, l.gradBox, { local: true }),
   })
@@ -865,7 +869,7 @@ function drawTextLayer(ctx, l, { outlineOnly = false, only = null, skip = null }
       return
     }
     if (l.strokeWidth > 0) {
-      ctx.strokeStyle = l.stroke || '#000'
+      ctx.strokeStyle = withAlpha(l.stroke || '#000', l.strokeOpacity ?? 1)
       ctx.lineWidth = l.strokeWidth
       ctx.lineJoin = 'round'
       ctx.strokeText(text, x, y)
@@ -980,6 +984,52 @@ function eraseScratch(key, w, h) {
  * samples it: painting straight onto the destination would let a later stroke
  * pick up an earlier one and smear the copy along itself.
  */
+/** Whether a layer is being recoloured at all. */
+export const hasTint = (l) => !!l?.tint?.on && (l.tint.amount ?? 1) > 0.001
+
+/**
+ * Runs `draw`, then recolours what it drew.
+ *
+ * The case this is for: a logo that arrives black and has to be white. Invert
+ * would do it and flips every other colour on the way past; a hue rotation
+ * cannot reach white from black at all, because black has no hue to turn. What
+ * you want is to keep the shape exactly — every soft edge, every bit of
+ * anti-aliasing — and say what colour it is.
+ *
+ * So the layer is drawn to a scratch surface and the colour is painted over it
+ * through `source-atop`, which paints only where something was already drawn and
+ * leaves the alpha alone. At full strength that is a flat recolour; below it,
+ * the original shows through and the effect is a wash rather than a replacement.
+ */
+function withTint(ctx, l, draw) {
+  if (!hasTint(l)) { draw(ctx); return }
+  const w = ctx.canvas.width
+  const h = ctx.canvas.height
+  const sc = eraseScratch('tint', w, h)
+  const sx = sc.getContext('2d')
+  sx.setTransform(1, 0, 0, 1, 0, 0)
+  sx.globalAlpha = 1
+  sx.globalCompositeOperation = 'source-over'
+  sx.filter = 'none'
+  sx.clearRect(0, 0, w, h)
+  draw(sx)
+
+  sx.save()
+  sx.setTransform(1, 0, 0, 1, 0, 0)
+  // Only where the layer already put something, and without touching how much
+  // of it there is: the letter keeps its soft edge and simply changes colour.
+  sx.globalCompositeOperation = 'source-atop'
+  sx.globalAlpha = Math.max(0, Math.min(1, l.tint.amount ?? 1))
+  sx.fillStyle = l.tint.color || '#ffffff'
+  sx.fillRect(0, 0, w, h)
+  sx.restore()
+
+  ctx.save()
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.drawImage(sc, 0, 0)
+  ctx.restore()
+}
+
 function withClone(ctx, l, draw) {
   if (!hasClone(l)) { draw(ctx); return }
   const w = ctx.canvas.width
@@ -1343,7 +1393,7 @@ function renderDocumentInner(ctx, doc, time) {
       withDim(ctx, l, dim, (c) => withMask(c, l, (cc) => drawTextLayer(cc, l, { skip })))
     } else {
       if (l.trails?.on) drawTrails(ctx, raw, l, time, groupAlpha)
-      withDim(ctx, l, dim, (c) => withMask(c, l, (cc) => paintLayer(cc, l, time)))
+      withDim(ctx, l, dim, (c) => withMask(c, l, (cc) => withTint(cc, l, (c3) => paintLayer(c3, l, time))))
     }
     if (draw?.reveal) ctx.restore()
     ctx.filter = 'none'

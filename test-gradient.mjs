@@ -6,7 +6,7 @@
 // colour. Neither announces itself, so it is worth pinning down.
 import {
   gradientLine, isGradient, seedStop, gradientOf, stopPatch, gradientAxis, stopAt,
-  gradientBox, placeIn,
+  gradientBox, placeIn, withAlpha, gradientPatch,
 } from './src/engine/gradient.js'
 
 const checks = []
@@ -22,6 +22,11 @@ check('one does not', !isGradient('#fff', null))
 check('and neither does the same one twice', !isGradient('#fff', '#fff'))
 check('"none" is not a colour to fade into', !isGradient('#fff', 'none'))
 check('nor to fade from', !isGradient('none', '#fff'))
+// One end of a colour dissolving into whatever is behind it is a gradient, and
+// it is the same colour at both ends — so the opacities count too.
+check('the same colour at two opacities is still a gradient',
+  isGradient('#fff', '#fff', 1, 0))
+check('and at the same opacity is still not', !isGradient('#fff', '#fff', 0.5, 0.5))
 
 // --- the line across the box ---------------------------------------------------
 {
@@ -222,6 +227,35 @@ check('nor to fade from', !isGradient('none', '#fff'))
   check('with the group centre carried into that frame',
     near(Math.hypot(inText.cx, inText.cy), Math.hypot(200 - 200, 200 - 150)),
     JSON.stringify(inText))
+}
+
+// --- an opacity per end -----------------------------------------------------------
+// The layer's own opacity is one number for the whole thing, so a pink end at
+// 30% and a blue one at 90% is not something it can say.
+{
+  check('a solid colour is left as it was', withAlpha('#ff00aa', 1) === '#ff00aa')
+  check('and so is one a hair off solid', withAlpha('#ff00aa', 0.9995) === '#ff00aa')
+  check('anything less becomes rgba', withAlpha('#ff00aa', 0.3) === 'rgba(255, 0, 170, 0.300)',
+    withAlpha('#ff00aa', 0.3))
+  check('nothing at all is nothing at all', withAlpha('#ffffff', 0) === 'rgba(255, 255, 255, 0.000)',
+    withAlpha('#ffffff', 0))
+  check('past either end is held there',
+    withAlpha('#ffffff', -2) === 'rgba(255, 255, 255, 0.000)' && withAlpha('#ffffff', 9) === '#ffffff')
+  check('and something it cannot read is handed back untouched',
+    withAlpha('rgb(1,2,3)', 0.5) === 'rgb(1,2,3)')
+
+  const l = { type: 'shape', fill: '#f00', fill2: '#00f', fillAlpha: 0.3, fillAlpha2: 0.9 }
+  const g = gradientOf(l)
+  check('a layer carries an opacity for each end',
+    g.alpha === 0.3 && g.alpha2 === 0.9, JSON.stringify(g))
+  check('and they are written back under the layer’s own names',
+    JSON.stringify(gradientPatch(l, { alpha: 0.5, alpha2: 0.25 }))
+      === '{"fillAlpha":0.5,"fillAlpha2":0.25}',
+    JSON.stringify(gradientPatch(l, { alpha: 0.5, alpha2: 0.25 })))
+  check('a text layer under its own',
+    JSON.stringify(gradientPatch({ type: 'text' }, { alpha: 0.5 })) === '{"colorAlpha":0.5}')
+  check('and one end fading out makes a gradient of one colour',
+    gradientOf({ type: 'shape', fill: '#f00', fill2: '#f00', fillAlpha: 1, fillAlpha2: 0 }) !== null)
 }
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')

@@ -33,7 +33,7 @@ import os from 'os'
 const OWNERS = [
   ['src/engine/transitions.js', ['e2e-transitions', 'test-transitions', 'e2e-clips', 'e2e-tracks']],
   ['src/engine/clips.js', ['e2e-clips', 'e2e-tracks', 'e2e-transitions', 'test-clips', 'e2e-filmstrip', 'e2e-join']],
-  ['src/engine/gradient.js', ['e2e-gradient', 'test-gradient', 'e2e-text']],
+  ['src/engine/gradient.js', ['e2e-gradient', 'test-gradient', 'e2e-text', 'e2e-tint']],
   ['src/engine/shapes.js', ['test-mask', 'e2e-maskedit', 'e2e-lasso', 'e2e-subject', 'e2e-gradient']],
   ['src/engine/groups.js', ['test-groups', 'e2e-groups', 'e2e-canvas', 'e2e-gradient']],
   ['src/engine/erase.js', ['e2e-erase', 'e2e-sticker', 'e2e-tools2', 'e2e-lasso']],
@@ -92,7 +92,7 @@ const BROWSER = [
   'e2e-tracks', 'e2e-mount', 'e2e-cropimage', 'e2e-magnet', 'e2e-eyedrop',
   'e2e-wand', 'e2e-clone', 'e2e-tools2', 'e2e-clipboard', 'e2e-transitions',
   'e2e-audiotrack', 'e2e-join', 'e2e-transport', 'e2e-editing', 'e2e-gradient',
-  'e2e-maskedit', 'test-edges',
+  'e2e-maskedit', 'e2e-tint', 'test-edges',
 ]
 
 const fileFor = (name) => `${name}.mjs`

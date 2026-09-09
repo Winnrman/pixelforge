@@ -82,13 +82,36 @@ function GradientChip({ from, to, angle, onChange, commit }) {
   )
 }
 
+/** How solid one end of a gradient is, as a percentage. */
+function StopAlpha({ value, onChange, commit }) {
+  return (
+    <Slider
+      value={Math.round((value ?? 1) * 100)}
+      min={0}
+      max={100}
+      onChange={(v) => onChange(v / 100)}
+      onCommit={commit}
+      suffix="%"
+    />
+  )
+}
+
 /** The second stop, the angle, and what the gradient measures itself against. */
-function GradientRows({ to, angle, span, grouped, onChange, commit, anim }) {
+function GradientRows({ to, angle, span, grouped, alpha, alpha2, onChange, commit, anim }) {
   if (!to) return null
   return (
     <>
+      {/* One opacity per end. The layer's own is a single number for the whole
+          thing, so a pink end at 30% and a blue one at 90% is not something it
+          can say. */}
+      <Row label="From %">
+        <StopAlpha value={alpha} onChange={(v) => onChange({ alpha: v })} commit={commit} />
+      </Row>
       <Row label="To">
         <Color value={to} onChange={(v) => onChange({ to: v })} onCommit={commit} />
+      </Row>
+      <Row label="To %">
+        <StopAlpha value={alpha2} onChange={(v) => onChange({ alpha2: v })} commit={commit} />
       </Row>
       {/* Only where there is a group to span. On a layer standing on its own the
           two answers are the same box, and the control would be a choice
@@ -1165,6 +1188,46 @@ export default function Inspector() {
               </Section>
             )}
 
+            <Section
+              title="Recolour"
+              info={'Keeps the shape exactly — every soft edge, every bit of anti-aliasing — '
+                + 'and says what colour it is. The one to reach for when a logo arrives black '
+                + 'and has to be white: Invert would do that too and flips every other colour '
+                + 'on the way past, and a hue turn cannot reach white from black at all, '
+                + 'because black has no hue to turn. Below full strength the original shows '
+                + 'through and it reads as a wash rather than a replacement.'}
+            >
+              <Row label="Recolour">
+                <Toggle
+                  value={!!l.tint?.on}
+                  onChange={(on) => {
+                    begin()
+                    set({ tint: { color: l.tint?.color || '#ffffff', amount: l.tint?.amount ?? 1, on } })
+                    commit()
+                  }}
+                >{l.tint?.on ? 'On' : 'Off'}</Toggle>
+              </Row>
+              {l.tint?.on && (
+                <>
+                  <Row label="Colour">
+                    <Color
+                      value={l.tint.color || '#ffffff'}
+                      onChange={(color) => set({ tint: { ...l.tint, color } })}
+                      onCommit={commit}
+                    />
+                  </Row>
+                  <Row label="Strength">
+                    <Slider
+                      value={Math.round((l.tint.amount ?? 1) * 100)}
+                      min={0} max={100} suffix="%"
+                      onChange={(v) => set({ tint: { ...l.tint, amount: v / 100 } })}
+                      onCommit={commit}
+                    />
+                  </Row>
+                </>
+              )}
+            </Section>
+
             <Section title="Adjustments" right={
               <button className="mini" onClick={() => { begin(); update(l.id, { adjust: defaultAdjust() }); commit() }}>
                 Reset
@@ -1366,8 +1429,20 @@ export default function Inspector() {
             </Row>
             <GradientRows to={l.fill2} angle={l.fillAngle}
               span={l.gradientSpan} grouped={!!base?.parentId}
+              alpha={l.fillAlpha} alpha2={l.fillAlpha2}
               onChange={gradient} commit={commit} anim={animFor('fillAngle')} />
             <Row label="Stroke"><Color value={l.stroke} onChange={(stroke) => set({ stroke })} onCommit={commit} /></Row>
+            {l.strokeWidth > 0 && (
+              <Row
+                label="Stroke %"
+                info={'The border’s own opacity, separate from the layer’s. A solid '
+                  + 'shape behind a half-there outline is a thing to want, and one number for '
+                  + 'the whole layer cannot say it.'}
+              >
+                <Slider value={Math.round((l.strokeOpacity ?? 1) * 100)} min={0} max={100}
+                  onChange={(v) => set({ strokeOpacity: v / 100 })} onCommit={commit} suffix="%" />
+              </Row>
+            )}
             <Row label="Width">
               <Slider value={l.strokeWidth} min={0} max={80}
                 onChange={(strokeWidth) => set({ strokeWidth })} onCommit={commit} suffix="px" />
@@ -1441,8 +1516,15 @@ export default function Inspector() {
             </Row>
             <GradientRows to={l.color2} angle={l.colorAngle}
               span={l.gradientSpan} grouped={!!base?.parentId}
+              alpha={l.colorAlpha} alpha2={l.colorAlpha2}
               onChange={gradient} commit={commit} anim={animFor('colorAngle')} />
             <Row label="Outline"><Color value={l.stroke} onChange={(stroke) => set({ stroke })} onCommit={commit} /></Row>
+            {l.strokeWidth > 0 && (
+              <Row label="Outline %">
+                <Slider value={Math.round((l.strokeOpacity ?? 1) * 100)} min={0} max={100}
+                  onChange={(v) => set({ strokeOpacity: v / 100 })} onCommit={commit} suffix="%" />
+              </Row>
+            )}
             <Row label="Outline w">
               <Slider value={l.strokeWidth} min={0} max={30}
                 onChange={(strokeWidth) => set({ strokeWidth })} onCommit={commit} suffix="px" />
