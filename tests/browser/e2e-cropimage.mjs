@@ -257,6 +257,104 @@ check('one button names the canvas as the thing that moves',
 check('and the other names the content', labels.some((t) => /Scale content to fill canvas/.test(t)),
   labels.join(' | '))
 
+// --- flipping a picture -------------------------------------------------------------------
+// The renderer has mirrored the source rect all along; there was simply nothing
+// to press. Measured on the pixels, since "the field is set" cannot tell a
+// mirrored picture from an unmirrored one.
+const flip = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  st.setDoc({ width: 200, height: 200, background: '#000000' })
+  st.setTool('move')
+  await new Promise((r) => setTimeout(r, 250))
+  // A picture that is different in every corner, so a mirror is unmistakable.
+  const c = document.createElement('canvas')
+  c.width = 100
+  c.height = 100
+  const g = c.getContext('2d')
+  g.fillStyle = '#e02020'; g.fillRect(0, 0, 50, 50)      // top-left red
+  g.fillStyle = '#20e020'; g.fillRect(50, 0, 50, 50)     // top-right green
+  g.fillStyle = '#2020e0'; g.fillRect(0, 50, 50, 50)     // bottom-left blue
+  g.fillStyle = '#e0e020'; g.fillRect(50, 50, 50, 50)    // bottom-right yellow
+  const blob = await new Promise((r) => c.toBlob(r))
+  await st.addImages([new File([blob], 'quads.png', { type: 'image/png' })], { place: true })
+  await new Promise((r) => setTimeout(r, 1200))
+  const img = window.__pfState().doc.layers.find((l) => l.type === 'image')
+  const d0 = window.__pfState().doc
+  window.__pfState().updateLayer(img.id, { x: 0, y: 0, w: d0.width, h: d0.height })
+  await new Promise((r) => setTimeout(r, 300))
+
+  const corners = () => {
+    const s2 = window.__pfState()
+    const cv = document.createElement('canvas')
+    cv.width = s2.doc.width
+    cv.height = s2.doc.height
+    const gg = cv.getContext('2d', { willReadFrequently: true })
+    window.__pfRender.renderDocument(gg, s2.doc, 0)
+    const at = (fx, fy) => {
+      // Sampled as fractions of the canvas: importing a picture resizes the
+      // document to it, so fixed coordinates land outside.
+      const d = gg.getImageData(Math.round(cv.width * fx), Math.round(cv.height * fy), 1, 1).data
+      return d[0] > 128 && d[1] < 128 ? 'red'
+        : d[1] > 128 && d[0] < 128 ? 'green'
+          : d[2] > 128 ? 'blue' : 'yellow'
+    }
+    return [at(0.25, 0.25), at(0.75, 0.25), at(0.25, 0.75), at(0.75, 0.75)].join(',')
+  }
+
+  const plain = corners()
+  window.__pfState().updateLayer(img.id, { flipX: true })
+  await new Promise((r) => setTimeout(r, 300))
+  const across = corners()
+  window.__pfState().updateLayer(img.id, { flipX: false, flipY: true })
+  await new Promise((r) => setTimeout(r, 300))
+  const down = corners()
+  window.__pfState().updateLayer(img.id, { flipX: true, flipY: true })
+  await new Promise((r) => setTimeout(r, 300))
+  const both = corners()
+  window.__pfState().updateLayer(img.id, { flipX: false, flipY: false })
+  await new Promise((r) => setTimeout(r, 250))
+  window.__pfState().select([img.id])
+  await new Promise((r) => setTimeout(r, 400))
+  const labels = [...document.querySelectorAll('.inspector .row-label')].map((n) => n.textContent.trim())
+  return { plain, across, down, both, back: corners(), hasControl: labels.includes('Flip') }
+})
+console.log('flip:', JSON.stringify(flip))
+check('the picture starts the way round it was made',
+  flip.plain === 'red,green,blue,yellow', flip.plain)
+check('horizontal swaps left for right',
+  flip.across === 'green,red,yellow,blue', flip.across)
+check('vertical swaps top for bottom',
+  flip.down === 'blue,yellow,red,green', flip.down)
+check('and both together turn it around', flip.both === 'yellow,blue,green,red', flip.both)
+check('turning them off puts it back exactly',
+  flip.back === flip.plain, `${flip.back} vs ${flip.plain}`)
+check('and there is a control for it', flip.hasControl === true)
+
+// --- and no stray digit under the crop sliders --------------------------------------------
+// `l.panX` is a number, so with the layer unframed the whole `||` chain came out
+// as 0 — and React renders a zero.
+const stray = await page.evaluate(async () => {
+  const st = window.__pfState()
+  const img = st.doc.layers.find((l) => l.type === 'image')
+  st.updateLayer(img.id, { cropT: 0, cropR: 0, cropB: 0, cropL: 0, zoom: 1, panX: 0, panY: 0 })
+  st.select([img.id])
+  await new Promise((r) => setTimeout(r, 450))
+  const sec = [...document.querySelectorAll('.inspector .section')]
+    .find((n) => /Framing/.test(n.querySelector('.section-title')?.textContent || ''))
+  // Every loose piece of text in the section, with the labels and controls
+  // taken out — what is left should be nothing at all.
+  const clone = sec.cloneNode(true)
+  clone.querySelectorAll('.row-label, button, input, select, .info').forEach((n) => n.remove())
+  // What is left is the units the sliders carry — % and ×. A digit among them
+  // is something that got rendered which should not have been.
+  const loose = clone.textContent.replace(/\s+/g, '')
+  return { loose, digits: (loose.match(/[0-9]/g) || []).join(''), had: !!sec }
+})
+console.log('framing text:', JSON.stringify(stray))
+check('the framing panel is there to check', stray.had === true)
+check('with no stray digit loose in it', stray.digits === '', JSON.stringify(stray))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

@@ -567,6 +567,26 @@ export default function Inspector() {
             <Slider value={l.rotation || 0} min={-180} max={180} step={0.5}
               onChange={(rotation) => set({ rotation })} onCommit={commit} suffix="°" />
           </Row>
+          {/* Only pictures mirror. A shape drawn from a path and text laid out
+              by the font have nothing to turn over — the renderer flips the
+              source rect, and they have no source. */}
+          {l.type === 'image' && (
+            <Row
+              label="Flip"
+              info={'Mirrors the picture inside its box, which is a change to what is '
+                + 'sampled rather than to the layer — so the box, the mask and anything '
+                + 'keyframed all stay exactly where they were.'}
+            >
+              <span className="btn-group">
+                <Toggle value={!!l.flipX} onChange={(flipX) => { push(); set({ flipX }) }}>
+                  Horizontal
+                </Toggle>
+                <Toggle value={!!l.flipY} onChange={(flipY) => { push(); set({ flipY }) }}>
+                  Vertical
+                </Toggle>
+              </span>
+            </Row>
+          )}
           <Row label="Opacity" anim={animFor('opacity')}>
             <Slider value={Math.round((l.opacity ?? 1) * 100)} min={0} max={100}
               onChange={(v) => set({ opacity: v / 100 })} onCommit={commit} suffix="%" />
@@ -1167,7 +1187,11 @@ export default function Inspector() {
                 <Slider value={Math.round((l.cropR ?? 0) * 100)} min={0} max={95}
                   onChange={(v) => set({ cropR: v / 100 })} onCommit={commit} suffix="%" />
               </Row>
-              {(isCropped(l) || (l.zoom ?? 1) !== 1 || l.panX || l.panY) && (
+              {/* Every arm has to be a boolean. `l.panX` is a number, so with the
+                  layer unframed the whole chain came out as `0` — and React
+                  renders a zero, which is the stray digit that used to sit under
+                  the crop sliders. */}
+              {Boolean(isCropped(l) || (l.zoom ?? 1) !== 1 || l.panX || l.panY) && (
                 <>
                   <Row
                     info={'These sliders are a moving window onto the picture, which is why '

@@ -180,6 +180,10 @@ not there.
 with the effect it applies, a picture with framing and adjustments; panels with one control in
 them, and panels that are not about the kind of thing selected, fall to the bottom.
 
+**Flip** mirrors a picture inside its box, horizontally or vertically. It changes what is
+sampled rather than the layer, so the box, the mask and anything keyframed stay where they
+were.
+
 **Cropping** works on either. With an image selected the crop tool crops that image; with
 nothing selected it crops the whole document. Both are non-destructive — a sub-rect over the
 asset, not a smaller bitmap.
