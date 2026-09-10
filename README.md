@@ -161,6 +161,15 @@ the content with it, uniformly and about the centre. **Shrink canvas to fit cont
 the canvas onto the artwork, **Scale content to fill canvas** moves the artwork onto the
 canvas.
 
+**Where you are** appears under the media bin the moment the whole canvas stops fitting on
+screen: the frame in miniature with the visible part marked on it, and pressing it goes
+somewhere else. Zoomed out far enough to see everything it is a picture of nothing, so it is
+not there.
+
+**The inspector orders itself by what is selected.** A shape leads with its shape, an overlay
+with the effect it applies, a picture with framing and adjustments; panels with one control in
+them, and panels that are not about the kind of thing selected, fall to the bottom.
+
 **Cropping** works on either. With an image selected the crop tool crops that image; with
 nothing selected it crops the whole document. Both are non-destructive — a sub-rect over the
 asset, not a smaller bitmap.

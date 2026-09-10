@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../state/store.js'
-import { EFFECTS } from '../engine/effects.js'
+import { EFFECTS, applyEffectLayer } from '../engine/effects.js'
+import { renderDocument } from '../engine/render.js'
 import { isCutOut } from '../engine/subject.js'
 import { TOOLS, keyHint } from '../engine/tools.js'
 import { previewFit, fitLabel } from '../engine/brush.js'
@@ -9,8 +10,10 @@ import { Row, Select, Slider, Segmented, Toggle, Info } from './ui.jsx'
 
 
 const SHAPES = [
-  { value: 'ellipse', label: '●', title: 'Ellipse' },
+  // A rectangle first, and as the default: it is what most overlays and most
+  // shapes actually are, and the one that needs the fewest words to describe.
   { value: 'rect', label: '■', title: 'Rectangle' },
+  { value: 'ellipse', label: '●', title: 'Ellipse' },
   { value: 'triangle', label: '▲', title: 'Triangle' },
   { value: 'diamond', label: '◆', title: 'Diamond' },
   { value: 'star', label: '★', title: 'Star' },
@@ -125,6 +128,100 @@ function BrushPreview({ brush, warm = false }) {
         {fit.px} px
         {scaled && <em>{scaled}</em>}
       </span>
+    </div>
+  )
+}
+
+/**
+ * What this overlay will actually do, on this picture.
+ *
+ * A pixel size is a number of document pixels, which tells you nothing about how
+ * coarse the blocks will look over the photograph in front of you — and the only
+ * way to find out was to draw an overlay, look, undo, and change the number. So
+ * the middle of the canvas is borrowed, the effect is run over it with exactly
+ * the settings in the panel, and the shape is the shape that is armed, which
+ * puts the feather on an edge where it can be seen.
+ *
+ * The picture is rendered once and kept; only the effect is re-run as the
+ * sliders move, because re-rendering the document on every tick of a slider is
+ * how a panel starts to feel heavy.
+ */
+function EffectPreview({ o }) {
+  const ref = useRef(null)
+  const sample = useRef(null)
+  const zoom = useStore((s) => s.view.zoom)
+  // What the sample is of. A number of layers and an instant is enough: it is a
+  // thumbnail of the middle of the canvas, not a second viewport.
+  const docKey = useStore((s) => `${s.doc.width}x${s.doc.height}:${s.doc.layers.length}`)
+  const box = { w: 188, h: 116 }
+
+  useEffect(() => {
+    const c = ref.current
+    if (!c) return
+    const dpr = Math.min(2, window.devicePixelRatio || 1)
+    c.width = Math.round(box.w * dpr)
+    c.height = Math.round(box.h * dpr)
+
+    // The picture, once.
+    if (!sample.current) sample.current = document.createElement('canvas')
+    const src = sample.current
+    src.width = c.width
+    src.height = c.height
+    const sc = src.getContext('2d')
+    sc.setTransform(1, 0, 0, 1, 0, 0)
+    const st = useStore.getState()
+    const doc = st.doc
+    if (doc.layers.length) {
+      const full = document.createElement('canvas')
+      full.width = doc.width
+      full.height = doc.height
+      renderDocument(full.getContext('2d'), doc, st.time)
+      // The middle of the canvas at the zoom you are working at, so the blocks
+      // are the size they will be on screen.
+      const k = zoom * dpr
+      const cw = Math.min(doc.width, c.width / k)
+      const ch = Math.min(doc.height, c.height / k)
+      sc.fillStyle = '#15151a'
+      sc.fillRect(0, 0, c.width, c.height)
+      sc.drawImage(full, (doc.width - cw) / 2, (doc.height - ch) / 2, cw, ch,
+        0, 0, cw * k, ch * k)
+    } else {
+      // Nothing on the canvas yet, so something with enough detail in it to
+      // show what a block size does.
+      for (let i = 0; i < 22; i++) {
+        sc.fillStyle = `hsl(${(i * 37) % 360} 62% ${34 + (i % 5) * 9}%)`
+        sc.fillRect((i * 37) % c.width, 0, 18, c.height)
+        sc.fillStyle = `hsl(${(i * 71) % 360} 55% ${60 - (i % 4) * 11}%)`
+        sc.fillRect(0, (i * 23) % c.height, c.width, 7)
+      }
+    }
+
+    const ctx = c.getContext('2d')
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, c.width, c.height)
+    ctx.drawImage(src, 0, 0)
+    // The shape that is armed, centred, big enough to leave the picture showing
+    // round it — the effect against what it replaced is the comparison.
+    const pad = 12 * dpr
+    applyEffectLayer(ctx, src, {
+      type: 'effect',
+      shape: o.shape,
+      effect: o.effect,
+      pixelSize: Math.max(1, (o.pixelSize || 12) * zoom * dpr),
+      blurRadius: (o.blurRadius || 0) * zoom * dpr,
+      feather: (o.feather || 0) * zoom * dpr,
+      x: pad,
+      y: pad,
+      w: c.width - pad * 2,
+      h: c.height - pad * 2,
+      rotation: 0,
+      opacity: 1,
+    })
+  }, [docKey, zoom, o.effect, o.shape, o.pixelSize, o.blurRadius, o.feather, box.w, box.h])
+
+  return (
+    <div className="fx-preview">
+      <canvas ref={ref} style={{ width: box.w, height: box.h }} />
     </div>
   )
 }
@@ -363,6 +460,7 @@ export default function ToolRail() {
           )}
           {showOverlayOpts && (
             <>
+              <EffectPreview o={o} />
               <div className="rail-opt-label">Effect</div>
               <Select value={o.effect} onChange={(effect) => setToolOptions({ effect })} options={EFFECTS} />
               {(o.effect === 'pixelate' || o.effect === 'pixelblur') && (

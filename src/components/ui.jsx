@@ -49,9 +49,13 @@ export function Info({ children }) {
   )
 }
 
-export function Section({ title, children, right, info }) {
+export function Section({ title, children, right, info, order }) {
   return (
-    <div className="section">
+    // `order` rather than a rearranged tree: which panels matter most depends on
+    // what is selected, and moving a thousand lines of JSX about to say so would
+    // be a thousand lines that can go wrong. The body is a flex column, so a
+    // number per section is the whole of it.
+    <div className="section" style={order === undefined ? undefined : { order }}>
       {title && (
         <div className="section-head">
           <span className="section-title">

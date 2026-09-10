@@ -277,6 +277,133 @@ check('a blended layer with a shadow keeps its blend',
   shadow.blended.inside > 250, String(shadow.blended.inside))
 check('and still casts', shadow.blended.under < 120, String(shadow.blended.under))
 
+// --- the panels come in the order the thing you selected wants ---------------------------
+// Which panels matter depends on what is selected: a shape wants its own
+// controls high up, an overlay wants the effect it applies before anything
+// else, and the sections with one switch in them belong at the bottom either
+// way. Read off the computed order rather than the source, since that is what
+// decides what a person actually sees.
+const ids = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  const c = document.createElement('canvas')
+  c.width = 400
+  c.height = 300
+  const g = c.getContext('2d')
+  g.fillStyle = '#4488cc'
+  g.fillRect(0, 0, 400, 300)
+  const blob = await new Promise((r) => c.toBlob(r))
+  await st.addImages([new File([blob], 'panel.png', { type: 'image/png' })], { place: true })
+  await new Promise((r) => setTimeout(r, 1200))
+  const S = window.__pfStore
+  const sh = S.makeShapeLayer({ x: 10, y: 10, w: 80, h: 80 })
+  const fx = S.makeEffectLayer({ x: 20, y: 20, w: 80, h: 80, effect: 'pixelate' })
+  const s2 = window.__pfState()
+  s2.addLayer(sh)
+  s2.addLayer(fx)
+  return { sh: sh.id, fx: fx.id, img: s2.doc.layers.find((l) => l.type === 'image').id, shape: sh.shape, fxShape: fx.shape }
+})
+
+const panels = async (id) => {
+  await page.evaluate((i) => window.__pfState().select([i]), id)
+  await page.waitForTimeout(350)
+  return page.evaluate(() => [...document.querySelectorAll('.inspector-body > .section')]
+    .map((n) => ({
+      t: n.querySelector('.section-title')?.textContent?.replace(/\s+/g, ' ').trim(),
+      o: Number(getComputedStyle(n).order),
+    }))
+    .sort((a, b) => a.o - b.o)
+    .map((x) => x.t))
+}
+
+const forShape = await panels(ids.sh)
+const forEffect = await panels(ids.fx)
+const forImage = await panels(ids.img)
+console.log('shape :', forShape.join(' > '))
+console.log('effect:', forEffect.join(' > '))
+console.log('image :', forImage.join(' > '))
+
+check('a shape leads with its own controls, then how it moves, then its shadow',
+  forShape.slice(0, 5).join('|') === 'Transform|Shape|Motion tracking|Motion trails|Shadow',
+  forShape.join(' > '))
+// An overlay *is* its effect, so that comes before the box it sits in.
+check('an overlay leads with the effect it applies',
+  forEffect.slice(0, 3).join('|') === 'Overlay effect|Transform|Motion tracking',
+  forEffect.join(' > '))
+check('a picture leads with the things done to pictures',
+  forImage.slice(0, 4).join('|') === 'Transform|Framing|Adjustments|Subject',
+  forImage.join(' > '))
+// The tail rule: one or two controls, or nothing to do with the kind of thing
+// selected, and it goes to the bottom.
+check('and the general panels fall to the end of all of them',
+  forShape[forShape.length - 1] === 'Motion'
+  && forImage.indexOf('Image') > forImage.indexOf('Subject'),
+  `${forShape.at(-1)} / ${forImage.join(' > ')}`)
+
+// --- a rectangle is the one you get -------------------------------------------------------
+check('a new overlay is a rectangle', ids.fxShape === 'rect', ids.fxShape)
+check('and so is a new shape', ids.shape === 'rect', ids.shape)
+const firstShape = await page.evaluate(async () => {
+  window.__pfState().setTool('shape')
+  await new Promise((r) => setTimeout(r, 350))
+  const b = document.querySelector('.rail-options .segmented button')
+  return { title: b?.title || '', on: b?.className || '' }
+})
+check('the shape row offers it first', /Rectangle/.test(firstShape.title), JSON.stringify(firstShape))
+
+// --- what the overlay will actually look like ---------------------------------------------
+// A pixel size is a number of document pixels, which says nothing about how
+// coarse the blocks will be over the picture in front of you.
+const fxPreview = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.setTool('effect')
+  await new Promise((r) => setTimeout(r, 500))
+  const c = document.querySelector('.fx-preview canvas')
+  if (!c) return { there: false }
+  const grab = () => {
+    const g = c.getContext('2d', { willReadFrequently: true })
+    return g.getImageData(0, 0, c.width, c.height).data.join(',')
+  }
+  const small = grab()
+  window.__pfState().setToolOptions({ pixelSize: 60 })
+  await new Promise((r) => setTimeout(r, 450))
+  return { there: true, changed: grab() !== small, w: c.width }
+})
+console.log('effect preview:', JSON.stringify(fxPreview))
+check('the overlay tool shows what it will do', fxPreview.there === true)
+check('and the picture changes when the block size does', fxPreview.changed === true)
+
+// --- where you are ------------------------------------------------------------------------
+// Zoomed in past the frame there is nothing on screen saying which part of the
+// document is in front of you. It appears only when it has something to say.
+const map = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.setView({ fitRequest: Date.now() })
+  await new Promise((r) => setTimeout(r, 600))
+  const fitted = document.querySelectorAll('.minimap').length
+  st.setView({ zoom: 4, panX: -300, panY: -200, fitted: false })
+  await new Promise((r) => setTimeout(r, 500))
+  const zoomed = document.querySelectorAll('.minimap').length
+  const before = { ...window.__pfState().view }
+  const frame = document.querySelector('.minimap-frame')
+  const r = frame.getBoundingClientRect()
+  // A press near the left edge of the frame should take the view to the left of
+  // the picture.
+  frame.dispatchEvent(new PointerEvent('pointerdown', {
+    clientX: r.left + 12, clientY: r.top + r.height / 2, bubbles: true, pointerId: 1,
+  }))
+  frame.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }))
+  await new Promise((res) => setTimeout(res, 400))
+  return { fitted, zoomed, before, after: { ...window.__pfState().view } }
+})
+console.log('minimap:', JSON.stringify(map))
+check('nothing is shown while the whole canvas fits', map.fitted === 0, String(map.fitted))
+check('and it appears once it does not', map.zoomed === 1, String(map.zoomed))
+check('pressing it moves the view', map.after.panX !== map.before.panX,
+  `${map.before.panX} -> ${map.after.panX}`)
+check('and leaves the zoom alone, since it says where you are and not how close',
+  map.after.zoom === map.before.zoom, `${map.before.zoom} -> ${map.after.zoom}`)
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

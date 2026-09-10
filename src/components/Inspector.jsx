@@ -22,8 +22,8 @@ import { seedStop } from '../engine/gradient.js'
 import { styleAt } from '../engine/richtext.js'
 
 const SHAPES = [
-  { value: 'ellipse', label: 'Ellipse' },
   { value: 'rect', label: 'Rectangle' },
+  { value: 'ellipse', label: 'Ellipse' },
   { value: 'triangle', label: 'Triangle' },
   { value: 'diamond', label: 'Diamond' },
   { value: 'star', label: 'Star' },
@@ -201,6 +201,37 @@ function GradientRows({
       </Row>
     </>
   )
+}
+
+/**
+ * Which panels come first, by what is selected.
+ *
+ * A shape wants its own controls high up and its shadow low; an overlay wants
+ * the effect it applies before anything else, because that is the whole of what
+ * it is. Anything a type does not name falls into `REST` — so a panel can never
+ * be lost by being forgotten here, only pushed down.
+ *
+ * The rule for the tail: sections with a control or two in them, and sections
+ * that are not about the kind of thing selected, go at the bottom.
+ */
+const SECTION_ORDER = {
+  shape: ['transform', 'shape', 'tracking', 'trails', 'shadow'],
+  effect: ['effect', 'transform', 'tracking'],
+  text: ['transform', 'text', 'outline', 'tracking', 'trails', 'shadow'],
+  image: ['transform', 'framing', 'adjust', 'subject', 'bg', 'retro', 'recolour'],
+}
+
+const REST = [
+  'shape', 'text', 'outline', 'effect', 'framing', 'adjust', 'subject', 'bg',
+  'retro', 'recolour', 'image', 'animation', 'loop', 'cinemagraph', 'cursor',
+  'mask', 'tracking', 'trails', 'shadow', 'motion', 'erased', 'fade', 'transition',
+]
+
+const sectionOrder = (type, id) => {
+  const first = SECTION_ORDER[type]?.indexOf(id) ?? -1
+  if (first >= 0) return first
+  const i = REST.indexOf(id)
+  return 100 + (i >= 0 ? i : REST.length)
 }
 
 export default function Inspector() {
@@ -501,6 +532,8 @@ export default function Inspector() {
     )
   }
 
+  const ord = (id) => sectionOrder(l.type, id)
+
   const asset = l.type === 'image' ? getAsset(l.assetId) : null
   // After a crop the layer shows only part of its asset, so "native size" means
   // the size of that visible slice, not the whole file.
@@ -513,7 +546,7 @@ export default function Inspector() {
       <div className="panel-head"><span>{l.name}</span></div>
       <div className="inspector-body">
 
-        <Section title="Transform">
+        <Section title="Transform" order={ord('transform')}>
           <Row label="Animate">
             <span className="btn-group">
               <Toggle value={!!animFor('x')?.active} onChange={() => animFor('x').onToggle()}>
@@ -548,6 +581,7 @@ export default function Inspector() {
 
         {l.erase?.strokes?.length > 0 && (
           <Section
+            order={ord('erased')}
             title="Erased"
             info={'Painted with the eraser (E). Strokes are stored as points rather than '
               + 'baked pixels, so they scale and rotate with the layer, save into the '
@@ -578,6 +612,7 @@ export default function Inspector() {
 
         {l.clip && (
           <Section
+            order={ord('fade')}
             title="Fade"
             info={'How long the clip takes to come up from black at its start and go back to '
               + 'black at its end. Drag the square handles in the top corners of the clip on '
@@ -614,6 +649,7 @@ export default function Inspector() {
             next section on every clip that had no overlap. */}
         {lap > 0 && (
           <Section
+            order={ord('transition')}
             title="Transition"
             info={'Two clips lapping over each other on a track is the transition, and the '
               + 'overlap is how long it takes. There is nothing here to add or remove: drag the '
@@ -638,6 +674,7 @@ export default function Inspector() {
 
         {l.type !== 'group' && l.type !== 'effect' && (
           <Section
+            order={ord('shadow')}
             title="Shadow"
             info={'Cast from what the layer actually draws, not from its box — so a cut-out '
               + 'subject throws the subject’s shape, text throws the letters, and a masked '
@@ -692,6 +729,7 @@ export default function Inspector() {
 
         {l.type !== 'group' && l.type !== 'effect' && (
           <Section
+            order={ord('trails')}
             title="Motion trails"
             info={'Stamps the layer as it was a few moments ago, fading out. The echoes are '
               + 'read from the real keyframed motion, so this follows a track, a hand-animated '
@@ -731,7 +769,7 @@ export default function Inspector() {
         )}
 
         {l.type !== 'group' && (
-          <Section title="Motion tracking"
+          <Section order={ord('tracking')} title="Motion tracking"
             info={'Put the layer over the thing you want followed, then track. It matches the patch underneath it frame by frame and writes the result as ordinary position keyframes you can edit afterwards. If it loses the subject it stops and says where: scrub there, reposition, and track again.'}>
             <Row label="Direction">
               <Segmented
@@ -790,6 +828,7 @@ export default function Inspector() {
 
         {l.mask?.points?.length >= 3 && (
           <Section
+            order={ord('mask')}
             title="Mask"
             info={'Cut from a lasso outline, stored relative to the layer box, so it follows '
               + 'the layer when you move, resize or rotate it. Everything that shapes it — '
@@ -810,6 +849,7 @@ export default function Inspector() {
 
         {(
           <Section
+            order={ord('motion')}
             title="Motion"
             info={'Tracking on: any property you change grows its own animation track, keyed '
               + 'from where it was to where you put it. Or click the diamond beside a single '
@@ -873,7 +913,7 @@ export default function Inspector() {
         )}
 
         {l.type === 'effect' && (
-          <Section title="Overlay effect"
+          <Section order={ord('effect')} title="Overlay effect"
             info={'Effect layers read whatever is composited beneath them, so this tracks '
               + 'every frame of an animated GIF automatically. On a timeline an overlay '
               + 'arrives covering the clip it was put over, and only that one — if the shot '
@@ -943,7 +983,7 @@ export default function Inspector() {
 
         {l.type === 'image' && (
           <>
-            <Section title="Image">
+            <Section title="Image" order={ord('image')}>
               <Row label="Presets">
                 <Select
                   value=""
@@ -978,6 +1018,7 @@ export default function Inspector() {
             </Section>
 
             <Section
+              order={ord('bg')}
               title="Remove background"
               info={'Edges and Colour are colour keys: instant, offline, and only able to '
                 + 'separate a background that differs in colour. AI runs a small segmentation '
@@ -1097,6 +1138,7 @@ export default function Inspector() {
             </Section>
 
             <Section
+              order={ord('framing')}
               title="Framing"
               info={'Crop trims what the layer shows without squashing it, so animating it reads as a reveal. Zoom pushes into the image while the layer box stays put.'}
               right={
@@ -1156,7 +1198,7 @@ export default function Inspector() {
             </Section>
 
             {asset?.animated && (
-              <Section title="Animation">
+              <Section title="Animation" order={ord('animation')}>
                 <Row label="Frames"><span className="readout">{asset.frames.length}</span></Row>
                 <Row label="Duration"><span className="readout">{(asset.duration / 1000).toFixed(2)}s</span></Row>
                 <Row label="Speed">
@@ -1172,6 +1214,7 @@ export default function Inspector() {
 
             {asset?.animated && !asset.isVideo && (
               <Section
+                order={ord('loop')}
                 title="Loop repair"
                 info={'Analyse measures how far the last frame is from the first and picks the '
                   + 'cheapest fix: trim to a frame that already matches, crossfade the seam, or '
@@ -1215,6 +1258,7 @@ export default function Inspector() {
 
             {asset?.animated && (
               <Section
+                order={ord('cinemagraph')}
                 title="Cinemagraph"
                 info={'Freezes the whole layer at one instant and lets only the lasso-masked '
                   + 'region keep moving. Draw a lasso mask on the layer first — steam, hair, a '
@@ -1240,6 +1284,7 @@ export default function Inspector() {
 
             {asset?.animated && (
               <Section
+                order={ord('cursor')}
                 title="Follow the cursor"
                 info={'For screen recordings. Finds the pointer by frame differencing, smooths '
                   + 'the path with a trailing lag and a dead zone so the camera is not seasick, '
@@ -1280,6 +1325,7 @@ export default function Inspector() {
             )}
 
             <Section
+              order={ord('recolour')}
               title="Recolour"
               info={'Keeps the shape exactly — every soft edge, every bit of anti-aliasing — '
                 + 'and says what colour it is. The one to reach for when a logo arrives black '
@@ -1319,7 +1365,7 @@ export default function Inspector() {
               )}
             </Section>
 
-            <Section title="Adjustments" right={
+            <Section title="Adjustments" order={ord('adjust')} right={
               <button className="mini" onClick={() => { begin(); update(l.id, { adjust: defaultAdjust() }); commit() }}>
                 Reset
               </button>
@@ -1340,6 +1386,7 @@ export default function Inspector() {
             </Section>
 
             <Section
+              order={ord('subject')}
               title="Subject"
               info={'These all reuse the cutout from Remove background, so run that first. '
                 + 'Text behind the subject leaves the photo whole underneath, drops a text layer '
@@ -1460,6 +1507,7 @@ export default function Inspector() {
             </Section>
 
             <Section
+              order={ord('retro')}
               title="Retro look"
               info={'Palette quantisation with real dithering, the same machinery GIF export '
                 + 'already uses to fit 256 colours. Applied last, so it also colours a cutout '
@@ -1509,7 +1557,7 @@ export default function Inspector() {
         )}
 
         {l.type === 'shape' && (
-          <Section title="Shape">
+          <Section title="Shape" order={ord('shape')}>
             <Row label="Shape">
               <Select value={l.shape} onChange={(shape) => { set({ shape }); commit() }} options={SHAPES} />
             </Row>
@@ -1550,7 +1598,7 @@ export default function Inspector() {
 
         {l.type === 'text' && (
           <>
-          <Section title="Text">
+          <Section title="Text" order={ord('text')}>
             <Row wide>
               <textarea
                 id="pf-text-input"
@@ -1673,6 +1721,7 @@ export default function Inspector() {
           </Section>
 
           <Section
+            order={ord('outline')}
             title="Outline over the top"
             info={'Strokes the same letters again, after everything else has been drawn. '
               + 'Over the solid text it is the same colour and invisible; over anything '

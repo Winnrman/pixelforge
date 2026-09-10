@@ -178,6 +178,12 @@ export default function CanvasStage() {
       canvas.style.height = r.height + 'px'
       canvas._dpr = dpr
       canvas._css = { w: r.width, h: r.height }
+      // Published, because the minimap needs to know how much of the document
+      // is on screen and it is nowhere near this component.
+      const st = useStore.getState()
+      if (st.stage.w !== r.width || st.stage.h !== r.height) {
+        st.setStage({ w: r.width, h: r.height })
+      }
     }
     resize()
     const ro = new ResizeObserver(() => {

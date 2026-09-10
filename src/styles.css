@@ -49,7 +49,13 @@ button:disabled { opacity: 0.35; cursor: default; }
   min-height: 0;
 }
 .workspace > .rail { grid-column: 1; grid-row: 1 / span 2; }
-.workspace > .pool { grid-column: 2; grid-row: 1; }
+.workspace > .pool-col {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .workspace > .center { grid-column: 3; grid-row: 1; }
 .workspace > .side { grid-column: 4; grid-row: 1; }
 .workspace > .timeline { grid-column: 2 / span 3; grid-row: 2; }
@@ -216,6 +222,16 @@ button:disabled { opacity: 0.35; cursor: default; }
   display: block;
 }
 .brush-preview canvas { display: block; }
+/* The overlay, run over the middle of the canvas at the settings in the
+   panel. Same frame as the brush preview, for the same reason. */
+.fx-preview {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 4px;
+  background: #15151a;
+}
+.fx-preview canvas { display: block; }
 .brush-size {
   position: absolute;
   left: 6px;
@@ -397,7 +413,18 @@ button:disabled { opacity: 0.35; cursor: default; }
 .thumb.txt { background: #24242c; color: var(--text); font-size: 12px; }
 
 .inspector { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.inspector-body { overflow-y: auto; padding: 4px 0 24px; flex: 1; }
+/* A flex column so the panels can be ordered by what is selected: a shape
+   wants its own shape controls near the top, an overlay wants its effect,
+   and the things with one switch in them belong at the bottom either way. */
+.inspector-body {
+  overflow-y: auto;
+  padding: 4px 0 24px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.inspector-body > * { flex: none; }
 
 .section { border-bottom: 1px solid var(--line-soft); }
 .section-head {
@@ -1664,9 +1691,55 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; font-si
   width: 232px;
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
   border-right: 1px solid var(--line);
   background: var(--panel);
+}
+
+/* Where you are, when the whole canvas no longer fits on screen. Under the bin
+   rather than over the picture: a panel floating on the artwork is one more
+   thing covering the thing you are working on. */
+.minimap {
+  flex: none;
+  width: 232px;
+  border-right: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  padding: 10px 12px 12px;
+  position: relative;
+}
+.minimap-frame {
+  height: 108px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.minimap-doc {
+  position: relative;
+  background:
+    linear-gradient(45deg, rgba(255,255,255,0.04) 25%, transparent 25%) 0 0 / 10px 10px,
+    linear-gradient(-45deg, rgba(255,255,255,0.04) 25%, transparent 25%) 0 5px / 10px 10px,
+    rgba(0,0,0,0.35);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.minimap-view {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  background: rgba(78,161,255,0.16);
+  border-radius: 2px;
+  min-width: 2px;
+  min-height: 2px;
+}
+.minimap-zoom {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font-size: 10px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
 }
 .pool-head {
   display: flex;

@@ -15,6 +15,7 @@ import { Info } from './components/ui.jsx'
 import ExportDialog from './components/ExportDialog.jsx'
 import LassoBar from './components/LassoBar.jsx'
 import MediaPool from './components/MediaPool.jsx'
+import Minimap from './components/Minimap.jsx'
 import MediaView from './components/MediaView.jsx'
 import LayerContextMenu from './components/LayerContextMenu.jsx'
 import OpenDialog from './components/OpenDialog.jsx'
@@ -442,7 +443,15 @@ export default function App() {
           rather than one tool. */}
       <div className="workspace" hidden={workspace !== 'editor'}>
         <ToolRail />
-        <MediaPool />
+        {/* One column: the bin, and under it the mark saying where in the
+            picture you are. Either can be absent — an empty bin draws nothing,
+            and the minimap only appears once the whole canvas stops fitting —
+            and when both are, the column collapses and the picture takes the
+            room. */}
+        <div className="pool-col">
+          <MediaPool />
+          <Minimap />
+        </div>
         <div className="center">
           <CanvasStage />
           <LassoBar />

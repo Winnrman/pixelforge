@@ -290,7 +290,7 @@ export function makeEffectLayer(partial = {}) {
     id: nid('l'),
     type: 'effect',
     name: 'Pixelate',
-    shape: 'ellipse',
+    shape: 'rect',
     points: null,
     x: 0, y: 0, w: 200, h: 200,
     rotation: 0,
@@ -641,13 +641,17 @@ export const useStore = create((set, get) => ({
     // rubbing out a background are different jobs at different scales, and one
     // shared setting means changing tools always means changing it back.
     maskBrush: { ...defaultBrush(), mode: 'add' },
-    shape: 'ellipse',
+    shape: 'rect',
     effect: 'pixelate',
     pixelSize: 14,
     blurRadius: 10,
     feather: 0,
   },
   view: { zoom: 1, panX: 0, panY: 0, fitted: true },
+  // How much of the document is actually on screen, in CSS pixels. Written
+  // by the stage as it resizes; read by anything that has to say where in
+  // the picture you are.
+  stage: { w: 0, h: 0 },
   time: 0,
   playing: true,
   duration: 0,
@@ -3599,6 +3603,7 @@ export const useStore = create((set, get) => ({
   setTool: (tool) => set({ tool }),
   setToolOptions: (patch) => set((s) => ({ toolOptions: { ...s.toolOptions, ...patch } })),
   setView: (patch) => set((s) => ({ view: { ...s.view, ...patch } })),
+  setStage: (stage) => set({ stage }),
   setBusy: (busy) => set({ busy }),
   setNotice: (notice) => set({ notice }),
   setProjectName: (projectName) => set({ projectName }),
