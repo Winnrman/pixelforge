@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store.js'
 import { getAsset } from '../engine/assets.js'
+import { drawLayerThumb, thumbSignature } from '../engine/render.js'
 import { buildTree, isGroup, resolveGroups } from '../engine/groups.js'
 
 const TYPE_BADGE = {
@@ -11,7 +12,59 @@ const TYPE_BADGE = {
   group: 'GRP',
 }
 
-function LayerThumb({ layer }) {
+/**
+ * The layer itself, small.
+ *
+ * A row that says IMG names the type of a thing whose type you already know.
+ * Which *picture* it is was the only question a list of eleven of them was ever
+ * being asked, and a coloured square could not answer it.
+ *
+ * Redrawn only when the layer would look different — never as it is dragged
+ * about, which would be a render per pointer move per row.
+ */
+function PictureThumb({ layer, time }) {
+  const ref = useRef(null)
+  const sig = thumbSignature(layer)
+  const asset = getAsset(layer.assetId)
+  // Frames arrive after the layer does, so the picture has to be part of what
+  // says this is stale — otherwise the first draw finds nothing and, having no
+  // reason to run again, keeps the blank.
+  const ready = asset ? (asset.el ? 'el' : `f${asset.frames?.length || 0}`) : 'none'
+
+  useEffect(() => {
+    const c = ref.current
+    if (!c) return undefined
+    const dpr = Math.min(2, window.devicePixelRatio || 1)
+    c.width = Math.round(22 * dpr)
+    c.height = Math.round(22 * dpr)
+    try {
+      drawLayerThumb(c, layer, time)
+    } catch { /* an asset still decoding draws nothing, and will be asked again */ }
+    return undefined
+  }, [sig, ready, time, asset, layer])
+
+  return <span className="thumb pic"><canvas ref={ref} /></span>
+}
+
+/** A padlock, drawn rather than typed: the rail is icons, so this is too. */
+function LockIcon({ locked }) {
+  return (
+    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+      <rect x="3.2" y="7" width="9.6" height="7" rx="1.4" fill="currentColor" />
+      {/* Open, the shackle lifts off one shoulder and stands away from the body,
+          which reads at twelve pixels where a smaller difference does not. */}
+      <path
+        d={locked ? 'M5.4 7 V4.8 a2.6 2.6 0 0 1 5.2 0 V7' : 'M5.4 7 V4.4 a2.6 2.6 0 0 1 5.2 -0.4'}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function LayerThumb({ layer, time }) {
   if (layer.type === 'group') {
     return (
       <span className="thumb grp">
@@ -22,26 +75,18 @@ function LayerThumb({ layer }) {
       </span>
     )
   }
+  // Every picture is its own picture now, cut-outs included — drawn on a checker
+  // ground, so a subject standing free of its background still reads as one
+  // without needing a silhouette to stand in for it. The badge beside the name
+  // still says CUT, VID or GIF.
   if (layer.type === 'image') {
-    const a = getAsset(layer.assetId)
-    // A cut-out looks nothing like the layer it came from, so it should not
-    // look like it in the list either. Two copies of the same photo, one
-    // masked, were previously identical rows with identical names.
-    if (layer.bgRemove?.on) {
-      return (
-        <span className="thumb cut" title="Background removed">
-          <svg viewBox="0 0 20 20" width="17" height="17">
-            {/* A bust on a checker ground: the checkers say "transparent", the
-                silhouette says "this is the subject only". */}
-            <circle cx="10" cy="6.4" r="3.1" fill="currentColor" />
-            <path d="M3.4 18 a6.6 6.6 0 0 1 13.2 0 Z" fill="currentColor" />
-          </svg>
-        </span>
-      )
-    }
-    if (a?.isVideo) return <span className="thumb vid">MP4</span>
-    if (a?.animated) return <span className="thumb gif">GIF</span>
-    return <span className="thumb img" />
+    // Video keeps its chip. A frame of it is not lying around at this size, so
+    // drawing one means a seek per row — and a seek fills the playback cache
+    // with frames the picture then has to evict, which is the cost the
+    // filmstrip was rebuilt to stop paying. A GIF is already decoded, so it
+    // costs nothing and gets a real picture.
+    if (getAsset(layer.assetId)?.isVideo) return <span className="thumb vid">MP4</span>
+    return <PictureThumb layer={layer} time={time} />
   }
   if (layer.type === 'effect') {
     return (
@@ -55,14 +100,15 @@ function LayerThumb({ layer }) {
       </span>
     )
   }
-  if (layer.type === 'shape') {
-    return <span className="thumb shp" style={{ background: layer.fill }} />
-  }
+  if (layer.type === 'shape') return <PictureThumb layer={layer} time={time} />
   return <span className="thumb txt">T</span>
 }
 
 export default function LayersPanel() {
   const layers = useStore((s) => s.doc.layers)
+  // Rounded, so a playing document does not redraw every row on every frame —
+  // a thumbnail a third of a second stale is a thumbnail nobody notices.
+  const time = useStore((s) => Math.round(s.time / 300) * 300)
   const selectedIds = useStore((s) => s.selectedIds)
   const select = useStore((s) => s.select)
   const updateLayer = useStore((s) => s.updateLayer)
@@ -187,14 +233,20 @@ export default function LayersPanel() {
                 }}
               >{l.visible ? '◉' : '○'}</button>
 
-              <LayerThumb layer={l} />
+              <LayerThumb layer={l} time={time} />
 
               {renaming === l.id ? (
                 <input
                   className="rename"
                   autoFocus
                   defaultValue={l.name}
-                  onBlur={(e) => { updateLayer(l.id, { name: e.target.value || l.name }); setRenaming(null) }}
+                  onBlur={(e) => {
+                    // `renamed` stops a text layer's name following what it says:
+                    // a name given by hand is a decision, and typing into the
+                    // layer afterwards must not quietly undo it.
+                    updateLayer(l.id, { name: e.target.value || l.name, renamed: true })
+                    setRenaming(null)
+                  }}
                   onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
                   onClick={(e) => e.stopPropagation()}
                 />
@@ -213,7 +265,7 @@ export default function LayersPanel() {
                 className="lock"
                 title={l.locked ? 'Unlock' : 'Lock'}
                 onClick={(e) => { e.stopPropagation(); updateLayer(l.id, { locked: !l.locked }) }}
-              >{l.locked ? '🔒' : '🔓'}</button>
+              ><LockIcon locked={l.locked} /></button>
             </div>
           )
         })}

@@ -205,6 +205,22 @@ button:disabled { opacity: 0.35; cursor: default; }
   cursor: pointer;
 }
 .swatch-dot:hover { transform: scale(1.25); border-color: #fff; }
+/* A row's picture is the picture. On a checker ground, so a cut-out subject
+   reads as one rather than as a shape floating on the panel colour. */
+.thumb.pic {
+  padding: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(45deg, rgba(255,255,255,0.07) 25%, transparent 25%) 0 0 / 8px 8px,
+    linear-gradient(-45deg, rgba(255,255,255,0.07) 25%, transparent 25%) 0 4px / 8px 8px,
+    linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.07) 75%) 4px -4px / 8px 8px,
+    linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.07) 75%) -4px 0 / 8px 8px,
+    #101014;
+}
+.thumb.pic canvas { display: block; width: 22px; height: 22px; }
+/* The lock is an icon like everything else in the app, so it inherits the
+   row's colour and dims with it rather than staying a bright yellow emoji. */
+.lock svg { display: block; }
 /* The brush, life-size, above the sliders that set it. Sunk into the panel
    rather than raised off it, so the white dot reads as paint on a surface. */
 .brush-preview {

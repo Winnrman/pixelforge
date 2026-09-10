@@ -1452,6 +1452,72 @@ function paintPlain(ctx, l, time) {
 }
 
 /**
+ * What a layer looks like, as a short string.
+ *
+ * A thumbnail is only worth redrawing when the picture in it would change, and a
+ * layer object changes on every pixel of a drag. Position, rotation and opacity
+ * are deliberately absent: a thumbnail shows the artwork upright and alone, so
+ * moving a layer about must not cost a render per pointer move per row.
+ */
+export function thumbSignature(l) {
+  if (!l) return ''
+  return [
+    l.type, l.assetId, Math.round(Math.abs(l.w || 0)), Math.round(Math.abs(l.h || 0)),
+    l.flipX ? 1 : 0, l.flipY ? 1 : 0, l.fill, l.fill2, l.color, l.color2, l.text,
+    l.cropT, l.cropR, l.cropB, l.cropL, l.zoom, l.panX, l.panY,
+    l.mask?.points?.length || 0, l.mask?.plus?.length || 0, l.mask?.paint?.length || 0,
+    l.mask?.invert ? 1 : 0, l.mask?.feather || 0,
+    l.erase?.strokes?.length || 0, l.clone?.strokes?.length || 0,
+    JSON.stringify(l.src || 0), JSON.stringify(l.adjust || 0), JSON.stringify(l.bgRemove || 0),
+    JSON.stringify(l.retro || 0), JSON.stringify(l.tint || 0), JSON.stringify(l.sticker || 0),
+    JSON.stringify(l.frame || 0),
+  ].join('|')
+}
+
+/**
+ * The layer alone, fitted into a canvas — the picture for a row in the list.
+ *
+ * A row that says IMG tells you the type of a thing you already know the type
+ * of. What it does not say is *which* picture, which is the only question being
+ * asked of a list of eleven of them.
+ *
+ * Drawn through the ordinary renderer on a document of one layer, so the row
+ * shows what the layer actually looks like now: cut out, adjusted, recoloured,
+ * masked. Position, rotation, opacity and blend are dropped — a thumbnail is of
+ * the artwork, not of where it happens to sit or what it is doing to whatever is
+ * beneath it.
+ */
+export function drawLayerThumb(canvas, l, time = 0) {
+  const w = canvas.width
+  const h = canvas.height
+  const ctx = canvas.getContext('2d')
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, w, h)
+  const bw = Math.abs(l.w) || 1
+  const bh = Math.abs(l.h) || 1
+  const k = Math.min(w / bw, h / bh)
+  const dw = bw * k
+  const dh = bh * k
+  const one = {
+    ...l,
+    parentId: null,
+    x: (w - dw) / 2,
+    y: (h - dh) / 2,
+    w: l.w < 0 ? -dw : dw,
+    h: l.h < 0 ? -dh : dh,
+    rotation: 0,
+    opacity: 1,
+    blend: 'source-over',
+    shadow: undefined,
+    trails: undefined,
+    visible: true,
+  }
+  renderDocument(ctx, {
+    width: w, height: h, background: 'transparent', layers: [one], media: [],
+  }, time)
+}
+
+/**
  * Whether the layer actually puts a pixel down at one document point.
  *
  * A bounding box is not a picture. A subject cut out of a photograph occupies a

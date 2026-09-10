@@ -145,6 +145,12 @@ every other layer, drawing a guide at whatever it caught. The tolerance is in sc
 so the pull feels the same at 20% zoom and 400%; hold `Alt` to place something just off a
 guide.
 
+**Every row in the layers panel draws itself** — the picture, the shape, the cut-out on a
+checker ground — rather than a coloured square that says IMG. A text layer is named by what it
+says, and follows it as you retype, until you name it by hand: a name given deliberately is a
+decision, and typing must not undo it. (Video keeps a chip: a frame at that size is not lying
+around, and a seek per row fills the playback cache the picture needs.)
+
 **Clicking picks what you can see** — the topmost layer with a pixel actually drawn under the
 pointer, so a subject cut out of a photograph does not catch clicks over the empty half of its
 own rectangle. A click on a layer in front selects it, with nothing to deselect first.

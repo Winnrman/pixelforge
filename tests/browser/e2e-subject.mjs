@@ -147,43 +147,78 @@ await page.screenshot({ path: path.join(OUT, '01-text-behind.png') })
 // Two copies of one photo, one masked, previously produced two identical rows
 // with identical names — the whole point of text-behind is that they differ.
 const rows = await page.evaluate(() => {
-  const s = window.__pfState()
-  return [...document.querySelectorAll('.layer-list .layer')].map((row) => {
-    const name = row.querySelector('.layer-name')?.textContent
-      || row.textContent.trim().slice(0, 40)
-    const thumb = row.querySelector('.thumb')
-    const badge = row.querySelector('.badge')?.textContent.trim()
-    return { name, thumbClass: thumb ? thumb.className : null, badge }
-  })
+  // Each row's thumbnail is a picture of the layer now, so the two copies are
+  // told apart by what they *draw* rather than by which icon they were handed.
+  // A stronger claim than the one this used to make: the cut-out row has to
+  // actually show the cut-out.
+  const opaque = (cv) => {
+    if (!cv) return null
+    const g = cv.getContext('2d', { willReadFrequently: true })
+    const d = g.getImageData(0, 0, cv.width, cv.height).data
+    let n = 0
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 128) n++
+    return n / (cv.width * cv.height)
+  }
+  return [...document.querySelectorAll('.layer-list .layer')].map((row) => ({
+    name: row.querySelector('.layer-name')?.textContent || row.textContent.trim().slice(0, 40),
+    badge: row.querySelector('.badge')?.textContent.trim(),
+    filled: opaque(row.querySelector('.thumb.pic canvas')),
+  }))
 })
 console.log('layer rows:', JSON.stringify(rows))
-const cutRows = rows.filter((r) => (r.thumbClass || '').includes('cut'))
-// The untouched copy keeps whichever ordinary thumbnail its media warrants —
-// this fixture is a GIF, so that is the GIF one, not the plain image one.
+const cutRows = rows.filter((r) => r.badge === 'CUT')
 const plainRows = rows.filter((r) => r.badge === 'IMG')
-check('the cut-out layer gets its own thumbnail', cutRows.length === 1,
-  `${cutRows.length} cut, ${plainRows.length} plain`)
-check('and the untouched copy keeps the ordinary one', plainRows.length === 1,
-  plainRows.map((r) => r.thumbClass).join(', '))
-check('their thumbnails differ', cutRows[0]?.thumbClass !== plainRows[0]?.thumbClass,
-  `${cutRows[0]?.thumbClass} vs ${plainRows[0]?.thumbClass}`)
-check('the badge says CUT rather than IMG', cutRows[0]?.badge === 'CUT', cutRows[0]?.badge)
-check('and the plain one still says IMG', plainRows[0]?.badge === 'IMG', plainRows[0]?.badge)
+check('the badge says CUT rather than IMG', cutRows.length === 1, JSON.stringify(rows))
+check('and the untouched copy still says IMG', plainRows.length === 1,
+  JSON.stringify(rows.map((r) => r.badge)))
+check('both rows draw their own picture',
+  cutRows[0]?.filled > 0 && plainRows[0]?.filled > 0,
+  `${cutRows[0]?.filled} vs ${plainRows[0]?.filled}`)
+// The whole point of text-behind is that the two copies differ, and here that is
+// visible: one is the photograph, the other is what survived the key.
+check('and the cut-out one is visibly less of a picture than the whole frame',
+  cutRows[0]?.filled < plainRows[0]?.filled * 0.9,
+  `${cutRows[0]?.filled} vs ${plainRows[0]?.filled}`)
 
-// It has to follow the layer's state, not be baked in at creation.
+// It has to follow the layer's state, not be drawn once and kept.
 const follows = await page.evaluate(async () => {
   const s = window.__pfState()
   const cut = s.doc.layers.find((l) => l.type === 'image' && l.bgRemove?.on)
+  const row = () => {
+    const r = [...document.querySelectorAll('.layer-list .layer')]
+      // The bracketed word, not the loose one: the group above is called "Text
+      // behind subject" and would be found first.
+      .find((n) => /\(subject\)/.test(n.querySelector('.layer-name')?.textContent || ''))
+    const cv = r?.querySelector('.thumb.pic canvas')
+    if (!cv) return { badge: null, filled: null }
+    const g = cv.getContext('2d', { willReadFrequently: true })
+    const d = g.getImageData(0, 0, cv.width, cv.height).data
+    let n = 0
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 128) n++
+    return {
+      badge: r.querySelector('.badge')?.textContent.trim(),
+      filled: n / (cv.width * cv.height),
+    }
+  }
+  const on = row()
   s.updateLayer(cut.id, { bgRemove: { ...cut.bgRemove, on: false } })
-  await new Promise((r) => setTimeout(r, 250))
-  const off = document.querySelectorAll('.thumb.cut').length
+  await new Promise((r) => setTimeout(r, 400))
+  const off = row()
   window.__pfState().updateLayer(cut.id, { bgRemove: { ...cut.bgRemove, on: true } })
-  await new Promise((r) => setTimeout(r, 250))
-  return { off, on: document.querySelectorAll('.thumb.cut').length }
+  await new Promise((r) => setTimeout(r, 400))
+  return {
+    on,
+    off,
+    back: row(),
+  }
 })
-console.log('icon follows the matte:', JSON.stringify(follows))
-check('turning the matte off restores the ordinary thumbnail', follows.off === 0)
-check('and turning it back on restores the cut-out one', follows.on === 1)
+console.log('the row follows the matte:', JSON.stringify(follows))
+check('turning the matte off puts the whole picture back in the row',
+  follows.off.badge === 'IMG' && follows.off.filled > follows.on.filled * 2,
+  JSON.stringify(follows))
+check('and turning it back on cuts it out again',
+  follows.back.badge === 'CUT' && follows.back.filled < follows.off.filled * 0.9,
+  JSON.stringify(follows))
 
 // --- trim to the subject --------------------------------------------------------
 // The whole point is that the layer box shrinks to the matte while the subject

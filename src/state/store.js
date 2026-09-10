@@ -481,11 +481,23 @@ export const defaultShadow = () => ({
   y: 10,
 })
 
+/**
+ * What a text layer is called when nobody has named it: the first line of what
+ * it says, short enough to read in a list. Empty text keeps the plain word,
+ * because a row with no name at all is a row you cannot point at.
+ */
+export function textName(text) {
+  const first = String(text ?? '').split(/\r?\n/).find((line) => line.trim()) || ''
+  const clean = first.trim().replace(/\s+/g, ' ')
+  if (!clean) return 'Text'
+  return clean.length > 28 ? `${clean.slice(0, 27)}…` : clean
+}
+
 export function makeTextLayer(partial = {}) {
   return {
     id: nid('l'),
     type: 'text',
-    name: 'Text',
+    name: textName(partial.text ?? 'Your text here'),
     text: 'Your text here',
     x: 0, y: 0, w: 420, h: 80,
     rotation: 0,
@@ -842,6 +854,13 @@ export const useStore = create((set, get) => ({
     const s = get()
     const layer = s.doc.layers.find((x) => x.id === id)
     if (!layer || layer.type !== 'text') return
+    // A list of ten rows all saying "Text" tells you nothing about which is the
+    // masthead and which is the price. The name follows what the layer says,
+    // until somebody names it themselves — a name given by hand is a decision,
+    // and typing into the layer afterwards must not quietly undo it.
+    const named = patch.text !== undefined && !layer.renamed
+      ? { name: textName(patch.text) }
+      : null
     // Runs are character offsets into the very text being changed, so they move
     // with it: typing in the middle of a styled word extends that word rather
     // than leaving the new letters unstyled or pushing every later run out of
@@ -854,7 +873,7 @@ export const useStore = create((set, get) => ({
       : layer.runs
     const next = { ...layer, ...patch, ...(runs ? { runs } : null) }
     const m = measureText(next)
-    const out = { ...patch, h: m.h, ...(runs ? { runs } : null) }
+    const out = { ...patch, h: m.h, ...(runs ? { runs } : null), ...named }
     if (next.autoSize !== false) {
       const anchorRight = next.align === 'right'
       const anchorCentre = next.align === 'center'

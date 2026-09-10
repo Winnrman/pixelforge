@@ -520,6 +520,88 @@ const onEmpty = await clickAt2(250, 200)
 check('and its empty half does not, so what is behind it is reachable',
   onEmpty.join() === cutout.under, onEmpty.join())
 
+// --- the layers panel says which thing is which -------------------------------------------
+// Eleven rows saying IMG name the type of a thing whose type you already know.
+// Which picture it is was the only question being asked of the list.
+const rows = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  st.setTool('move')
+  await new Promise((r) => setTimeout(r, 250))
+  const c = document.createElement('canvas')
+  c.width = 200
+  c.height = 150
+  const g = c.getContext('2d')
+  g.fillStyle = '#e0522f'
+  g.fillRect(0, 0, 200, 150)
+  const blob = await new Promise((r) => c.toBlob(r))
+  await window.__pfState().addImages([new File([blob], 'orange.png', { type: 'image/png' })], { place: true })
+  await new Promise((r) => setTimeout(r, 1100))
+
+  const S = window.__pfStore
+  const s2 = window.__pfState()
+  const t = S.makeTextLayer({ x: 20, y: 20, text: 'placeholder', size: 40 })
+  s2.addLayer(t)
+  s2.setText(t.id, { text: 'THE QUIET MONUMENT' })
+  await new Promise((r) => setTimeout(r, 400))
+  const named = window.__pfState().doc.layers.find((x) => x.id === t.id).name
+
+  // Typing again follows again.
+  window.__pfState().setText(t.id, { text: 'ISSUE 12' })
+  await new Promise((r) => setTimeout(r, 300))
+  const renamedAgain = window.__pfState().doc.layers.find((x) => x.id === t.id).name
+
+  // But a name given by hand is a decision, and typing must not undo it.
+  window.__pfState().updateLayer(t.id, { name: 'Masthead', renamed: true })
+  window.__pfState().setText(t.id, { text: 'SOMETHING ELSE ENTIRELY' })
+  await new Promise((r) => setTimeout(r, 300))
+  const kept = window.__pfState().doc.layers.find((x) => x.id === t.id).name
+
+  const img = window.__pfState().doc.layers.find((x) => x.type === 'image')
+  window.__pfState().updateLayer(img.id, { locked: true })
+  await new Promise((r) => setTimeout(r, 500))
+
+  // What the row actually drew.
+  const canvases = [...document.querySelectorAll('.layers .thumb.pic canvas')]
+  const ink = canvases.map((cv) => {
+    const gg = cv.getContext('2d', { willReadFrequently: true })
+    const d = gg.getImageData(0, 0, cv.width, cv.height).data
+    let lit = 0
+    let r = 0
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] > 128) { lit++; r += d[i] }
+    }
+    return { lit, avgR: lit ? Math.round(r / lit) : 0, total: (cv.width * cv.height) }
+  })
+  const lock = document.querySelector('.layers .lock')
+  return {
+    named,
+    renamedAgain,
+    kept,
+    ink,
+    lockHasSvg: !!lock?.querySelector('svg'),
+    lockText: (lock?.textContent || '').trim(),
+  }
+})
+console.log('layer rows:', JSON.stringify(rows))
+
+check('a text layer is named by what it says', rows.named === 'THE QUIET MONUMENT', rows.named)
+check('and follows it as it is retyped', rows.renamedAgain === 'ISSUE 12', rows.renamedAgain)
+check('until it is named by hand, which is a decision typing must not undo',
+  rows.kept === 'Masthead', rows.kept)
+
+check('a picture row draws a picture', rows.ink.length > 0 && rows.ink[0].lit > 0,
+  JSON.stringify(rows.ink))
+// Most of the square covered, and the colour of the thing it stands for — not a
+// gradient chip that looks the same whatever the picture is.
+check('most of the square is covered by it',
+  rows.ink.some((i) => i.lit > i.total * 0.5), JSON.stringify(rows.ink))
+check('and it is the colour of the picture it stands for',
+  rows.ink.some((i) => i.avgR > 160), JSON.stringify(rows.ink))
+
+check('the lock is drawn rather than typed', rows.lockHasSvg === true)
+check('with no emoji left in it', rows.lockText === '', JSON.stringify(rows.lockText))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

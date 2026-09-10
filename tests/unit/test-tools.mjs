@@ -12,6 +12,7 @@ import { TOOLS, TOOL_KEYS, toolForKey, keyHint, BRUSH_TOOLS } from '../../src/en
 import { brushMetrics, previewFit, fitLabel } from '../../src/engine/brush.js'
 import { posterHeight } from '../../src/engine/filmstrip.js'
 import { paletteFromPixels, colorDistance } from '../../src/engine/palette.js'
+import { textName } from '../../src/state/store.js'
 
 const checks = []
 const check = (name, ok, detail = '') => {
@@ -214,6 +215,32 @@ const near = (a, b, tol = 0.001) => Math.abs(a - b) <= tol
   // as a bigger difference than the same step in blue.
   check('distance is weighted the way the eye is',
     colorDistance([0, 0, 0], [0, 40, 0]) > colorDistance([0, 0, 0], [0, 0, 40]))
+}
+
+// --- what a text layer is called ---------------------------------------------------------
+// A list of ten rows all saying "Text" tells you nothing about which is the
+// masthead and which is the price.
+{
+  const NL = String.fromCharCode(10)
+  check('a text layer is called what it says', textName('AESTHETIC') === 'AESTHETIC')
+  check('the first line of it, for something with several',
+    textName('THE QUIET' + NL + 'MONUMENT') === 'THE QUIET',
+    textName('THE QUIET' + NL + 'MONUMENT'))
+  check('and the first line that has anything on it',
+    textName(NL + NL + '  Issue 12') === 'Issue 12', textName(NL + NL + '  Issue 12'))
+  check('run-together spacing is tidied, since this is a label and not the text',
+    textName('FORM   ·   LIGHT') === 'FORM · LIGHT', textName('FORM   ·   LIGHT'))
+
+  // Short enough to read in a narrow panel, and obviously cut rather than
+  // mysteriously ending.
+  const long = textName('A headline that runs on well past the width of any layers panel')
+  check('a long one is cut to something a row can hold', long.length <= 28, `${long.length}: ${long}`)
+  check('and says it was cut', long.endsWith('…'), long)
+
+  // Nothing to go on is not an empty row: a row with no name is a row you
+  // cannot point at.
+  check('empty text keeps the plain word', textName('') === 'Text' && textName('   ') === 'Text')
+  check('and so does nothing at all', textName(null) === 'Text' && textName(undefined) === 'Text')
 }
 
 console.log(checks.filter(([, o]) => o).length + ' of ' + checks.length + ' passed')
