@@ -404,6 +404,122 @@ check('pressing it moves the view', map.after.panX !== map.before.panX,
 check('and leaves the zoom alone, since it says where you are and not how close',
   map.after.zoom === map.before.zoom, `${map.before.zoom} -> ${map.after.zoom}`)
 
+// --- clicking the thing in front selects the thing in front --------------------------------
+// Two separate layers, one over the other, neither in a group. With the lower
+// one selected, a click on the upper one has to take it — and used to not,
+// because a click inside the current selection kept that selection whatever was
+// on top of it.
+const stacking = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  st.setDoc({ width: 400, height: 400, background: '#101010' })
+  await new Promise((r) => setTimeout(r, 250))
+  // The move tool, explicitly: the overlay preview above leaves that tool armed,
+  // and a click on the canvas would draw a new overlay instead of selecting.
+  st.setTool('move')
+  const S = window.__pfStore
+  const under = S.makeShapeLayer({ shape: 'rect', x: 40, y: 40, w: 300, h: 300, fill: '#3060c0' })
+  const over = S.makeShapeLayer({ shape: 'rect', x: 120, y: 120, w: 140, h: 140, fill: '#e0a020' })
+  const s2 = window.__pfState()
+  s2.addLayer(under)
+  s2.addLayer(over)
+  // Back to a view that fits: the checks above leave it zoomed in, and a click
+  // worked out against a stale view lands somewhere else entirely.
+  s2.setView({ fitRequest: Date.now() })
+  await new Promise((r) => setTimeout(r, 600))
+  const s3 = window.__pfState()
+  return {
+    under: under.id,
+    over: over.id,
+    order: s3.doc.layers.map((x) => `${x.id}@${x.x},${x.y}`),
+  }
+})
+console.log('stack setup:', JSON.stringify(stacking))
+
+const view = await page.evaluate(() => {
+  const s = window.__pfState()
+  const r = document.querySelector('.stage canvas').getBoundingClientRect()
+  return { cx: r.x, cy: r.y, ...s.view }
+})
+const at = (x, y) => [view.cx + view.panX + x * view.zoom, view.cy + view.panY + y * view.zoom]
+
+const clickAt = async (x, y) => {
+  await page.mouse.click(...at(x, y))
+  await page.waitForTimeout(200)
+  return page.evaluate(() => window.__pfState().selectedIds)
+}
+
+// The lower one first, on a part of it nothing covers.
+const pickedUnder = await clickAt(70, 70)
+check('clicking the layer underneath selects it',
+  pickedUnder.join() === stacking.under, pickedUnder.join())
+// Then straight onto the one in front, without deselecting anything.
+const pickedOver = await clickAt(190, 190)
+check('and clicking the one in front then selects that, with no deselect first',
+  pickedOver.join() === stacking.over, pickedOver.join())
+// And back down again.
+const backDown = await clickAt(70, 70)
+check('and back down to the one underneath', backDown.join() === stacking.under, backDown.join())
+
+// Several selected and dragged by one of them must stay several — that is a
+// different rule and it still holds.
+const many = await page.evaluate(async ([a, b]) => {
+  window.__pfState().select([a, b])
+  await new Promise((r) => setTimeout(r, 200))
+  return window.__pfState().selectedIds.length
+}, [stacking.under, stacking.over])
+const stillMany = await clickAt(190, 190)
+check('a click on one of several already selected keeps the whole selection',
+  many === 2 && stillMany.length === 2, `${many} -> ${stillMany.length}`)
+
+// --- and the empty half of a cut-out does not take the click ------------------------------
+// The reason the old rule existed. A subject cut out of a photograph fills a
+// rectangle that is mostly nothing, and a box that catches clicks over that
+// nothing steals every click meant for whatever is behind it.
+const cutout = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  st.setDoc({ width: 400, height: 400, background: '#101010' })
+  await new Promise((r) => setTimeout(r, 250))
+  const S = window.__pfStore
+  st.setTool('move')
+  const under = S.makeShapeLayer({ shape: 'rect', x: 20, y: 20, w: 360, h: 360, fill: '#3060c0' })
+  window.__pfState().addLayer(under)
+  window.__pfState().setView({ fitRequest: Date.now() })
+  await new Promise((r) => setTimeout(r, 500))
+  // A picture whose right half is transparent, laid over the whole thing.
+  const c = document.createElement('canvas')
+  c.width = 200
+  c.height = 200
+  const g = c.getContext('2d')
+  g.fillStyle = '#e0a020'
+  g.fillRect(0, 0, 100, 200)
+  const blob = await new Promise((r) => c.toBlob(r))
+  await window.__pfState().addImages([new File([blob], 'half.png', { type: 'image/png' })], { place: true })
+  await new Promise((r) => setTimeout(r, 1200))
+  const img = window.__pfState().doc.layers.find((l) => l.type === 'image')
+  window.__pfState().updateLayer(img.id, { x: 100, y: 100, w: 200, h: 200 })
+  window.__pfState().setView({ fitRequest: Date.now() })
+  await new Promise((r) => setTimeout(r, 600))
+  return { under: under.id, img: img.id }
+})
+const view2 = await page.evaluate(() => {
+  const s = window.__pfState()
+  const r = document.querySelector('.stage canvas').getBoundingClientRect()
+  return { cx: r.x, cy: r.y, ...s.view }
+})
+const clickAt2 = async (x, y) => {
+  await page.mouse.click(view2.cx + view2.panX + x * view2.zoom, view2.cy + view2.panY + y * view2.zoom)
+  await page.waitForTimeout(200)
+  return page.evaluate(() => window.__pfState().selectedIds)
+}
+const onPainted = await clickAt2(150, 200)
+check('the drawn half of a cut-out takes the click',
+  onPainted.join() === cutout.img, onPainted.join())
+const onEmpty = await clickAt2(250, 200)
+check('and its empty half does not, so what is behind it is reachable',
+  onEmpty.join() === cutout.under, onEmpty.join())
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

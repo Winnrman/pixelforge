@@ -1451,6 +1451,34 @@ function paintPlain(ctx, l, time) {
   else if (l.type === 'text') drawTextLayer(ctx, l)
 }
 
+/**
+ * Whether the layer actually puts a pixel down at one document point.
+ *
+ * A bounding box is not a picture. A subject cut out of a photograph occupies a
+ * rectangle that is mostly nothing, and a box that catches clicks over that
+ * nothing is how a cut-out standing in front of something steals every click
+ * meant for what is behind it.
+ *
+ * Answered by drawing — the layer, shifted so the point in question lands in the
+ * middle of a nine-pixel window, and the alpha there read back. Which means it
+ * is right for every reason a pixel can be missing: the background key, a mask,
+ * an erase stroke, a sticker's border, a frame's crop. Nine pixels, once per
+ * click, and everything expensive underneath it is already cached.
+ */
+export function drawnAt(l, x, y, time = 0) {
+  const c = eraseScratch('hit', 9, 9)
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.filter = 'none'
+  ctx.clearRect(0, 0, 9, 9)
+  // Shifting the layer rather than the context: everything downstream sizes its
+  // own scratch surfaces off this canvas, so the window has to *be* the canvas.
+  paintPlain(ctx, { ...l, x: l.x - x + 4, y: l.y - y + 4, shadow: undefined }, time)
+  return ctx.getImageData(4, 4, 1, 1).data[3]
+}
+
 /** Whether a layer casts anything. Zero blur at zero offset is not a shadow. */
 export const hasShadow = (l) => !!(l?.shadow?.on)
   && ((l.shadow.blur || 0) > 0 || (l.shadow.x || 0) !== 0 || (l.shadow.y || 0) !== 0)

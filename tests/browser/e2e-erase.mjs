@@ -325,8 +325,16 @@ console.log('after a project round trip:', JSON.stringify(roundTrip))
 check('strokes are saved with the project', roundTrip.strokes === 2, `${roundTrip.strokes}`)
 check('including which ones restore', (roundTrip.modes || []).includes('restore'))
 
-// --- the move tool must not steal the selection ------------------------------------------
-// Clicking inside your own selection used to hand you whatever overlapped it.
+// --- the move tool picks what you can see ------------------------------------------------
+// This used to keep whatever was already selected whenever the pointer was
+// inside its box, which stopped a layer in front stealing a drag — and also
+// stopped a layer genuinely in front, and genuinely visible where you clicked,
+// from being selected at all without deselecting first.
+//
+// The cure belongs in the hit test rather than in the selection: the layer in
+// front was stealing clicks over its own *empty* pixels, so the test now asks
+// what was drawn instead of what was bounded. What is on top and opaque wins,
+// which is what every editor does.
 await page.evaluate(() => {
   const st = window.__pfState()
   const { makeShapeLayer } = window.__pfStore
@@ -357,8 +365,8 @@ await page.mouse.click(screenPoint[0], screenPoint[1])
 await page.waitForTimeout(250)
 const sticky = await page.evaluate(() => window.__pfState().selectedIds)
 console.log('click inside the selection:', JSON.stringify({ sticky, ...ids }))
-check('clicking your own selection keeps it, even under a layer that covers it',
-  sticky.length === 1 && sticky[0] === ids.photo,
+check('a solid layer in front takes the click, even with something else selected',
+  sticky.length === 1 && sticky[0] === ids.top,
   `selected ${sticky}, photo ${ids.photo}, top ${ids.top}`)
 
 // Clicking with nothing selected must still pick, or nothing could ever be chosen.
@@ -370,8 +378,31 @@ console.log('click with nothing selected:', JSON.stringify(changes))
 check('with nothing selected it still picks the topmost layer',
   changes[0] === ids.top, `${changes[0]} vs top ${ids.top}`)
 
+// And the half of the rule that was worth keeping: made invisible where you are
+// clicking, the layer in front stops taking the click and what is behind it is
+// reachable again.
+const throughIt = await page.evaluate(async ([topId, photoId]) => {
+  const st = window.__pfState()
+  st.updateLayer(topId, { visible: false })
+  st.select([photoId])
+  await new Promise((r) => setTimeout(r, 250))
+  return { photoId }
+}, [ids.top, ids.photo])
+await page.mouse.click(screenPoint[0], screenPoint[1])
+await page.waitForTimeout(250)
+const beneath = await page.evaluate(() => window.__pfState().selectedIds)
+check('and with nothing drawn in front, the click reaches what is behind',
+  beneath[0] === throughIt.photoId, `${beneath} vs ${throughIt.photoId}`)
+
 // And shift-click must still reach through to change a selection deliberately.
-await page.evaluate((photo) => window.__pfState().select([photo]), ids.photo)
+// The cover goes back on first: the check above hid it to prove a click passes
+// through nothing, and shift-click has to have something to reach.
+await page.evaluate(([photo, topId]) => {
+  const st = window.__pfState()
+  st.updateLayer(topId, { visible: true })
+  st.select([photo])
+}, [ids.photo, ids.top])
+await page.waitForTimeout(250)
 await page.keyboard.down('Shift')
 await page.mouse.click(screenPoint[0], screenPoint[1])
 await page.keyboard.up('Shift')

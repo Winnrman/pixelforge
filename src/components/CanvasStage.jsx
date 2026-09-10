@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, makeEffectLayer, makeShapeLayer, makeTextLayer } from '../state/store.js'
 import { uiFlags } from '../state/uiFlags.js'
-import { renderDocument, primeVideo } from '../engine/render.js'
+import { renderDocument, primeVideo, drawnAt } from '../engine/render.js'
 import { docToLayer } from '../engine/erase.js'
 import {
   bandRect, pointsInRect, nearSelection, dropPoints, movePoints, selectionBounds,
@@ -1197,7 +1197,14 @@ export default function CanvasStage() {
       if (isGroup(raw)) continue
       if (!groups.visible.get(raw.id) || groups.locked.get(raw.id)) continue
       const resolved = resolveLayer(raw, st.time)
-      if (hitTest(resolved, p.x, p.y)) return resolved
+      if (!hitTest(resolved, p.x, p.y)) continue
+      // A picture's box is not its picture. A subject cut out of a photograph
+      // fills a rectangle that is mostly nothing, and a box that takes clicks
+      // over that nothing is a cut-out stealing every click meant for what is
+      // behind it. Shapes and text already answer for their own outline; an
+      // image has to be asked whether it drew anything here.
+      if (resolved.type === 'image' && drawnAt(resolved, p.x, p.y, st.time) < 8) continue
+      return resolved
     }
     return null
   }
@@ -1327,17 +1334,17 @@ export default function CanvasStage() {
     }
 
     if (st.tool === 'move') {
-      // A click inside something already selected keeps that selection. Always
-      // taking the topmost layer meant clicking your own selection could hand
-      // you whatever happened to overlap it, and you would move that instead —
-      // stacking order should be decided in the layers panel, not by accident
-      // mid-drag. Shift-click still reaches through to change the selection.
-      const top = topLayerAt(p)
-      const held = !e.shiftKey && st.selectedIds.length
-        ? st.doc.layers.find((x) => st.selectedIds.includes(x.id) && !x.locked
-          && hitTest(resolveLayer(x, st.time), p.x, p.y))
-        : null
-      const l = held ? resolveLayer(held, st.time) : top
+      // The topmost thing actually drawn under the pointer, which is what every
+      // editor does and what people expect.
+      //
+      // This used to keep whatever was already selected whenever the pointer was
+      // inside its box, to stop a layer in front stealing a drag. That was the
+      // wrong cure: the layer in front was stealing clicks over its own *empty*
+      // pixels, and the fix belongs in the hit test — which now asks what was
+      // drawn rather than what was bounded. Keeping the selection also meant a
+      // layer genuinely in front, and genuinely visible where you clicked, could
+      // not be selected at all without deselecting first.
+      const l = topLayerAt(p)
       if (!l) {
         st.select([])
         // A click on nothing is also a step back out of whatever group you had
@@ -1348,7 +1355,7 @@ export default function CanvasStage() {
       // Clicking a word of a title selects the title. Going deeper is a second
       // gesture, so the group is a thing you can pick up rather than something
       // that exists only in the layers panel.
-      const pick = held ? l.id : (st.pickForClick(l.id) || l.id)
+      const pick = st.pickForClick(l.id) || l.id
       const alreadySelected = st.selectedIds.includes(pick)
       if (e.shiftKey) {
         st.select(alreadySelected

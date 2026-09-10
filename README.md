@@ -145,6 +145,10 @@ every other layer, drawing a guide at whatever it caught. The tolerance is in sc
 so the pull feels the same at 20% zoom and 400%; hold `Alt` to place something just off a
 guide.
 
+**Clicking picks what you can see** — the topmost layer with a pixel actually drawn under the
+pointer, so a subject cut out of a photograph does not catch clicks over the empty half of its
+own rectangle. A click on a layer in front selects it, with nothing to deselect first.
+
 **Groups** (`Ctrl+G`) keep a pile of layers together — hiding, opacity, locking and deleting
 all fold through to the contents. Clicking a member selects the whole group, as in Figma;
 double-click to go a level deeper.
