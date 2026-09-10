@@ -176,10 +176,23 @@ button:disabled { opacity: 0.35; cursor: default; }
 .rail-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 /* The picture's own colours, under every colour control. Small enough to sit
    on one line beside the field rather than becoming a panel of its own. */
-.swatches { display: inline-flex; gap: 3px; margin-left: 6px; align-items: center; }
+/* On a line of their own beneath the field. Wrapped rather than squeezed in
+   beside it: sharing one flex row, the swatches and the hex box both asked for
+   whatever space was left and the hex box lost, which pushed the gradient chip
+   off the end. `order` puts them after that chip so the first line still reads
+   swatch, hex, pipette, gradient. */
+.row-control:has(.swatches) { flex-wrap: wrap; }
+.swatches {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-basis: 100%;
+  order: 9;
+  margin: 1px 0 2px;
+}
 .swatch-dot {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   padding: 0;
   border-radius: 3px;
   border: 1px solid rgba(255,255,255,0.25);

@@ -155,7 +155,7 @@ function GradientRows({
         </Row>
       )}
       <Row
-        label="Shape"
+        label="Gradient"
         info={'Linear runs across the box at the angle below. Radial runs out from the '
           + 'middle, so the angle stops meaning anything and the stops measure from the '
           + 'centre to the corner instead.'}
@@ -193,7 +193,9 @@ function GradientRows({
           >✕</button>
         </Row>
       ))}
-      <Row label="">
+      {/* A blank label rather than none, so the button lines up with the controls
+          above it instead of starting at the panel edge. */}
+      <Row label=" ">
         <button className="mini" title="Put another colour between the two ends"
           onClick={addStop}>Add a colour</button>
       </Row>

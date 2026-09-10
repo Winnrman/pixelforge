@@ -189,28 +189,34 @@ export function Color({ value, onChange, onCommit }) {
   const setTool = useStore((s) => s.setTool)
   const tool = useStore((s) => s.tool)
   return (
-    <span className="color-field">
-      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} onBlur={onCommit} />
-      <input
-        className="hex"
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={onCommit}
-      />
-      <button
-        type="button"
-        className="pipette"
-        title="Pick this colour from the picture"
-        onClick={() => {
-          // The tool in use is remembered and handed back afterwards: asking for
-          // one colour should not leave you holding a different tool.
-          requestPick((hex) => { onChange(hex); onCommit?.() }, tool)
-          setTool('eyedrop')
-        }}
-      >⦿</button>
+    <>
+      <span className="color-field">
+        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} onBlur={onCommit} />
+        <input
+          className="hex"
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onCommit}
+        />
+        <button
+          type="button"
+          className="pipette"
+          title="Pick this colour from the picture"
+          onClick={() => {
+            // The tool in use is remembered and handed back afterwards: asking
+            // for one colour should not leave you holding a different tool.
+            requestPick((hex) => { onChange(hex); onCommit?.() }, tool)
+            setTool('eyedrop')
+          }}
+        >⦿</button>
+      </span>
+      {/* Outside the field rather than in it: inside, the swatches and the hex
+          box were both asking the same flex row for the space left over, and the
+          hex box lost — squeezed to a sliver with the gradient chip pushed off
+          the end. On their own line underneath there is nothing to fight. */}
       <Swatches onPick={(hex) => { onChange(hex); onCommit?.() }} />
-    </span>
+    </>
   )
 }
 
