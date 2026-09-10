@@ -131,6 +131,19 @@ console.log('fixture probe:', JSON.stringify(fixtures))
 check('test fixtures were left out of the package', fixtures.gif === false,
   JSON.stringify(fixtures))
 
+// The README's banner is a megan-and-a-half of picture that belongs on a
+// GitHub page and nowhere else. `files` is an allowlist, so it is out by
+// omission rather than by rule — which is exactly the kind of thing that stops
+// being true the moment somebody adds a broad glob to it. Same probe as the
+// fixtures: PNG has its own signature, and the fallback to index.html does not.
+const banner = await page.evaluate(async () => {
+  const r = await fetch('/banner.png')
+  const head = new Uint8Array((await r.arrayBuffer()).slice(0, 4))
+  return { status: r.status, png: head[0] === 0x89 && String.fromCharCode(...head.slice(1)) === 'PNG' }
+})
+console.log('banner probe:', JSON.stringify(banner))
+check('and so was the README banner', banner.png === false, JSON.stringify(banner))
+
 // --- launching it again while it is already running -----------------------------------
 // The lock stops a second copy and asks the first to come forward. On Windows a
 // background process cannot take focus — the rule that stops adverts stealing

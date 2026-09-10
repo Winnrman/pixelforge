@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { loadImageFile, getAsset } from '../engine/assets.js'
 import { thumbAt } from '../engine/filmstrip.js'
 import { paletteOf } from '../engine/palette.js'
+import { defaultGrid } from '../engine/grid.js'
 import {
   polygonBounds, polygonToLayer, cropInsets, isCropped, fromLocal, layerAABB,
   maskPolys, maskBounds, windSame, hasMask, polygonToDoc,
@@ -192,6 +193,10 @@ export const emptyDoc = () => ({
   // Held on the document rather than beside it so it saves, loads and undoes
   // with the project instead of being a separate thing to keep in sync.
   media: [],
+  // Margins and columns. On the document for the same reason the bin is: a
+  // grid is a decision about this page, so it belongs in the file rather than
+  // in whichever session happened to set it up.
+  grid: defaultGrid(),
 })
 
 /** Crop / zoom / pan defaults. Auto-tracking only keys properties that are
@@ -254,6 +259,9 @@ export function normalizeDoc(doc) {
   return {
     ...doc,
     media: pool.filter((id) => !!getAsset(id)),
+    // A project saved before grids existed opens with one, switched off, rather
+    // than with nothing for the panel to read.
+    grid: { ...defaultGrid(), ...(doc.grid || {}) },
     layers: layers.map((l) =>
       (l.parentId && !groupIds.has(l.parentId) ? { ...l, parentId: null } : l)),
   }

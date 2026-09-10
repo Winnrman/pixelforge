@@ -191,6 +191,114 @@ const freed = await page.evaluate(
 console.log('with nothing else on the canvas:', alone.x, '->', freed)
 check('a layer does not snap to where it already is', freed > alone.x + 20, `${alone.x} -> ${freed}`)
 
+// --- the page's own lines, and landing on them --------------------------------------------
+// A grid is what turns elements placed into elements composed: a margin says
+// where the page stops and columns say where a line of type may begin, so a
+// masthead and a picture agree without either being dragged onto the other.
+const grid = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  st.setDoc({ width: 800, height: 800, background: '#101010', grid: { on: true, margin: 80, columns: 2, gutter: 40, rows: 0 } })
+  st.setTool('move')
+  await new Promise((r) => setTimeout(r, 400))
+  const S = window.__pfStore
+  const l = S.makeShapeLayer({ shape: 'rect', x: 300, y: 300, w: 120, h: 120, fill: '#e0a020' })
+  window.__pfState().addLayer(l)
+  window.__pfState().setView({ fitRequest: Date.now() })
+  await new Promise((r) => setTimeout(r, 700))
+  return { id: l.id, view: { ...window.__pfState().view } }
+})
+
+// Read fresh each time: placing a picture or resizing the document re-fits the
+// view, and a drag worked out against a stale one lands somewhere else.
+const scrNow = async (x, y) => page.evaluate(([dx, dy]) => {
+  const v = window.__pfState().view
+  const r = document.querySelector('.stage canvas').getBoundingClientRect()
+  return [r.x + v.panX + dx * v.zoom, r.y + v.panY + dy * v.zoom]
+}, [x, y])
+
+const drop = async (from, to) => {
+  await page.mouse.move(...(await scrNow(from[0], from[1])))
+  await page.mouse.down()
+  await page.mouse.move(...(await scrNow(to[0], to[1])), { steps: 10 })
+  await page.mouse.up()
+  await page.waitForTimeout(250)
+  return page.evaluate((id) => {
+    const l = window.__pfState().doc.layers.find((x) => x.id === id)
+    return { x: Math.round(l.x * 10) / 10, y: Math.round(l.y * 10) / 10, w: Math.round(l.w), h: Math.round(l.h) }
+  }, grid.id)
+}
+
+// Grab the middle of the box and take it so its left edge lands near x = 80.
+const landed = await drop([360, 360], [143, 360])
+console.log('dropped near the margin:', JSON.stringify(landed))
+check('a layer dropped near a margin lands exactly on it', landed.x === 80, JSON.stringify(landed))
+
+// Turn the grid off and the same drag leaves it where it was put.
+const noGrid = await page.evaluate(async ([id]) => {
+  const st = window.__pfState()
+  st.setDoc({ grid: { ...st.doc.grid, on: false } })
+  st.updateLayer(id, { x: 300, y: 300 })
+  await new Promise((r) => setTimeout(r, 300))
+  return true
+}, [grid.id])
+const loose = await drop([360, 360], [143, 360])
+console.log('with no grid:', JSON.stringify(loose), noGrid)
+check('with the grid off there is nothing there to land on', loose.x !== 80, JSON.stringify(loose))
+
+// --- resizing lands on the same lines ------------------------------------------------------
+const resized = await page.evaluate(async ([id]) => {
+  const st = window.__pfState()
+  st.setDoc({ grid: { ...st.doc.grid, on: true } })
+  // 800 wide, 80 margins, two columns with a 40 gutter: the columns run 80-380
+  // and 420-720. Left edge on the margin, right edge four short of 380.
+  st.updateLayer(id, { x: 80, y: 300, w: 296, h: 120 })
+  st.select([id])
+  await new Promise((r) => setTimeout(r, 350))
+  return { ...window.__pfState().doc.layers.find((x) => x.id === id) }
+}, [grid.id])
+console.log('before resizing:', JSON.stringify({ x: resized.x, w: resized.w }))
+// The east handle sits at the right edge, vertically centred.
+const grown = await drop([376, 360], [378, 360])
+console.log('after dragging the edge:', JSON.stringify(grown))
+check('an edge dragged near a column edge lands on it',
+  grown.x === 80 && grown.w === 300, JSON.stringify(grown))
+check('and the far edge of the box does not move with it', grown.x === 80, String(grown.x))
+
+// --- evenly spaced -------------------------------------------------------------------------
+const spaced = await page.evaluate(async () => {
+  const st = window.__pfState()
+  st.resetDoc()
+  st.setDoc({ width: 900, height: 400, background: '#101010' })
+  st.setTool('move')
+  await new Promise((r) => setTimeout(r, 300))
+  const S = window.__pfStore
+  const a = S.makeShapeLayer({ shape: 'rect', x: 100, y: 150, w: 100, h: 100, fill: '#3060c0' })
+  const b = S.makeShapeLayer({ shape: 'rect', x: 700, y: 150, w: 100, h: 100, fill: '#3060c0' })
+  const m = S.makeShapeLayer({ shape: 'rect', x: 380, y: 150, w: 100, h: 100, fill: '#e0a020' })
+  const s2 = window.__pfState()
+  s2.addLayer(a)
+  s2.addLayer(b)
+  s2.addLayer(m)
+  s2.setView({ fitRequest: Date.now() })
+  await new Promise((r) => setTimeout(r, 700))
+  return { m: m.id, view: { ...window.__pfState().view } }
+})
+// Even sits at x = 400 (gaps of 200 each side). Drag the middle box towards it.
+await page.mouse.move(...(await scrNow(430, 200)))
+await page.mouse.down()
+await page.mouse.move(...(await scrNow(447, 200)), { steps: 10 })
+const midDrag = await page.evaluate(() => (window.__pfSnapGuides ? true : false))
+await page.mouse.up()
+await page.waitForTimeout(250)
+const even = await page.evaluate((id) => {
+  const l = window.__pfState().doc.layers.find((x) => x.id === id)
+  return Math.round(l.x * 10) / 10
+}, spaced.m)
+console.log('evenly spaced:', even, midDrag)
+check('a box nearly evenly spaced between two others is pulled to even',
+  even === 400, String(even))
+
 console.log(errors.length ? 'CONSOLE ERRORS: ' + errors.slice(0, 5).join(' | ') : 'no console errors')
 await browser.close()
 process.exit(checks.some(([, ok]) => !ok) ? 1 : 0)

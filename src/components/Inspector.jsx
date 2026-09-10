@@ -20,6 +20,7 @@ import { defaultSticker, defaultTrails } from '../engine/subject.js'
 import { availableFonts } from '../engine/fonts.js'
 import { seedStop } from '../engine/gradient.js'
 import { styleAt } from '../engine/richtext.js'
+import { defaultGrid } from '../engine/grid.js'
 
 const SHAPES = [
   { value: 'rect', label: 'Rectangle' },
@@ -370,6 +371,11 @@ export default function Inspector() {
 
   const pushed = useRef(false)
   const begin = () => { if (!pushed.current) { push(); pushed.current = true } }
+  const setGrid = (patch) => {
+    begin()
+    setDoc({ grid: { ...defaultGrid(), ...useStore.getState().doc.grid, ...patch } })
+  }
+
   const setShadow = (patch) => {
     begin()
     if (base) update(base.id, { shadow: { ...defaultShadow(), ...base.shadow, ...patch } })
@@ -495,6 +501,49 @@ export default function Inspector() {
                   onCommit={commit}
                 />
               </Row>
+            )}
+          </Section>
+          <Section
+            title="Grid"
+            info={'Margins and columns for the page. Layers snap to every line it draws, '
+              + 'moving or resizing, so a masthead, a standfirst and a picture all agree '
+              + 'without any of them having been dragged onto any of the others. It is '
+              + 'drawn on screen and never exported.'}
+            right={doc.grid?.on && (
+              <button className="mini" onClick={() => { push(); setDoc({ grid: defaultGrid() }) }}>
+                Reset
+              </button>
+            )}
+          >
+            <Row label="Grid">
+              <Toggle
+                value={!!doc.grid?.on}
+                onChange={(on) => {
+                  push()
+                  setDoc({ grid: { ...defaultGrid(), ...doc.grid, on } })
+                }}
+              >{doc.grid?.on ? 'On' : 'Off'}</Toggle>
+            </Row>
+            {doc.grid?.on && (
+              <>
+                <Row label="Margin">
+                  <Slider value={doc.grid.margin ?? 48} min={0} max={240}
+                    onChange={(margin) => setGrid({ margin })} onCommit={commit} suffix="px" />
+                </Row>
+                <Row label="Columns">
+                  <Slider value={doc.grid.columns ?? 3} min={1} max={12}
+                    onChange={(columns) => setGrid({ columns })} onCommit={commit} />
+                </Row>
+                <Row label="Gutter">
+                  <Slider value={doc.grid.gutter ?? 24} min={0} max={120}
+                    onChange={(gutter) => setGrid({ gutter })} onCommit={commit} suffix="px" />
+                </Row>
+                <Row label="Rows" info={'Horizontal divisions, for a page built in bands. Zero '
+                  + 'is none, which is what most covers want.'}>
+                  <Slider value={doc.grid.rows ?? 0} min={0} max={12}
+                    onChange={(rows) => setGrid({ rows })} onCommit={commit} />
+                </Row>
+              </>
             )}
           </Section>
           <p className="hint">

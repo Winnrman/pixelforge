@@ -20,7 +20,8 @@ import {
 import { resolveLayer, hasTracks, trackOf, groupKeyTimes, valueAt } from '../engine/keyframes.js'
 import { gradientAxis, stopAt, gradientBox, gradientOf } from '../engine/gradient.js'
 import { resolveGroups, isGroup, descendantIds, withDescendants } from '../engine/groups.js'
-import { snapRect, unionBox, SNAP_TOLERANCE } from '../engine/snap.js'
+import { snapRect, snapResize, unionBox, SNAP_TOLERANCE } from '../engine/snap.js'
+import { gridLines } from '../engine/grid.js'
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
@@ -154,6 +155,10 @@ export default function CanvasStage() {
   // other side of the window; the rectangle is only ever drawn.
   const bandRef = useRef(null)
   const guidesRef = useRef([])
+  // Equal gaps found while dragging, marked separately from the alignment
+  // guides: they say "these two spaces match", which is a different claim from
+  // "these two edges agree" and looks different on the canvas.
+  const spacingRef = useRef([])
   // Exposed so the snapping test can read the guides mid-drag.
   if (import.meta.env.DEV) window.__pfSnapGuides = () => guidesRef.current
   const cursorRef = useRef(null)
@@ -588,6 +593,10 @@ export default function CanvasStage() {
 
   function drawOverlay(ctx, st, v) {
     const { doc, selectedIds, tool } = st
+    // The page's own lines come first, under every tool: they are part of the
+    // page rather than part of what you are doing to it, and a brush ring or a
+    // crop box drawn beneath them would read as being behind the artwork.
+    drawGrid(ctx, st, v)
     if (tool === 'erase' || tool === 'mask') {
       drawBrush(ctx, st, v)
       return
@@ -636,6 +645,7 @@ export default function CanvasStage() {
     }
 
     drawGuides(ctx, v)
+    drawSpacing(ctx, v)
     drawLasso(ctx, st, v)
 
     if (!sel.length) return
@@ -858,6 +868,85 @@ export default function CanvasStage() {
     return out
   }
 
+/**
+   * The page's own lines: margins, and the columns between them.
+   *
+   * Drawn under everything the tools put on screen and over the artwork, faint
+   * enough to be ignored while you are looking at the picture and there the
+   * moment you are looking for an edge. The columns are washed rather than
+   * outlined, because what you set a line of type inside is the *band*, and a
+   * pair of hairlines is a worse description of a band than a band is.
+   */
+  function drawGrid(ctx, st, v) {
+    const g = gridLines(st.doc, st.doc.grid)
+    if (!g.x.length && !g.y.length) return
+    ctx.save()
+    for (const c of g.columns) {
+      ctx.fillStyle = 'rgba(78,161,255,0.05)'
+      ctx.fillRect(v.panX + c.x * v.zoom, v.panY, c.w * v.zoom, st.doc.height * v.zoom)
+    }
+    ctx.lineWidth = 1
+    ctx.strokeStyle = 'rgba(78,161,255,0.34)'
+    ctx.beginPath()
+    for (const x of g.x) {
+      const sx = Math.round(v.panX + x * v.zoom) + 0.5
+      ctx.moveTo(sx, v.panY)
+      ctx.lineTo(sx, v.panY + st.doc.height * v.zoom)
+    }
+    for (const y of g.y) {
+      const sy = Math.round(v.panY + y * v.zoom) + 0.5
+      ctx.moveTo(v.panX, sy)
+      ctx.lineTo(v.panX + st.doc.width * v.zoom, sy)
+    }
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  /**
+   * Two gaps that match, marked as gaps rather than as lines.
+   *
+   * "These edges agree" and "these spaces are equal" are different claims, and
+   * a guide that looked the same for both would be telling you the wrong thing
+   * half the time. So this draws the two stretches themselves, capped at each
+   * end, which is a picture of the thing being asserted.
+   */
+  function drawSpacing(ctx, v) {
+    const marks = spacingRef.current
+    if (!marks?.length) return
+    ctx.save()
+    ctx.strokeStyle = '#ff9f0a'
+    ctx.lineWidth = 1
+    for (const m of marks) {
+      for (const span of m.spans) {
+        if (!(span.to - span.from > 0.5)) continue
+        ctx.beginPath()
+        if (m.axis === 'x') {
+          const y = Math.round(v.panY + m.at * v.zoom) + 0.5
+          const a = v.panX + span.from * v.zoom
+          const b = v.panX + span.to * v.zoom
+          ctx.moveTo(a, y)
+          ctx.lineTo(b, y)
+          ctx.moveTo(a + 0.5, y - 4)
+          ctx.lineTo(a + 0.5, y + 4)
+          ctx.moveTo(b - 0.5, y - 4)
+          ctx.lineTo(b - 0.5, y + 4)
+        } else {
+          const x = Math.round(v.panX + m.at * v.zoom) + 0.5
+          const a = v.panY + span.from * v.zoom
+          const b = v.panY + span.to * v.zoom
+          ctx.moveTo(x, a)
+          ctx.lineTo(x, b)
+          ctx.moveTo(x - 4, a + 0.5)
+          ctx.lineTo(x + 4, a + 0.5)
+          ctx.moveTo(x - 4, b - 0.5)
+          ctx.lineTo(x + 4, b - 0.5)
+        }
+        ctx.stroke()
+      }
+    }
+    ctx.restore()
+  }
+
   function drawGuides(ctx, v) {
     const guides = guidesRef.current
     if (!guides.length) return
@@ -866,8 +955,12 @@ export default function CanvasStage() {
     for (const g of guides) {
       // Three kinds, three looks: the canvas centre, a canvas edge, and another
       // layer. Which one you have landed on is the whole information.
+      // Four kinds, four looks: another layer, the canvas centre, a canvas edge,
+      // and a line the page itself declares. Which one you have landed on is
+      // the whole information.
       ctx.strokeStyle = g.kind === 'layer' ? '#ff2d78'
-        : g.kind === 'center' ? '#ff2d78' : '#4ea1ff'
+        : g.kind === 'center' ? '#ff2d78'
+          : g.kind === 'grid' ? '#7dd3fc' : '#4ea1ff'
       ctx.setLineDash(g.kind === 'edge' ? [5, 4] : [])
       ctx.beginPath()
       if (g.axis === 'x') {
@@ -1592,12 +1685,15 @@ export default function CanvasStage() {
       if (!e.altKey && d.box) {
         const moved = { x: d.box.x + dx, y: d.box.y + dy, w: d.box.w, h: d.box.h }
         const tol = SNAP_TOLERANCE / Math.max(0.0001, st.view.zoom)
-        const snapped = snapRect(moved, st.doc, tol, otherBoxes(st, d.origins))
+        const snapped = snapRect(moved, st.doc, tol, otherBoxes(st, d.origins),
+          gridLines(st.doc, st.doc.grid))
         if (!e.shiftKey || dx !== 0) dx += snapped.dx
         if (!e.shiftKey || dy !== 0) dy += snapped.dy
         guidesRef.current = snapped.guides
+        spacingRef.current = snapped.spacing || []
       } else {
         guidesRef.current = []
+        spacingRef.current = []
       }
 
       for (const o of d.origins) {
@@ -1609,6 +1705,25 @@ export default function CanvasStage() {
     if (d.mode === 'resize') {
       const local = toLocal(d.l0, p.x, p.y)
       const box = resizeBox(d.l0, d.key, local, { shift: e.shiftKey, alt: e.altKey })
+      // The edge being dragged lands on the same lines a move would, so a box
+      // can be pulled out to exactly the width of the one above it or to a
+      // column. Only for an upright box: on a turned one the handle is not
+      // moving an edge that any of these lines are parallel to, and snapping it
+      // would jump the box sideways for reasons nothing on screen explains.
+      // Shift is already constraining the shape, and Alt is the usual way out.
+      if (!e.altKey && !e.shiftKey && !d.l0.rotation) {
+        const tol = SNAP_TOLERANCE / Math.max(0.0001, st.view.zoom)
+        // `[{ id }]`, not `[id]`: this takes drag origins and reads `.id` off
+        // them. Handed a bare string it excludes nothing, and the box being
+        // resized finds its own edge among the targets and snaps back onto it
+        // — a handle that will not move.
+        const fit = snapResize(box, d.key, st.doc, tol, otherBoxes(st, [{ id: d.l0.id }]),
+          gridLines(st.doc, st.doc.grid))
+        guidesRef.current = fit.guides
+        st.setLayerAtTime(d.l0.id, fit.rect, { relative: true })
+        return
+      }
+      guidesRef.current = []
       st.setLayerAtTime(d.l0.id, box, { relative: true })
       return
     }
@@ -1743,6 +1858,7 @@ export default function CanvasStage() {
     drag.current = null
     rectRef.current = null
     guidesRef.current = []
+    spacingRef.current = []
     if (!d) return
     try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* already released */ }
 

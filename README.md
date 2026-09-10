@@ -144,7 +144,18 @@ most of what makes type look chosen for a photograph rather than dropped on it.
 **Snapping** compares a dragged layer's edges and centres against the canvas *and* against
 every other layer, drawing a guide at whatever it caught. The tolerance is in screen pixels,
 so the pull feels the same at 20% zoom and 400%; hold `Alt` to place something just off a
-guide.
+guide. Resizing lands on the same lines — only the edges the handle names may move, so a box
+can be pulled out to exactly the width of the one above it.
+
+**A grid** of margins and columns, set on the document and drawn on screen but never
+exported. Everything snaps to the lines it declares, which is what turns elements placed into
+elements composed: a masthead, a standfirst and a picture all agree without any of them having
+been dragged onto any of the others.
+
+**Equal spacing.** Drag a layer between two others and it is pulled to the point where the two
+gaps match, with both stretches marked. Three things in a row with two different gaps read as
+a mistake however well their edges line up — but a real alignment always wins the axis, since
+that is the stronger claim.
 
 **Every row in the layers panel draws itself** — the picture, the shape, the cut-out on a
 checker ground — rather than a coloured square that says IMG. A text layer is named by what it
@@ -456,6 +467,7 @@ src/engine/     render.js      compositor, frame lookup, export frame timing
                 edges.js       colour-gradient edge maps
                 lassoedit.js   editing a run of outline points
                 palette.js     the colours a picture is made of
+                grid.js        margins and columns
                 tools.js       the rail's tools and both of their keys
                 brush.js       brush size, softness, and the life-size preview
                 erase.js       eraser and region strokes
