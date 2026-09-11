@@ -364,7 +364,7 @@ PNG and moving on does not strand you without the layers that made it.
 
 ## Import and export
 
-Images, GIFs and MP4s. GIFs are decoded in-house — a dependency-free GIF87a/89a decoder with
+Images, GIFs, MP4s and WebMs (VP8, VP9 or AV1, with their sound). GIFs are decoded in-house — a dependency-free GIF87a/89a decoder with
 LZW, interlacing, transparency and all four disposal methods — so scrubbing and export are
 frame-accurate in every browser. MP4 timing is demuxed up front and pixels are decoded on
 demand through WebCodecs into a bounded cache, so a long clip does not have to fit in memory.
@@ -460,6 +460,7 @@ Every tool answers to two keys: the letter, and its position in the rail. `1` is
 src/engine/     render.js      compositor, frame lookup, export frame timing
                 gif.js         GIF decoder
                 video.js       MP4 demux, on-demand WebCodecs decode
+                webm.js        WebM (Matroska) demux, recorded files included
                 audio.js       playback graph, volume curves
                 waveform.js    peak/RMS summaries
                 assets.js      decoded-bitmap registry, kept out of undo history
@@ -518,8 +519,8 @@ pixel-identically at every sampled time.
 
 They live under `tests/`: `tests/browser/` for everything that drives Chrome, `tests/unit/`
 for the DOM-free suites that run under plain node in milliseconds, and `tests/` itself for the
-shared helper and the benchmarks. Fifty browser suites, two Electron suites, eighteen
-unit suites — **2131 checks**, in about two minutes.
+shared helper and the benchmarks. Fifty-one browser suites, two Electron suites, nineteen
+unit suites — **2166 checks**, in about two minutes.
 
 ```bash
 npm run dev           # in one terminal

@@ -142,7 +142,7 @@ export default function MediaPool() {
         type="file"
         multiple
         hidden
-        accept="image/*,video/mp4,video/quicktime,.mp4,.m4v,.mov"
+        accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.m4v,.mov,.webm,.mkv"
         onChange={(e) => { addImages(e.target.files, { place: false }); e.target.value = '' }}
       />
 

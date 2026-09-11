@@ -58,8 +58,12 @@ export async function loadImageFile(file) {
     // Video keeps only frame timing up front; pixels are decoded on demand.
     const v = await loadVideo(buf, file.name, file.type)
     v.id = id
-    v.blob = new Blob([buf], { type: file.type || 'video/mp4' })
-    v.type = file.type || 'video/mp4'
+    // A file with no type says what it is in its first bytes; a WebM kept as
+    // video/mp4 would be saved and reopened as something it is not.
+    const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength))
+    const vtype = file.type || (head[0] === 0x1a && head[1] === 0x45 ? 'video/webm' : 'video/mp4')
+    v.blob = new Blob([buf], { type: vtype })
+    v.type = vtype
     registry.set(id, v)
     // Start decoding from the first frame right away, so the clip shows a
     // picture as soon as it lands rather than a blank until something asks.

@@ -1,4 +1,4 @@
-// MP4 import.
+// Video import: MP4, and WebM through webm.js.
 //
 // The rest of the app assumes `renderDocument(ctx, doc, t)` is synchronous and
 // that every frame is available. That holds for GIFs, where decoding everything
@@ -13,12 +13,13 @@
 // awaits the exact frame, so it stays frame-accurate.
 
 import { createFile, DataStream, Endianness } from 'mp4box'
+import { demuxWebm, isWebm } from './webm.js'
 
 /** Roughly how many pixels of decoded frames to keep. ~380MB at 4 bytes each. */
 const CACHE_PIXEL_BUDGET = 96_000_000
 
 export const isVideoFile = (file) =>
-  /^video\//.test(file.type || '') || /\.(mp4|m4v|mov)$/i.test(file.name || '')
+  /^video\//.test(file.type || '') || /\.(mp4|m4v|mov|webm|mkv)$/i.test(file.name || '')
 
 export const webCodecsAvailable = () =>
   typeof VideoDecoder !== 'undefined' && typeof EncodedVideoChunk !== 'undefined'
@@ -127,7 +128,10 @@ export async function loadVideo(buffer, name, type) {
   if (!webCodecsAvailable()) {
     throw new Error('This browser cannot decode video (WebCodecs is unavailable)')
   }
-  const meta = await demux(buffer)
+  // Told apart by their first bytes rather than their names: a file saved as
+  // .mp4 that is really a WebM is common enough, and the bytes do not lie.
+  const head = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength))
+  const meta = isWebm(head) ? demuxWebm(new Uint8Array(buffer)) : await demux(buffer)
   // Everything outside this module thinks in presentation order.
   const shown = meta.order.map((i) => meta.samples[i])
   // B-frame reordering pushes the first composition time forward — for a clip
@@ -173,7 +177,7 @@ export async function loadVideo(buffer, name, type) {
   // opened rather than as a blank canvas the first time it is played.
   const support = await VideoDecoder.isConfigSupported(config).catch(() => null)
   if (!support?.supported) {
-    throw new Error(`This browser cannot decode ${meta.codec}. Try an H.264 (avc1) MP4.`)
+    throw new Error(`This browser cannot decode ${meta.codec}. Try an H.264 MP4, or a VP8 or VP9 WebM.`)
   }
 
   return {

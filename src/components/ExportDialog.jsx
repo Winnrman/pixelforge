@@ -304,7 +304,7 @@ export default function ExportDialog({ onClose }) {
               <input
                 ref={batchInput}
                 type="file"
-                accept="image/*,video/mp4"
+                accept="image/*,video/mp4,video/webm,.webm"
                 multiple
                 style={{ display: 'none' }}
                 onChange={(e) => {

@@ -96,7 +96,7 @@ export default function TopBar({ onExport, onOpen }) {
           ref={mediaRef}
           className="pf-media-input"
           type="file"
-          accept="image/*,video/mp4,video/quicktime,.mp4,.m4v,.mov"
+          accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.m4v,.mov,.webm,.mkv"
           multiple
           hidden
           onChange={(e) => { addImages(e.target.files); e.target.value = '' }}

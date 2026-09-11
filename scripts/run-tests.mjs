@@ -56,7 +56,8 @@ const OWNERS = [
   ['src/engine/dpi.js', ['e2e-print', 'test-dpi']],
   ['src/engine/waveform.js', ['e2e-audio', 'e2e-tracks']],
   ['src/engine/audio.js', ['e2e-audio', 'e2e-transitions', 'e2e-audiotrack']],
-  ['src/engine/video.js', ['e2e-video', 'e2e-videoperf', 'e2e-transitions', 'e2e-clips']],
+  ['src/engine/video.js', ['e2e-video', 'e2e-videoperf', 'e2e-transitions', 'e2e-clips', 'e2e-webm']],
+  ['src/engine/webm.js', ['test-webm', 'e2e-webm']],
   ['src/engine/effects.js', ['e2e-tools2', 'e2e', 'e2e-batch']],
   ['src/engine/subject.js', ['e2e-subject', 'e2e-sticker', 'e2e-matte', 'e2e-ai', 'e2e-maskedit']],
   ['src/engine/matte.js', ['e2e-matte', 'e2e-ai', 'e2e-subject']],
@@ -97,7 +98,7 @@ const UNITS = [
   'test-retro', 'test-loop', 'test-cursor', 'test-collage', 'test-trace',
   'test-dpi', 'test-clips', 'test-transitions', 'test-gradient', 'test-mask',
   'test-prose', 'test-groups', 'test-richtext', 'test-snap', 'test-lassoedit',
-  'test-tools', 'test-heal', 'test-watermark',
+  'test-tools', 'test-heal', 'test-watermark', 'test-webm',
 ]
 
 const BROWSER = [
@@ -109,7 +110,7 @@ const BROWSER = [
   'e2e-tracks', 'e2e-mount', 'e2e-cropimage', 'e2e-magnet', 'e2e-eyedrop',
   'e2e-wand', 'e2e-clone', 'e2e-tools2', 'e2e-clipboard', 'e2e-transitions',
   'e2e-audiotrack', 'e2e-join', 'e2e-transport', 'e2e-editing', 'e2e-gradient',
-  'e2e-maskedit', 'e2e-tint', 'e2e-heal', 'e2e-healai', 'e2e-watermark', 'test-edges', 'test-cli',
+  'e2e-maskedit', 'e2e-tint', 'e2e-heal', 'e2e-healai', 'e2e-watermark', 'e2e-webm', 'test-edges', 'test-cli',
 ]
 
 // Where a suite lives, from what it is: the two lists above are the same split
