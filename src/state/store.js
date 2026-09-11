@@ -2988,7 +2988,9 @@ export const useStore = create((set, get) => ({
       if (!res.ok) {
         const text = res.reason === 'periodic'
           ? 'That repeat is part of the picture — a pattern in it, not a mark laid over it — so it was left alone.'
-          : 'No repeated watermark found. For a single mark, paint over it with the magic eraser.'
+          : res.reason === 'unsure'
+            ? 'Something repeats, but the mark could not be pinned down well enough to take off cleanly — so nothing was changed. Paint over it with the magic eraser instead.'
+            : 'No repeated watermark found. For a single mark, paint over it with the magic eraser.'
         set({ notice: { kind: 'warn', text } })
         return { ok: false, reason: res.reason }
       }

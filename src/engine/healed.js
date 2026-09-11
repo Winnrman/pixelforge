@@ -193,7 +193,7 @@ export function dewaterFrame(raw, l) {
   const d = l.dewater
   const sig = [
     frameId(raw), d.alpha.length, d.alpha.slice(0, 24), d.alpha.slice(-24),
-    d.v1, d.v2, d.color, d.sx, d.sy, d.tx0, d.ty0,
+    d.box, d.offsets?.length, d.offsets?.slice(0, 4), d.v1, d.v2, d.color, d.sx, d.sy,
   ].join('|')
   const hit = unmarked.get(l.id)
   if (hit && hit.sig === sig) return hit.canvas
@@ -205,7 +205,7 @@ export function dewaterFrame(raw, l) {
   const g = c.getContext('2d', { willReadFrequently: true })
   g.drawImage(raw, 0, 0)
   const img = g.getImageData(0, 0, w, h)
-  deblend(img.data, w, h, fromStored(d))
+  deblend(img.data, w, h, fromStored(d, w, h))
   g.putImageData(img, 0, 0)
   origins.set(c, raw)
   unmarked.set(l.id, { sig, canvas: c })

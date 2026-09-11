@@ -16,8 +16,14 @@ const browser = await chromium.launch({
 })
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const errors = []
-page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.text())) errors.push(m.text()) })
+// The magic eraser is used over the cleaned picture near the end, and it asks
+// for its model. That is the heal suites' business, not this one's: the
+// download is refused here, and the runtime's own warnings and the refused
+// request are not this app going wrong.
+const NOISE = /favicon|onnxruntime|VerifyEachNodeIsAssignedToAnEp|huggingface|ERR_FAILED|Failed to load resource/i
+page.on('console', (m) => { if (m.type() === 'error' && !NOISE.test(m.text())) errors.push(m.text()) })
 page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message))
+await page.route(/huggingface\.co|hf\.co|\.onnx/, (route) => route.abort())
 
 const checks = []
 const check = (name, ok, detail = '') => {

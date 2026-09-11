@@ -267,6 +267,131 @@ if (found.ok) {
   }
 }
 
+// --- copies that are not on a grid, over a busy photograph ---------------------------------
+// Proof marks are often laid by hand or jittered: the gaps between copies
+// disagree, and no grid fits. Over a textured photograph — ridges, cloud —
+// the texture also swamps the repetition. Both at once is what a real proof
+// looks like.
+{
+  const w = 480
+  const h = 560
+  const busy = photo(w, h, 21)
+  const r = rng(33)
+  // Texture at three scales, the way terrain and cloud have it.
+  const noise = (s) => {
+    const cw = Math.ceil(w / s) + 2
+    const ch = Math.ceil(h / s) + 2
+    const g = Float32Array.from({ length: cw * ch }, () => r() - 0.5)
+    return (x, y) => {
+      const gx = x / s
+      const gy = y / s
+      const x0 = Math.floor(gx)
+      const y0 = Math.floor(gy)
+      const fx = gx - x0
+      const fy = gy - y0
+      const at = (i, j) => g[(y0 + j) * cw + x0 + i]
+      return (at(0, 0) * (1 - fx) + at(1, 0) * fx) * (1 - fy) + (at(0, 1) * (1 - fx) + at(1, 1) * fx) * fy
+    }
+  }
+  const n1 = noise(2)
+  const n2 = noise(6)
+  const n3 = noise(18)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const t = 70 * n1(x, y) + 90 * n2(x, y) + 110 * n3(x, y)
+      const p = (y * w + x) * 4
+      for (let c = 0; c < 3; c++) busy[p + c] += t
+    }
+  }
+  const cleanBusy = busy.slice()
+  // Copies where a person put them: roughly a slanted grid, never exactly.
+  const spots = [[190, 40], [360, 95], [75, 150], [250, 185], [150, 290], [330, 300], [40, 380],
+    [270, 410], [165, 470], [400, 500], [60, 540], [230, 600], [445, 210]]
+  const { tile, size, R } = markTile(-30)
+  const truthB = new Float32Array(w * h)
+  let inside = 0
+  for (const [cx, cy] of spots) {
+    if (cx >= 0 && cx < w && cy >= 0 && cy < h) inside++
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const a = tile[y * size + x]
+        if (!a) continue
+        const X = cx - R + x
+        const Y = cy - R + y
+        if (X < 0 || Y < 0 || X >= w || Y >= h) continue
+        truthB[Y * w + X] = a * 0.6
+      }
+    }
+  }
+  for (let i = 0; i < w * h; i++) {
+    const a = truthB[i]
+    if (a) for (let c = 0; c < 3; c++) busy[i * 4 + c] = busy[i * 4 + c] * (1 - a) + 255 * a
+  }
+  const fb = await detectWatermark(busy, w, h)
+  console.log('scattered:', JSON.stringify({ ...fb, alpha: undefined, shade: fb.shade ? 'yes' : 'no', offsets: fb.offsets?.length }))
+  check('copies scattered off any grid, over a busy photograph, are found', fb.ok === true, `${fb.reason || fb.mode}`)
+  if (fb.ok) {
+    check('as copies, one by one', fb.mode === 'copies', fb.mode)
+    check('every one of them', Math.abs(fb.count - inside) <= 1, `${fb.count} found, ${inside} placed`)
+    check('turned the way they were turned', Math.abs(fb.angle + 30) < 5, `${fb.angle}°`)
+    const out = busy.slice()
+    deblend(out, w, h, fb)
+    const on = (i) => truthB[i] > 0.05
+    const b = errorOver(busy, cleanBusy, on, w, h)
+    const a = errorOver(out, cleanBusy, on, w, h)
+    const off = errorOver(out, cleanBusy, (i) => truthB[i] === 0, w, h)
+    console.log(`  scattered: under the mark ${b.mean.toFixed(2)} -> ${a.mean.toFixed(2)}; visible ${b.visible} -> ${a.visible}; around ${off.mean.toFixed(3)}`)
+    check('and taken off every copy', a.mean < b.mean * 0.3 && a.visible < b.visible * 0.1,
+      `${b.mean.toFixed(2)} -> ${a.mean.toFixed(2)}, visible ${b.visible} -> ${a.visible}`)
+    check('without touching the rest of the picture', off.mean < 1, off.mean.toFixed(3))
+  }
+}
+
+// --- a mark in two colours ----------------------------------------------------------------
+// White letters with a dark shadow a couple of pixels down and right, so they
+// show on white sky as well as dark ground. Read as one colour, the shadow is
+// left behind: a dark ghost of every letter.
+{
+  const w = 600
+  const h = 400
+  const base = photo(w, h, 44)
+  const cleanS = base.slice()
+  const grid = { v1: [110, 0], v2: [55, 70], o: [37, 29], deg: -25 }
+  const shadowAt = { ...grid, o: [grid.o[0] + 2, grid.o[1] + 2], opacity: 0.45, colour: 0 }
+  const { truth: shadowTruth } = stamp(base, w, h, shadowAt)
+  const { truth: letterTruth } = stamp(base, w, h, { ...grid, opacity: 0.55 })
+  const fs2 = await detectWatermark(base, w, h)
+  console.log('two colours:', JSON.stringify({ ...fs2, alpha: undefined, shade: fs2.shade ? 'yes' : 'no', offsets: fs2.offsets?.length }))
+  check('a mark with a shadow is found', fs2.ok === true, fs2.reason || '')
+  if (fs2.ok) {
+    check('in both its colours', !!fs2.shade && fs2.color[0] > 200 && fs2.shadeColor[0] < 60,
+      `${JSON.stringify(fs2.color)} / ${JSON.stringify(fs2.shadeColor)}`)
+    const out = base.slice()
+    deblend(out, w, h, fs2)
+    const on = (i) => shadowTruth[i] > 0.05 || letterTruth[i] > 0.05
+    const b = errorOver(base, cleanS, on, w, h)
+    const a = errorOver(out, cleanS, on, w, h)
+    console.log(`  two colours: under the mark ${b.mean.toFixed(2)} -> ${a.mean.toFixed(2)}; visible ${b.visible} -> ${a.visible}`)
+    check('and both come off, the shadow with the letters', a.mean < b.mean * 0.2 && a.visible < b.visible * 0.05,
+      `${b.mean.toFixed(2)} -> ${a.mean.toFixed(2)}, visible ${b.visible} -> ${a.visible}`)
+    const kept = fromStored(toStored(fs2))
+    check('and the shade is kept with the mark', !!kept.shade && kept.shade.length === fs2.shade.length)
+  }
+}
+
+// --- nothing it cannot account for is changed ------------------------------------------
+{
+  // A mark read wrong must not paint pixels black: a pixel darker than the
+  // mark could have left anything is outside what the mark explains.
+  const w = 20
+  const h = 20
+  const px = new Uint8ClampedArray(w * h * 4).fill(10)
+  for (let i = 3; i < px.length; i += 4) px[i] = 255
+  const model = { box: [0, 0, w, h], offsets: [[0, 0]], alpha: new Float32Array(w * h).fill(0.5), color: [255, 255, 255] }
+  deblend(px, w, h, model)
+  check('a pixel the mark cannot explain is left alone, not pushed to black', px[0] === 10, String(px[0]))
+}
+
 // --- and where there is nothing to find -------------------------------------------------
 {
   const plain = await detectWatermark(clean, W, H)

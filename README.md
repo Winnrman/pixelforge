@@ -519,7 +519,7 @@ pixel-identically at every sampled time.
 They live under `tests/`: `tests/browser/` for everything that drives Chrome, `tests/unit/`
 for the DOM-free suites that run under plain node in milliseconds, and `tests/` itself for the
 shared helper and the benchmarks. Fifty browser suites, two Electron suites, eighteen
-unit suites — **2120 checks**, in about two minutes.
+unit suites — **2131 checks**, in about two minutes.
 
 ```bash
 npm run dev           # in one terminal
