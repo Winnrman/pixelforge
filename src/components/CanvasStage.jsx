@@ -43,6 +43,11 @@ const LOUPE_N = 9
 // happened to be selected.
 const DRAWS_ON_DRAG = new Set(['effect', 'shape', 'lasso', 'text', 'erase', 'mask', 'heal'])
 const usesHandles = (tool) => !DRAWS_ON_DRAG.has(tool)
+// The brushes whose ring *is* the cursor. One set, read everywhere the ring is
+// involved — hiding the pointer, tracking it, drawing the ring, forgetting it on
+// the way out — because a tool in one of those lists and not another hides the
+// pointer and draws nothing in its place, and there is no cursor at all.
+const RING_TOOLS = new Set(['erase', 'mask', 'heal'])
 const HANDLE_SIZE = 9
 /** The radius of a gradient stop knob, on screen. */
 const GRAD_KNOB = 6
@@ -628,7 +633,7 @@ export default function CanvasStage() {
     // page rather than part of what you are doing to it, and a brush ring or a
     // crop box drawn beneath them would read as being behind the artwork.
     drawGrid(ctx, st, v)
-    if (tool === 'erase' || tool === 'mask' || tool === 'heal') {
+    if (RING_TOOLS.has(tool)) {
       if (tool === 'heal') drawHealStroke(ctx, st, v)
       drawBrush(ctx, st, v)
       return
@@ -1631,8 +1636,9 @@ export default function CanvasStage() {
     const p = toDoc(e)
 
     const activeTool = useStore.getState().tool
-    if (activeTool === 'lasso' || activeTool === 'erase' || activeTool === 'eyedrop'
-      || activeTool === 'mask') cursorRef.current = [p.x, p.y]
+    if (activeTool === 'lasso' || activeTool === 'eyedrop' || RING_TOOLS.has(activeTool)) {
+      cursorRef.current = [p.x, p.y]
+    }
 
     if (d?.mode === 'maskpaint') {
       useStore.getState().extendMaskPaint(d.id, [p.x, p.y])
@@ -1667,7 +1673,7 @@ export default function CanvasStage() {
         // sized to what the stroke will cover. A crosshair sitting inside it
         // adds nothing and clutters the one thing you are trying to aim. The
         // clone stamp keeps its crosshair, having no ring of its own.
-        else if (st.tool === 'erase' || st.tool === 'mask' || st.tool === 'heal') cursor = 'none'
+        else if (RING_TOOLS.has(st.tool)) cursor = 'none'
         else if (st.tool === 'clone') cursor = 'crosshair'
         else cursor = 'crosshair'
       }
@@ -2075,7 +2081,7 @@ export default function CanvasStage() {
         onPointerCancel={onPointerUp}
         onPointerLeave={() => {
           const t = useStore.getState().tool
-          if (t === 'erase' || t === 'eyedrop' || t === 'mask') cursorRef.current = null
+          if (t === 'eyedrop' || RING_TOOLS.has(t)) cursorRef.current = null
         }}
         onDoubleClick={onDoubleClick}
         onContextMenu={(e) => {

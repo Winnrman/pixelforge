@@ -192,6 +192,35 @@ const scr = (x, y) => [view.x + view.panX + x * view.zoom, view.y + view.panY + 
 await page.mouse.move(...scr(100, 186))
 const cursor = await page.evaluate(() => document.querySelector('.stage canvas').style.cursor)
 check('the ring is the cursor, with no crosshair in it', cursor === 'none', cursor)
+
+// Hiding the pointer is only half of that promise: the ring has to be drawn in
+// its place, or there is no cursor at all. Read off the stage itself — the
+// circle the ring should sit on, with the pointer there and then away.
+const ringPixels = (sx, sy, r) => page.evaluate(async ([x, y, rr]) => {
+  await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)))
+  const c = document.querySelector('.stage canvas')
+  const rect = c.getBoundingClientRect()
+  const k = c.width / rect.width
+  const g = c.getContext('2d', { willReadFrequently: true })
+  const out = []
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2
+    const px = Math.round((x - rect.x + rr * Math.cos(a)) * k)
+    const py = Math.round((y - rect.y + rr * Math.sin(a)) * k)
+    out.push([...g.getImageData(px, py, 1, 1).data.slice(0, 3)])
+  }
+  return out
+}, [sx, sy, r])
+const at = scr(100, 186)
+const r = (46 / 2) * view.zoom
+const withRing = await ringPixels(at[0], at[1], r)
+await page.mouse.move(...scr(420, 60))
+const without = await ringPixels(at[0], at[1], r)
+const changed = withRing.filter((p, i) => Math.abs(p[0] - without[i][0]) + Math.abs(p[1] - without[i][1])
+  + Math.abs(p[2] - without[i][2]) > 60).length
+check('and the ring is drawn where the pointer is, so you can see where you are', changed >= 16,
+  `${changed} of 24 points on the ring`)
+await page.mouse.move(...scr(100, 186))
 await page.mouse.down()
 await page.mouse.move(...scr(250, 186), { steps: 12 })
 const mid = await page.evaluate((id) => {
