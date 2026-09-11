@@ -35,7 +35,9 @@ import { buildEdgeMap, edgeMapFor, snapToEdges, livewire } from '../engine/edges
 import { colorMask, coverage } from '../engine/wand.js'
 import { defaultStamp, newStamp, docToLayerPoint } from '../engine/clone.js'
 import { defaultHealBrush, newHealStroke } from '../engine/heal.js'
-import { quickFill, matchFill, aiFill, frameBefore, healedFrame, primePatches } from '../engine/healed.js'
+import {
+  quickFill, matchFill, aiFill, frameBefore, healedFrame, primePatches, baseFrame, findWatermark,
+} from '../engine/healed.js'
 import { inpaintCached } from '../engine/inpaint.js'
 import {
   packProject, unpackProject, isProjectFile, thumbnailBytes, PROJECT_EXT,
@@ -2845,7 +2847,7 @@ export const useStore = create((set, get) => ({
     if (!raw) return { ok: false, reason: 'That picture has not finished loading.' }
     // Filled from the picture as it is on screen now, earlier fills included,
     // so a second stroke over the edge of the first continues it.
-    const patch = quickFill(healedFrame(raw, layer), stroke)
+    const patch = quickFill(healedFrame(baseFrame(raw, layer), layer), stroke)
     if (!patch) return { ok: false, reason: 'That stroke missed the picture.' }
     s.pushHistory()
     s.updateLayer(id, { heal: { strokes: [...(layer.heal?.strokes || []), { ...stroke, patch }] } })
@@ -2894,7 +2896,7 @@ export const useStore = create((set, get) => ({
           try {
             const fresh = !(await inpaintCached())
             set({ healWork: { phase: fresh ? 'download' : 'running', progress: 0 } })
-            patch = await aiFill(frameBefore(raw, strokes, i), stroke, {
+            patch = await aiFill(frameBefore(baseFrame(raw, layer), strokes, i), stroke, {
               onProgress: (f) => {
                 const w = get().healWork
                 if (f >= 1) set({ healWork: { phase: 'running', progress: 1 } })
@@ -2918,7 +2920,7 @@ export const useStore = create((set, get) => ({
           }
         } else {
           set({ healWork: { phase: 'matching', progress: 0 } })
-          patch = await matchFill(frameBefore(raw, strokes, i), stroke)
+          patch = await matchFill(frameBefore(baseFrame(raw, layer), strokes, i), stroke)
         }
         const now = get().doc.layers.find((x) => x.id === id)
         const list = now?.heal?.strokes || []
@@ -2954,6 +2956,67 @@ export const useStore = create((set, get) => ({
         get().refineHeal(l.id, { download: false })
       }
     }
+  },
+
+  /**
+   * Finds a watermark repeated across a picture and takes it off every copy.
+   *
+   * The selected picture, or the topmost one. What is kept is the mark — its
+   * grid, its tilt, its shape — not a new picture, so it undoes in one step,
+   * can be switched off to compare, and comes off the original at full size.
+   */
+  removeWatermark: async (id) => {
+    const s = get()
+    const ok = (l) => l.type === 'image' && !l.locked && l.visible !== false
+    const layer = id
+      ? s.doc.layers.find((x) => x.id === id)
+      : s.doc.layers.filter((l) => s.selectedIds.includes(l.id) && ok(l)).pop()
+        || [...s.doc.layers].reverse().find(ok)
+    const why = healRefusal(layer)
+    if (why) {
+      set({ notice: { kind: 'warn', text: why } })
+      return { ok: false, reason: why }
+    }
+    const raw = sourceFor(layer, s.time)
+    if (!raw) return { ok: false, reason: 'That picture has not finished loading.' }
+    set({ healWork: { phase: 'watermark' } })
+    try {
+      // A beat for the rail to say what is happening before the work starts.
+      await new Promise((r) => setTimeout(r, 30))
+      const res = await findWatermark(raw)
+      if (!get().doc.layers.some((l) => l.id === layer.id)) return { ok: false, reason: 'gone' }
+      if (!res.ok) {
+        const text = res.reason === 'periodic'
+          ? 'That repeat is part of the picture — a pattern in it, not a mark laid over it — so it was left alone.'
+          : 'No repeated watermark found. For a single mark, paint over it with the magic eraser.'
+        set({ notice: { kind: 'warn', text } })
+        return { ok: false, reason: res.reason }
+      }
+      get().pushHistory()
+      get().updateLayer(layer.id, { dewater: res.dewater })
+      const { count, angle } = res.dewater
+      const turn = Math.round(angle) ? `, rotated ${Math.round(angle)}°` : ''
+      set({ notice: { kind: 'ok', text: `Removed ${count} watermark${count === 1 ? '' : 's'}${turn}` } })
+      return { ok: true, count, angle }
+    } finally {
+      set({ healWork: null })
+    }
+  },
+
+  /** Puts a removed watermark back for good. */
+  clearWatermark: (id) => {
+    const layer = get().doc.layers.find((x) => x.id === id)
+    if (!layer?.dewater) return
+    get().pushHistory()
+    get().updateLayer(id, { dewater: undefined })
+  },
+
+  /** Shows the watermark again, or hides it, without forgetting what was found. */
+  setWatermarkOn: (id, on) => {
+    const layer = get().doc.layers.find((x) => x.id === id)
+    if (!layer?.dewater) return
+    get().pushHistory()
+    get().updateLayer(id, { dewater: { ...layer.dewater, on: !!on } })
   },
 
   /** Takes back the last stroke of the magic eraser, or all of them. */

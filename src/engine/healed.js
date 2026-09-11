@@ -19,6 +19,7 @@ import {
   strokeBox, boxRect, rasterStroke, hugText, pushPull, patchFill, maskBounds, pieces, planCrops,
 } from './heal.js'
 import { inpaint } from './inpaint.js'
+import { detectWatermark, deblend, toStored, fromStored, hasDewater } from './watermark.js'
 
 // ---- patches ---------------------------------------------------------------------
 
@@ -95,7 +96,13 @@ const frameId = (x) => {
 // A healed picture remembers the one it was made from, so anything cached
 // against the original — the learned matte, chiefly — can still be found.
 const origins = new WeakMap()
-export const originOf = (x) => origins.get(x)
+export const originOf = (x) => {
+  // All the way back: a picture can be unmarked and then healed, and the
+  // original is two steps behind what is drawn.
+  let o = origins.get(x)
+  while (o && origins.has(o)) o = origins.get(o)
+  return o
+}
 
 function paintPatch(g, p) {
   const img = images.get(p.id)
@@ -149,6 +156,70 @@ export function healedFrame(raw, l) {
 
 /** The picture as it stood before stroke `i` — what that stroke is filled from. */
 export const frameBefore = (raw, strokes, i) => composite(raw, strokes.slice(0, i))
+
+// ---- watermarks ---------------------------------------------------------------------
+
+// Big enough to see a mark's strokes on any sensible picture, small enough that
+// the search takes a second or two rather than a minute. The mark that is found
+// here is taken off the original at its full size.
+const WORK = 2048
+
+/**
+ * Looks for a repeated mark on a picture. Resolves to `{ ok, dewater }` — the
+ * mark as it is kept on a layer — or `{ ok: false, reason }`.
+ */
+export async function findWatermark(raw) {
+  const aw = raw.naturalWidth || raw.width
+  const ah = raw.naturalHeight || raw.height
+  const k = Math.min(1, WORK / Math.max(aw, ah))
+  const w = Math.max(1, Math.round(aw * k))
+  const h = Math.max(1, Math.round(ah * k))
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  const g = c.getContext('2d', { willReadFrequently: true })
+  g.imageSmoothingQuality = 'high'
+  g.drawImage(raw, 0, 0, w, h)
+  const img = g.getImageData(0, 0, w, h)
+  const found = await detectWatermark(img.data, w, h, { tick: () => new Promise((r) => setTimeout(r, 0)) })
+  if (!found.ok) return found
+  return { ok: true, dewater: toStored(found, w / aw, h / ah) }
+}
+
+const unmarked = new Map()   // layer id -> { sig, canvas }
+
+/** The layer's picture with its watermark taken off, made once per change. */
+export function dewaterFrame(raw, l) {
+  const d = l.dewater
+  const sig = [
+    frameId(raw), d.alpha.length, d.alpha.slice(0, 24), d.alpha.slice(-24),
+    d.v1, d.v2, d.color, d.sx, d.sy, d.tx0, d.ty0,
+  ].join('|')
+  const hit = unmarked.get(l.id)
+  if (hit && hit.sig === sig) return hit.canvas
+  const w = raw.naturalWidth || raw.width
+  const h = raw.naturalHeight || raw.height
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  const g = c.getContext('2d', { willReadFrequently: true })
+  g.drawImage(raw, 0, 0)
+  const img = g.getImageData(0, 0, w, h)
+  deblend(img.data, w, h, fromStored(d))
+  g.putImageData(img, 0, 0)
+  origins.set(c, raw)
+  unmarked.set(l.id, { sig, canvas: c })
+  return c
+}
+
+/** The picture a layer's repairs are made on: unmarked, if it has been. */
+export const baseFrame = (raw, l) => (raw && hasDewater(l) ? dewaterFrame(raw, l) : raw)
+
+/** The picture a layer draws: unmarked, then healed. */
+export function cleanFrame(raw, l) {
+  const base = baseFrame(raw, l)
+  return l.heal?.strokes?.length ? healedFrame(base, l) : base
+}
 
 // ---- making a fill -------------------------------------------------------------------
 

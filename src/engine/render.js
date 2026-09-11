@@ -19,8 +19,7 @@ import {
 import { applyRetro } from './retro.js'
 import { hasErase, hasRestore, paintStrokes } from './erase.js'
 import { hasClone, paintClone } from './clone.js'
-import { hasHeal } from './heal.js'
-import { healedFrame } from './healed.js'
+import { cleanFrame } from './healed.js'
 import { loopPlan, pingPongTime } from './loop.js'
 
 export function filterCSS(a) {
@@ -651,10 +650,11 @@ function stickerCut(raw, l) {
 function drawImageLayer(ctx, l, time) {
   const unhealed = sourceFor(l, time)
   if (!unhealed) return
-  // The magic eraser's fills go into the picture itself, before anything else
-  // is done to it — the key, the crop, the adjustments and the sticker border
-  // all then see a picture with the text already gone, which is what it is.
-  const raw = hasHeal(l) ? healedFrame(unhealed, l) : unhealed
+  // A removed watermark and the magic eraser's fills go into the picture
+  // itself, before anything else is done to it — the key, the crop, the
+  // adjustments and the sticker border all then see a picture with the mark
+  // and the text already gone, which is what it is.
+  const raw = cleanFrame(unhealed, l)
   // Background removal is a render-time key on the decoded frame, so an animated
   // GIF re-keys itself as it plays and nothing is baked into the document. The
   // learned matte cannot run inside a synchronous render, so it uses whatever

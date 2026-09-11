@@ -85,6 +85,11 @@ background between the letters is kept. The fill comes from a local model (MI-GA
 download on first use, nothing uploaded), and from the surrounding picture when the model is
 unavailable. *Remove* in the lasso bar does the same for an outline.
 
+**Remove watermarks** (in the magic eraser) finds a mark repeated across a picture, tiled and
+tilted, works out its shape from all its copies, and takes it off every one. A faint mark is
+subtracted exactly, so the real picture underneath comes back; the grid, tilt and number of
+copies are kept on the layer, and switching it off shows the original.
+
 The brush tools hide the pointer while they are in hand: the ring drawn at the cursor is
 sized to what the stroke will cover, and a crosshair inside it only clutters the thing you are
 aiming.
@@ -472,6 +477,8 @@ src/engine/     render.js      compositor, frame lookup, export frame timing
                 heal.js        magic eraser: finding the text, filling from the picture
                 healed.js      magic eraser fills, kept on their strokes and drawn in
                 inpaint.js     MI-GAN inpainting
+                watermark.js   finding a repeated mark, and subtracting it
+                fft.js         the FFT behind finding what repeats
                 subject.js     what counts as a cut-out; sticker geometry
                 trace.js       marching squares, Douglas-Peucker
                 edges.js       colour-gradient edge maps
@@ -511,8 +518,8 @@ pixel-identically at every sampled time.
 
 They live under `tests/`: `tests/browser/` for everything that drives Chrome, `tests/unit/`
 for the DOM-free suites that run under plain node in milliseconds, and `tests/` itself for the
-shared helper and the benchmarks. Forty-nine browser suites, two Electron suites, seventeen
-unit suites — **2080 checks**, in about three minutes.
+shared helper and the benchmarks. Fifty browser suites, two Electron suites, eighteen
+unit suites — **2120 checks**, in about two minutes.
 
 ```bash
 npm run dev           # in one terminal

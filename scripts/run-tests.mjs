@@ -37,8 +37,10 @@ const OWNERS = [
   ['src/engine/shapes.js', ['test-mask', 'e2e-maskedit', 'e2e-lasso', 'e2e-subject', 'e2e-gradient']],
   ['src/engine/lassoedit.js', ['test-lassoedit', 'e2e-maskedit', 'e2e-lasso']],
   ['src/engine/tools.js', ['test-tools', 'e2e-tools2', 'e2e-erase', 'e2e-maskedit', 'e2e-heal']],
-  ['src/engine/heal.js', ['test-heal', 'e2e-heal', 'e2e-healai']],
-  ['src/engine/healed.js', ['e2e-heal', 'e2e-healai', 'e2e-ai']],
+  ['src/engine/heal.js', ['test-heal', 'test-watermark', 'e2e-heal', 'e2e-healai', 'e2e-watermark']],
+  ['src/engine/healed.js', ['e2e-heal', 'e2e-healai', 'e2e-ai', 'e2e-watermark']],
+  ['src/engine/watermark.js', ['test-watermark', 'e2e-watermark']],
+  ['src/engine/fft.js', ['test-watermark', 'e2e-watermark']],
   ['src/engine/inpaint.js', ['e2e-heal', 'e2e-healai']],
   ['src/engine/models.js', ['e2e-ai', 'e2e-heal', 'e2e-healai']],
   ['src/engine/palette.js', ['test-tools', 'e2e-tint']],
@@ -95,7 +97,7 @@ const UNITS = [
   'test-retro', 'test-loop', 'test-cursor', 'test-collage', 'test-trace',
   'test-dpi', 'test-clips', 'test-transitions', 'test-gradient', 'test-mask',
   'test-prose', 'test-groups', 'test-richtext', 'test-snap', 'test-lassoedit',
-  'test-tools', 'test-heal',
+  'test-tools', 'test-heal', 'test-watermark',
 ]
 
 const BROWSER = [
@@ -107,7 +109,7 @@ const BROWSER = [
   'e2e-tracks', 'e2e-mount', 'e2e-cropimage', 'e2e-magnet', 'e2e-eyedrop',
   'e2e-wand', 'e2e-clone', 'e2e-tools2', 'e2e-clipboard', 'e2e-transitions',
   'e2e-audiotrack', 'e2e-join', 'e2e-transport', 'e2e-editing', 'e2e-gradient',
-  'e2e-maskedit', 'e2e-tint', 'e2e-heal', 'e2e-healai', 'test-edges', 'test-cli',
+  'e2e-maskedit', 'e2e-tint', 'e2e-heal', 'e2e-healai', 'e2e-watermark', 'test-edges', 'test-cli',
 ]
 
 // Where a suite lives, from what it is: the two lists above are the same split

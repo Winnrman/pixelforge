@@ -240,9 +240,12 @@ function HealPanel() {
   const setToolOptions = useStore((s) => s.setToolOptions)
   const work = useStore((s) => s.healWork)
   const ai = useStore((s) => s.healAi)
+  const removeWatermark = useStore((s) => s.removeWatermark)
 
   let hint = 'Paint over it and let go. One stroke is one undo.'
-  if (work?.phase === 'download') {
+  if (work?.phase === 'watermark') {
+    hint = 'Looking for a mark repeated across the picture…'
+  } else if (work?.phase === 'download') {
     hint = `Fetching the model (${INPAINT_MODEL.size}, once)… ${Math.round((work.progress || 0) * 100)}%`
   } else if (work?.phase === 'running') {
     hint = 'Estimating what was behind it…'
@@ -264,6 +267,12 @@ function HealPanel() {
           this machine — nothing is uploaded. Until it arrives, and whenever it cannot, the fill
           comes from the surrounding pixels. The fill belongs to the picture, so cropping,
           flipping or resizing the layer keeps it in place.
+          <br /><br />
+          Remove watermarks finds a mark repeated across the picture — tiled, tilted, faint —
+          works out its shape from all its copies at once, and takes it off every one. A faint
+          mark is subtracted exactly, so the picture under it comes back rather than being
+          guessed. It is meant for your own pictures: taking someone else&apos;s watermark off
+          to use their image is still a licensing matter.
         </Info>
       </div>
       <BrushPreview brush={{ size: heal.size, hardness: 1 }} />
@@ -274,6 +283,9 @@ function HealPanel() {
           onChange={(v) => setToolOptions({ heal: { ...heal, size: v / 100 } })}
         />
       </Row>
+      <button className="btn" disabled={!!work} onClick={() => removeWatermark()}>
+        Remove watermarks
+      </button>
       <p className="rail-hint">{hint}</p>
     </div>
   )

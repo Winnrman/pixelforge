@@ -225,7 +225,8 @@ const SECTION_ORDER = {
 const REST = [
   'shape', 'text', 'outline', 'effect', 'framing', 'adjust', 'subject', 'bg',
   'retro', 'recolour', 'image', 'animation', 'loop', 'cinemagraph', 'cursor',
-  'mask', 'tracking', 'trails', 'shadow', 'motion', 'erased', 'healed', 'fade', 'transition',
+  'mask', 'tracking', 'trails', 'shadow', 'motion', 'erased', 'healed', 'watermark', 'fade',
+  'transition',
 ]
 
 const sectionOrder = (type, id) => {
@@ -289,6 +290,8 @@ export default function Inspector() {
   const trimToSubject = useStore((s) => s.trimToSubject)
   const clearErase = useStore((s) => s.clearErase)
   const clearHeal = useStore((s) => s.clearHeal)
+  const clearWatermark = useStore((s) => s.clearWatermark)
+  const setWatermarkOn = useStore((s) => s.setWatermarkOn)
   const setTransitionKind = useStore((s) => s.setTransitionKind)
   const setFade = useStore((s) => s.setFade)
   // The overlap this layer arrives into, in milliseconds, or 0. A number rather
@@ -708,6 +711,36 @@ export default function Inspector() {
               <button className="btn ghost" onClick={() => clearHeal(base.id)}>
                 Undo the last stroke
               </button>
+            </Row>
+          </Section>
+        )}
+
+        {l.dewater && (
+          <Section
+            order={ord('watermark')}
+            title="Watermark"
+            info={'Found by Remove watermarks in the magic eraser (J): a mark repeated across '
+              + 'the picture, worked out from all its copies at once and taken off every one. '
+              + 'What is kept is the mark — its grid, tilt and shape — so the picture itself is '
+              + 'untouched, and switching this off shows it exactly as it was.'}
+            right={(
+              <button className="mini" onClick={() => clearWatermark(base.id)}>
+                Clear
+              </button>
+            )}
+          >
+            <Row label="Removed">
+              <Toggle value={l.dewater.on !== false} onChange={(on) => setWatermarkOn(base.id, on)}>
+                {l.dewater.on !== false ? 'On' : 'Off'}
+              </Toggle>
+            </Row>
+            <Row label="Found">
+              <span className="readout">
+                {l.dewater.count} mark{l.dewater.count === 1 ? '' : 's'}
+                <span className="dim">
+                  {Math.round(l.dewater.angle) ? ` · rotated ${Math.round(l.dewater.angle)}°` : ''}
+                </span>
+              </span>
             </Row>
           </Section>
         )}
