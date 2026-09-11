@@ -36,11 +36,11 @@ const near = (a, b, tol = 0.001) => Math.abs(a - b) <= tol
     digits.join('') === '1234567890', digits.join(''))
   check('and the selector is the one that answers to 1',
     TOOLS[0].id === 'move' && TOOLS[0].digit === '1', JSON.stringify(TOOLS[0]))
-  // Ten digits, twelve tools. The two without one are the two you reach for
-  // least, and each has its own way back — the eyedropper hands the tool back
-  // when it is done, and panning has the space bar.
+  // Ten digits, thirteen tools. The three without one are the three you reach
+  // for least, and each has another way in — the wand is W, the eyedropper
+  // hands the tool back when it is done, and panning has the space bar.
   check('the tools past the tenth keep their letter alone',
-    TOOLS.filter((t) => !t.digit).map((t) => t.id).join() === 'eyedrop,hand',
+    TOOLS.filter((t) => !t.digit).map((t) => t.id).join() === 'wand,eyedrop,hand',
     TOOLS.filter((t) => !t.digit).map((t) => t.id).join())
 }
 
@@ -63,7 +63,10 @@ const near = (a, b, tol = 0.001) => Math.abs(a - b) <= tol
   check('and only the letter where there is no digit',
     keyHint(TOOLS.find((t) => t.id === 'hand')) === 'H')
   check('the brush tools are the ones with a size to set',
-    [...BRUSH_TOOLS].sort().join() === 'clone,erase,mask', [...BRUSH_TOOLS].join())
+    [...BRUSH_TOOLS].sort().join() === 'clone,erase,heal,mask', [...BRUSH_TOOLS].join())
+  check('the magic eraser sits beside the eraser, on J and 9',
+    TOOLS.findIndex((t) => t.id === 'heal') === TOOLS.findIndex((t) => t.id === 'erase') + 1
+      && toolForKey('j') === 'heal' && toolForKey('9') === 'heal' && toolForKey('0') === 'clone')
 }
 
 // --- how big a brush is -------------------------------------------------------------

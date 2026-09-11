@@ -581,7 +581,7 @@ check('and neither fills the whole box, so the size reads as a size',
 // the most common thing anybody asks of a tool bar.
 await page.locator('.stage canvas').hover()
 const digits = {}
-for (const [key, want] of [['1', 'move'], ['4', 'lasso'], ['7', 'mask'], ['8', 'erase'], ['0', 'wand']]) {
+for (const [key, want] of [['1', 'move'], ['4', 'lasso'], ['7', 'mask'], ['8', 'erase'], ['9', 'heal'], ['0', 'clone']]) {
   // Parked on something else first, so a digit that does nothing cannot pass by
   // leaving the tool where the previous check put it.
   await page.evaluate(() => window.__pfState().setTool('hand'))
@@ -602,7 +602,7 @@ check('the letters still work beside them',
 // thing you are trying to aim, so the tools that draw a ring hide the pointer
 // and let the ring be it. The clone stamp keeps its crosshair, having no ring.
 const cursors = {}
-for (const tool of ['erase', 'mask', 'clone', 'lasso']) {
+for (const tool of ['erase', 'mask', 'heal', 'clone', 'lasso']) {
   cursors[tool] = await page.evaluate(async (t) => {
     const st = window.__pfState()
     st.setTool(t)
@@ -622,6 +622,7 @@ check('the eraser hides the pointer and shows its ring', cursors.erase === 'none
 check('and so does the mask brush', cursors.mask === 'none', cursors.mask)
 check('the clone stamp keeps its crosshair, having no ring',
   cursors.clone === 'crosshair', cursors.clone)
+check('the magic eraser is a ring alone, like the other brushes', cursors.heal === 'none', cursors.heal)
 check('and so does the lasso', cursors.lasso === 'crosshair', cursors.lasso)
 
 // Typing a digit into a field is typing, not a shortcut.

@@ -225,7 +225,7 @@ const SECTION_ORDER = {
 const REST = [
   'shape', 'text', 'outline', 'effect', 'framing', 'adjust', 'subject', 'bg',
   'retro', 'recolour', 'image', 'animation', 'loop', 'cinemagraph', 'cursor',
-  'mask', 'tracking', 'trails', 'shadow', 'motion', 'erased', 'fade', 'transition',
+  'mask', 'tracking', 'trails', 'shadow', 'motion', 'erased', 'healed', 'fade', 'transition',
 ]
 
 const sectionOrder = (type, id) => {
@@ -288,6 +288,7 @@ export default function Inspector() {
   const setCursorZoom = useStore((s) => s.setCursorZoom)
   const trimToSubject = useStore((s) => s.trimToSubject)
   const clearErase = useStore((s) => s.clearErase)
+  const clearHeal = useStore((s) => s.clearHeal)
   const setTransitionKind = useStore((s) => s.setTransitionKind)
   const setFade = useStore((s) => s.setFade)
   // The overlap this layer arrives into, in milliseconds, or 0. A number rather
@@ -673,6 +674,38 @@ export default function Inspector() {
             </Row>
             <Row label="">
               <button className="btn ghost" onClick={() => clearErase(base.id)}>
+                Undo the last stroke
+              </button>
+            </Row>
+          </Section>
+        )}
+
+        {l.heal?.strokes?.length > 0 && (
+          <Section
+            order={ord('healed')}
+            title="Magic erased"
+            info={'Painted with the magic eraser (J). Each stroke keeps its fill, so the '
+              + 'project opens and exports the same on any machine, with or without the model. '
+              + 'The fills belong to the picture: crop, flip or resize the layer and they stay put.'}
+            right={(
+              <button className="mini" onClick={() => clearHeal(base.id, { all: true })}>
+                Clear
+              </button>
+            )}
+          >
+            <Row label="Strokes">
+              <span className="readout">
+                {l.heal.strokes.length}
+                <span className="dim">
+                  {(() => {
+                    const quick = l.heal.strokes.filter((k) => k.patch?.by !== 'ai').length
+                    return quick ? ` · ${quick} from the surrounding picture` : ''
+                  })()}
+                </span>
+              </span>
+            </Row>
+            <Row label="">
+              <button className="btn ghost" onClick={() => clearHeal(base.id)}>
                 Undo the last stroke
               </button>
             </Row>

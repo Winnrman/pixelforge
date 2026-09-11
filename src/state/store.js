@@ -14,6 +14,7 @@ import { trackLayer, trackTimes, simplifyTrack } from '../engine/tracker.js'
 import { defaultBgRemove } from '../engine/matte.js'
 import {
   sourceFor, docDuration, sourceRect, docToAsset, assetToDoc, measureText, visibleBounds,
+  docToAssetFree, assetPxPerDoc,
 } from '../engine/render.js'
 import {
   defaultSticker, defaultTrails, subjectFrame, alphaBounds, unionBounds, isCutOut,
@@ -33,6 +34,9 @@ import { maskToPolygon } from '../engine/trace.js'
 import { buildEdgeMap, edgeMapFor, snapToEdges, livewire } from '../engine/edges.js'
 import { colorMask, coverage } from '../engine/wand.js'
 import { defaultStamp, newStamp, docToLayerPoint } from '../engine/clone.js'
+import { defaultHealBrush, newHealStroke } from '../engine/heal.js'
+import { quickFill, matchFill, aiFill, frameBefore, healedFrame, primePatches } from '../engine/healed.js'
+import { inpaintCached } from '../engine/inpaint.js'
 import {
   packProject, unpackProject, isProjectFile, thumbnailBytes, PROJECT_EXT,
 } from '../engine/project.js'
@@ -72,6 +76,31 @@ let uid = 0
  */
 const nid = (p) => `${p}${++uid}_${Math.random().toString(36).slice(2, 7)}`
 const clone = (o) => structuredClone(o)
+
+/**
+ * Why the magic eraser cannot work on a layer, or null when it can.
+ *
+ * Still pictures only. A fill is worked out once, on the pixels that are there;
+ * a video or an animated GIF puts different pixels under it every frame, and a
+ * fill made for one frame is a smudge on the next.
+ */
+function healRefusal(layer) {
+  if (!layer) return 'Nothing to remove there — the magic eraser works on pictures.'
+  if (layer.locked) return 'That layer is locked.'
+  if (layer.type !== 'image') {
+    return 'The magic eraser works on pictures. To be rid of a text or shape layer, delete it.'
+  }
+  const a = getAsset(layer.assetId)
+  if (!a || a.isVideo || a.animated || a.live || (a.frames?.length || 0) !== 1) {
+    return 'The magic eraser works on still pictures — a video or GIF changes under it every frame.'
+  }
+  return null
+}
+
+// The model runs one fill at a time, in the order the strokes were made: each
+// stroke is estimated on top of the ones before it, so they cannot overtake.
+let healChain = Promise.resolve()
+let healGaveUpAt = 0
 
 /** Offsets positional tracks, e.g. when cropping moves the origin. */
 function shiftTracks(tracks, by) {
@@ -661,6 +690,7 @@ export const useStore = create((set, get) => ({
     // rubbing out a background are different jobs at different scales, and one
     // shared setting means changing tools always means changing it back.
     maskBrush: { ...defaultBrush(), mode: 'add' },
+    heal: defaultHealBrush(),
     shape: 'rect',
     effect: 'pixelate',
     pixelSize: 14,
@@ -710,7 +740,7 @@ export const useStore = create((set, get) => ({
   pushHistory: () =>
     set((s) => ({ past: [...s.past.slice(-59), clone(s.doc)], future: [] })),
 
-  undo: () =>
+  undo: () => {
     set((s) => {
       if (!s.past.length) return {}
       const prev = s.past[s.past.length - 1]
@@ -726,9 +756,13 @@ export const useStore = create((set, get) => ({
         future: [clone(s.doc), ...s.future].slice(0, 60),
         selectedIds: s.selectedIds.filter((id) => ids.has(id)),
       }
-    }),
+    })
+    // A stroke brought back may have been undone before the model finished
+    // with it, and would otherwise keep its quick fill for good.
+    get().healPending()
+  },
 
-  redo: () =>
+  redo: () => {
     set((s) => {
       if (!s.future.length) return {}
       const next = s.future[0]
@@ -740,7 +774,9 @@ export const useStore = create((set, get) => ({
         future: s.future.slice(1),
         selectedIds: s.selectedIds.filter((id) => ids.has(id)),
       }
-    }),
+    })
+    get().healPending()
+  },
 
   // ---- document ---------------------------------------------------------
   setDoc: (patch) => set((s) => ({ dirty: true, doc: { ...s.doc, ...patch } })),
@@ -2714,6 +2750,222 @@ export const useStore = create((set, get) => ({
     })
   },
 
+  // ---- magic eraser -------------------------------------------------------
+  //
+  // Paint over something, let go, and it is replaced by an estimate of what was
+  // behind it. The stroke is only a highlight while it is being painted and
+  // becomes a fill when the pointer lifts: a fill per point would be a model
+  // run per point, and a hole that changes shape under the brush cannot be
+  // aimed.
+
+  /** The stroke being painted, in document points, or null. */
+  healStroke: null,
+  /** What the model is doing, for the rail: null, or { phase, progress }. */
+  healWork: null,
+  /** Whether the model could be had: null until tried, then true or false. */
+  healAi: null,
+
+  /**
+   * The picture a stroke here would repair: the selected picture, else the
+   * topmost picture under the pointer. Pictures only — words set over a photo
+   * are a layer of their own, and deleting it is how to be rid of them.
+   */
+  healTarget: (px, py) => {
+    const s = get()
+    const ok = (l) => l.type === 'image' && !l.locked && l.visible !== false
+    const sel = s.doc.layers.filter((l) => s.selectedIds.includes(l.id) && ok(l))
+    if (sel.length) return sel[sel.length - 1]
+    for (let i = s.doc.layers.length - 1; i >= 0; i--) {
+      const l = s.doc.layers[i]
+      if (ok(l) && docToAsset(resolveLayer(l, s.time), px, py)) return l
+    }
+    return null
+  },
+
+  beginHeal: (id, point) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    const why = healRefusal(layer)
+    if (why) {
+      set({ notice: { kind: 'warn', text: why } })
+      return false
+    }
+    const r = resolveLayer(layer, s.time)
+    const size = Math.max(0.002, s.toolOptions.heal?.size ?? defaultHealBrush().size)
+    set({ healStroke: { id, pts: [point], sizeDoc: size * Math.abs(r.w) } })
+    return true
+  },
+
+  extendHeal: (point) => {
+    const hs = get().healStroke
+    if (!hs) return
+    const last = hs.pts[hs.pts.length - 1]
+    if (Math.hypot(point[0] - last[0], point[1] - last[1]) < hs.sizeDoc * 0.12) return
+    set({ healStroke: { ...hs, pts: [...hs.pts, point] } })
+  },
+
+  /** Lets go: the highlight becomes a stroke on the picture, filled at once. */
+  endHeal: () => {
+    const s = get()
+    const hs = s.healStroke
+    if (!hs) return null
+    set({ healStroke: null })
+    const layer = s.doc.layers.find((x) => x.id === hs.id)
+    if (healRefusal(layer)) return null
+    const r = resolveLayer(layer, s.time)
+    const aw = getAsset(layer.assetId).width
+    // Into the picture's own frame: the brush measured in its pixels, the
+    // points as fractions of it. See heal.js for why the picture and not the box.
+    const size = (hs.sizeDoc * assetPxPerDoc(r, aw)) / aw
+    const pts = hs.pts.map(([x, y]) => docToAssetFree(r, x, y))
+    const res = get().addHeal(hs.id, newHealStroke(size, pts))
+    if (!res.ok) set({ notice: { kind: 'warn', text: res.reason } })
+    return res
+  },
+
+  /** A lasso outline, removed the same way: the outline is the hole. */
+  healRegion: (id, docPoints) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    const why = healRefusal(layer)
+    if (why) return { ok: false, reason: why }
+    const r = resolveLayer(layer, s.time)
+    const pts = docPoints.map(([x, y]) => docToAssetFree(r, x, y))
+    return get().addHeal(id, newHealStroke(0, pts, 'region'))
+  },
+
+  /**
+   * Adds a stroke with its quick fill already made, as one undoable step, and
+   * asks the model for a better one.
+   */
+  addHeal: (id, stroke) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    const raw = layer && sourceFor(layer, s.time)
+    if (!raw) return { ok: false, reason: 'That picture has not finished loading.' }
+    // Filled from the picture as it is on screen now, earlier fills included,
+    // so a second stroke over the edge of the first continues it.
+    const patch = quickFill(healedFrame(raw, layer), stroke)
+    if (!patch) return { ok: false, reason: 'That stroke missed the picture.' }
+    s.pushHistory()
+    s.updateLayer(id, { heal: { strokes: [...(layer.heal?.strokes || []), { ...stroke, patch }] } })
+    get().refineHeal(id)
+    return { ok: true, text: 'Removed' }
+  },
+
+  /**
+   * Queues better fills for every stroke on a layer that has only a quick one:
+   * the model's where it can be had, pieces of the picture where it cannot.
+   * `download: false` uses the model only if it is already on this machine.
+   */
+  refineHeal: (id, opts = {}) => {
+    healChain = healChain
+      .then(() => get().refineHealNow(id, opts))
+      .catch((err) => console.warn('[pixelforge] magic eraser:', err))
+    return healChain
+  },
+
+  refineHealNow: async (id, { download = true } = {}) => {
+    try {
+      for (;;) {
+        const s = get()
+        const layer = s.doc.layers.find((x) => x.id === id)
+        if (!layer || healRefusal(layer)) return
+        // Once the model has failed to load, leave it a while before asking
+        // again rather than hammering a network that is not there.
+        const aiOk = !(s.healAi === false && Date.now() - healGaveUpAt < 60000)
+          && (download || s.healAi === true || await inpaintCached())
+        const strokes = layer.heal?.strokes || []
+        // A quick fill always wants something better. A fill from pieces of the
+        // picture is as good as it gets without the model, so it is only
+        // revisited when the model is to hand.
+        const i = strokes.findIndex((k) => k.patch
+          && (k.patch.by === 'quick' || (aiOk && k.patch.by === 'match')))
+        if (i < 0) return
+        const raw = sourceFor(layer, s.time)
+        if (!raw) return
+        // What this estimate is made on top of. If any of it changes while the
+        // work is being done — an undo, the stroke cleared — the answer is for
+        // a picture that no longer exists, and is thrown away.
+        const basis = strokes.slice(0, i + 1).map((k) => k.patch?.id).join(',')
+        const stroke = strokes[i]
+        let patch
+        if (aiOk) {
+          try {
+            const fresh = !(await inpaintCached())
+            set({ healWork: { phase: fresh ? 'download' : 'running', progress: 0 } })
+            patch = await aiFill(frameBefore(raw, strokes, i), stroke, {
+              onProgress: (f) => {
+                const w = get().healWork
+                if (f >= 1) set({ healWork: { phase: 'running', progress: 1 } })
+                else if (!w || Math.abs((w.progress || 0) - f) >= 0.02) set({ healWork: { phase: 'download', progress: f } })
+              },
+            })
+            if (get().healAi !== true) set({ healAi: true })
+          } catch (err) {
+            console.warn('[pixelforge] inpainting model unavailable:', err)
+            healGaveUpAt = Date.now()
+            set({
+              healAi: false,
+              notice: {
+                kind: 'warn',
+                text: 'The model could not be loaded, so fills are made from the surrounding picture.',
+              },
+            })
+            // Round again: without the model, the stroke still gets the
+            // better of the two fills that need nothing downloaded.
+            continue
+          }
+        } else {
+          set({ healWork: { phase: 'matching', progress: 0 } })
+          patch = await matchFill(frameBefore(raw, strokes, i), stroke)
+        }
+        const now = get().doc.layers.find((x) => x.id === id)
+        const list = now?.heal?.strokes || []
+        if (list[i]?.id !== stroke.id
+          || list.slice(0, i + 1).map((k) => k.patch?.id).join(',') !== basis) continue
+        const next = list.slice()
+        // A stroke that turned out to cover nothing keeps the fill it had,
+        // marked done so the queue does not come back for it.
+        next[i] = { ...list[i], patch: patch || { ...list[i].patch, by: aiOk ? 'ai' : 'match' } }
+        // Not a history step: this finishes the stroke that already is one.
+        set((st) => ({
+          dirty: true,
+          doc: {
+            ...st.doc,
+            layers: st.doc.layers.map((l) => (l.id === id ? { ...l, heal: { ...l.heal, strokes: next } } : l)),
+          },
+        }))
+      }
+    } finally {
+      set({ healWork: null })
+    }
+  },
+
+  /**
+   * Hands the model anything left with only a quick fill — after an undo brings
+   * a stroke back, or a project made offline is opened where the model is. Only
+   * where the model is already to hand: opening a project should not quietly
+   * start a download.
+   */
+  healPending: async () => {
+    for (const l of get().doc.layers) {
+      if (l.heal?.strokes?.some((k) => k.patch && k.patch.by !== 'ai')) {
+        get().refineHeal(l.id, { download: false })
+      }
+    }
+  },
+
+  /** Takes back the last stroke of the magic eraser, or all of them. */
+  clearHeal: (id, { all = false } = {}) => {
+    const s = get()
+    const layer = s.doc.layers.find((x) => x.id === id)
+    const strokes = layer?.heal?.strokes
+    if (!strokes?.length) return
+    s.pushHistory()
+    s.updateLayer(id, { heal: all || strokes.length === 1 ? undefined : { strokes: strokes.slice(0, -1) } })
+  },
+
   // ---- eraser -------------------------------------------------------------
   /**
    * Starts a stroke.
@@ -3009,6 +3261,14 @@ export const useStore = create((set, get) => ({
     if (!target) return { ok: false, reason: 'Select a layer to apply the lasso to.' }
     if (target.type === 'effect') {
       return { ok: false, reason: 'Effect overlays are shaped by their own outline, not masked.' }
+    }
+
+    // Removing fills the outline in rather than cutting it out: a stroke of the
+    // magic eraser, drawn with the lasso, and its own step in the history.
+    if (mode === 'remove') {
+      const res = get().healRegion(target.id, pts)
+      if (res.ok) set({ lasso: null })
+      return res
     }
 
     s.pushHistory()
@@ -3728,6 +3988,8 @@ export const useStore = create((set, get) => ({
         notice: { kind: 'ok', text: `Recovered "${name || entry.name}"` },
       })
       get().recomputeDuration()
+      await primePatches(get().doc)
+      get().healPending()
       return true
     } catch (err) {
       console.error('[pixelforge] backup restore failed', err)
@@ -3765,6 +4027,8 @@ export const useStore = create((set, get) => ({
         notice: { kind: 'ok', text: `Opened ${rec.name}` },
       })
       get().recomputeDuration()
+      await primePatches(get().doc)
+      get().healPending()
     } catch (err) {
       console.error('[pixelforge] open failed', err)
       set({ notice: { kind: 'warn', text: 'Could not open: ' + err.message } })
@@ -3799,6 +4063,10 @@ export const useStore = create((set, get) => ({
           : { kind: 'ok', text: `Opened ${name}` },
       })
       get().recomputeDuration()
+      // Before the busy flag drops: the first frame drawn, and any export that
+      // follows straight on, must already have the fills in.
+      await primePatches(get().doc)
+      get().healPending()
     } catch (err) {
       console.error('[pixelforge] open failed', err)
       set({ notice: { kind: 'warn', text: 'Could not open project: ' + err.message } })
@@ -3821,6 +4089,7 @@ export const useStore = create((set, get) => ({
       view: { zoom: 1, panX: 0, panY: 0, fitted: true, fitRequest: Date.now() },
     })
     get().recomputeDuration()
+    primePatches(get().doc).then(() => get().healPending())
   },
 
   // ---- playback ---------------------------------------------------------

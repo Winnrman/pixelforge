@@ -18,6 +18,14 @@ const ACTIONS = [
     instead: 'mask',
   },
   { id: 'erase', label: 'Erase', title: 'Remove what is inside the outline' },
+  {
+    id: 'remove',
+    label: 'Remove',
+    title: 'Fill the outline with what was probably behind it — the magic eraser, drawn with a lasso',
+    // Pictures only: a fill is an estimate of what a photograph would have
+    // shown, and a text or shape layer has nothing behind it to estimate.
+    when: (l) => l?.type === 'image',
+  },
   { id: 'effect', label: 'Pixelate', title: 'Add an overlay shaped like the outline' },
 ]
 

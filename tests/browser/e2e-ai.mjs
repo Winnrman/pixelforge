@@ -34,7 +34,10 @@ page.on('console', (m) => { if (m.type() === 'error' && !NOISE.test(m.text())) e
 page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message))
 
 const checks = []
-const check = (name, ok) => { checks.push([name, ok]); console.log((ok ? 'PASS  ' : 'FAIL  ') + name) }
+const check = (name, ok, detail = '') => {
+  checks.push([name, ok])
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  — ' + detail : ''))
+}
 
 await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' })
 await page.evaluate(() => { indexedDB.deleteDatabase('pixelforge'); indexedDB.deleteDatabase('pixelforge-models') })
@@ -73,7 +76,7 @@ const after = await page.evaluate(() => {
   }
 })
 console.log('after matte:', JSON.stringify(after))
-check('the model runs and reports success', after.notice?.kind === 'ok')
+check('the model runs and reports success', after.notice?.kind === 'ok', JSON.stringify(after.notice))
 check('the layer switches to the learned matte', after.mode === 'ai')
 check('inference reports a device', !!after.backend)
 if (after.backend === 'webgpu') console.log('  -> running on the GPU')

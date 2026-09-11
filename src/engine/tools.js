@@ -11,13 +11,13 @@
 // `1` is the selector for the same reason it is first: getting back to plain
 // selection is the most common thing anybody asks of a tool bar.
 //
-// There are more tools than digits. The last two keep their letters alone rather
-// than pushing the count into two-key territory, and they are the two you reach
-// for least — the eyedropper hands itself back when it is done, and panning has
-// the space bar.
+// There are more tools than digits. The last three keep their letters alone
+// rather than pushing the count into two-key territory, and they are the three
+// you reach for least — the wand has W, the eyedropper hands itself back when it
+// is done, and panning has the space bar.
 
 /** Tools that paint with a round brush, so they want a size and a hardness. */
-export const BRUSH_TOOLS = new Set(['erase', 'mask', 'clone'])
+export const BRUSH_TOOLS = new Set(['erase', 'mask', 'clone', 'heal'])
 
 // One note on the icons: they are single paths stroked with round caps, and the
 // rail gives every one of them the same treatment. A dash array is not available
@@ -36,8 +36,12 @@ export const TOOLS = [
   { id: 'text', key: 'T', digit: '6', label: 'Text', icon: 'M4 4 H20 M12 4 V20 M8 20 H16' },
   { id: 'mask', key: 'B', digit: '7', label: 'Mask — brush the cut-out edge, or edit its outline', icon: 'M3.5 3.5 H7.2 M10.2 3.5 H13.8 M16.8 3.5 H20.5 M20.5 3.5 V7.2 M20.5 10.2 V13.8 M20.5 16.8 V20.5 M20.5 20.5 H16.8 M13.8 20.5 H10.2 M7.2 20.5 H3.5 M3.5 20.5 V16.8 M3.5 13.8 V10.2 M3.5 7.2 V3.5' },
   { id: 'erase', key: 'E', digit: '8', label: 'Erase — paint away part of a layer', icon: 'M8.5 20 H20 M3.6 16.4 l8-8 a1.5 1.5 0 0 1 2.1 0 l4.9 4.9 a1.5 1.5 0 0 1 0 2.1 l-4.6 4.6 H9.2 l-5.6 -5.6 a1.5 1.5 0 0 1 0 -2.1 Z' },
-  { id: 'clone', key: 'K', digit: '9', label: 'Clone stamp — copy one part of a picture over another', icon: 'M9 3 h6 a2 2 0 0 1 2 2 v1 a3 3 0 0 0 3 3 v2 H4 V9 a3 3 0 0 0 3 -3 V5 a2 2 0 0 1 2 -2 z M9 11 v4 a3 3 0 0 0 3 3 v3' },
-  { id: 'wand', key: 'W', digit: '0', label: 'Select by colour', icon: 'M4 20 L14 10 M12.5 8.5 l3 3 M17 3 l1 2.2 l2.2 1 l-2.2 1 l-1 2.2 l-1 -2.2 l-2.2 -1 l2.2 -1 z M6 4 l0.6 1.4 l1.4 0.6 l-1.4 0.6 l-0.6 1.4 l-0.6 -1.4 l-1.4 -0.6 l1.4 -0.6 z' },
+  // The magic eraser sits beside the eraser because it is one — an eraser that
+  // leaves the background behind instead of a hole. J is the key every editor
+  // gives its healing brushes.
+  { id: 'heal', key: 'J', digit: '9', label: 'Magic eraser — paint over text and it fills in with what was behind', icon: 'M3.5 15.5 L10.5 8.5 L15.5 13.5 L8.5 20.5 Z M6 13 L11 18 M18 2.5 l0.9 2.1 l2.1 0.9 l-2.1 0.9 l-0.9 2.1 l-0.9 -2.1 l-2.1 -0.9 l2.1 -0.9 z M13 4 l0.4 1 l1 0.4 l-1 0.4 l-0.4 1 l-0.4 -1 l-1 -0.4 l1 -0.4 z' },
+  { id: 'clone', key: 'K', digit: '0', label: 'Clone stamp — copy one part of a picture over another', icon: 'M9 3 h6 a2 2 0 0 1 2 2 v1 a3 3 0 0 0 3 3 v2 H4 V9 a3 3 0 0 0 3 -3 V5 a2 2 0 0 1 2 -2 z M9 11 v4 a3 3 0 0 0 3 3 v3' },
+  { id: 'wand', key: 'W', digit: null, label: 'Select by colour', icon: 'M4 20 L14 10 M12.5 8.5 l3 3 M17 3 l1 2.2 l2.2 1 l-2.2 1 l-1 2.2 l-1 -2.2 l-2.2 -1 l2.2 -1 z M6 4 l0.6 1.4 l1.4 0.6 l-1.4 0.6 l-0.6 1.4 l-0.6 -1.4 l-1.4 -0.6 l1.4 -0.6 z' },
   { id: 'eyedrop', key: 'I', digit: null, label: 'Pick a colour from the picture', icon: 'M18.5 2.6 a2 2 0 0 1 2.9 2.9 l-2.2 2.2 l1 1 l-1.6 1.6 l-1 -1 l-8 8 l-4 1 l1 -4 l8 -8 l-1 -1 l1.6 -1.6 l1 1 z' },
   { id: 'hand', key: 'H', digit: null, label: 'Pan', icon: 'M6 11 V6 a1.5 1.5 0 0 1 3 0 v5 V4 a1.5 1.5 0 0 1 3 0 v7 V5 a1.5 1.5 0 0 1 3 0 v6 V8 a1.5 1.5 0 0 1 3 0 v7 a6 6 0 0 1 -6 6 h-2 a5 5 0 0 1 -4 -2 l-3 -4 a1.5 1.5 0 0 1 2.5 -2 z' },
 ]

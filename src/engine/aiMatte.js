@@ -10,6 +10,9 @@
 // larger matters because 4.6MB downloads in a blink and it segments general
 // subjects, not only people.
 
+import { loadOrt, cachedModel, forgetModel, fetchModel } from './models.js'
+import { originOf } from './healed.js'
+
 /**
  * Two models, because they fail in different places. U²-Netp is small and
  * general but uses a MaxPool with ceil_mode that ONNX Runtime's WebGPU backend
@@ -50,129 +53,23 @@ export const setModel = (id) => {
 }
 export const currentModel = () => MODELS[modelId]
 
-const DB_NAME = 'pixelforge-models'
-const STORE = 'models'
-
-let ortPromise = null
 let sessionPromise = null
 let backend = null
 
 // ---------------------------------------------------------------- model cache
-
-function openDB() {
-  return new Promise((res, rej) => {
-    const req = indexedDB.open(DB_NAME, 1)
-    req.onupgradeneeded = () => {
-      const db = req.result
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE)
-    }
-    req.onsuccess = () => res(req.result)
-    req.onerror = () => rej(req.error)
-  })
-}
-
-async function cachedModel() {
-  try {
-    const db = await openDB()
-    return await new Promise((res, rej) => {
-      const r = db.transaction(STORE, 'readonly').objectStore(STORE).get(modelId)
-      r.onsuccess = () => res(r.result || null)
-      r.onerror = () => rej(r.error)
-    })
-  } catch {
-    return null
-  }
-}
-
-async function storeModel(bytes) {
-  try {
-    const db = await openDB()
-    await new Promise((res, rej) => {
-      const t = db.transaction(STORE, 'readwrite')
-      t.objectStore(STORE).put(bytes, modelId)
-      t.oncomplete = () => res()
-      t.onerror = () => rej(t.error)
-    })
-  } catch { /* a cache miss next time is survivable */ }
-}
+// The download, the cache and the runtime are shared with the magic eraser's
+// model in models.js; this module only says which weights it wants.
 
 export async function isModelCached() {
-  return !!(await cachedModel())
+  return !!(await cachedModel(modelId))
 }
 
 export async function clearModel() {
-  try {
-    const db = await openDB()
-    await new Promise((res) => {
-      const t = db.transaction(STORE, 'readwrite')
-      t.objectStore(STORE).delete(modelId)
-      t.oncomplete = res
-      t.onerror = res
-    })
-  } catch { /* nothing cached */ }
+  await forgetModel(modelId)
   sessionPromise = null
 }
 
-async function fetchModel(onProgress) {
-  const hit = await cachedModel()
-  if (hit) return hit
-
-  let res = null
-  let lastErr = null
-  for (const url of MODELS[modelId].urls) {
-    try {
-      const r = await fetch(url)
-      if (r.ok) { res = r; break }
-      lastErr = new Error(`HTTP ${r.status}`)
-    } catch (err) { lastErr = err }
-  }
-  if (!res) {
-    throw new Error('Could not download the model: ' + (lastErr?.message || 'unreachable'))
-  }
-  const total = Number(res.headers.get('content-length')) || 0
-
-  // Stream so the download can report progress rather than hanging silently.
-  const reader = res.body?.getReader()
-  if (!reader) {
-    const buf = new Uint8Array(await res.arrayBuffer())
-    await storeModel(buf)
-    return buf
-  }
-  const chunks = []
-  let got = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    chunks.push(value)
-    got += value.length
-    if (total) onProgress?.(got / total)
-  }
-  const bytes = new Uint8Array(got)
-  let at = 0
-  for (const c of chunks) { bytes.set(c, at); at += c.length }
-  await storeModel(bytes)
-  return bytes
-}
-
 // ------------------------------------------------------------------- session
-
-function loadOrt() {
-  if (!ortPromise) {
-    ortPromise = import('onnxruntime-web').then((ort) => {
-      // ORT fetches its wasm at run time rather than inlining it. Left to
-      // itself it resolves a path the dev server answers with index.html, which
-      // fails as "expected magic word". Point it at the copies in public/ort.
-      ort.env.wasm.wasmPaths = {
-        wasm: '/ort/ort-wasm-simd-threaded.jsep.wasm',
-        mjs: '/ort/ort-wasm-simd-threaded.jsep.mjs',
-      }
-      ort.env.wasm.numThreads = 1  // threads would need cross-origin isolation
-      ort.env.logLevel = 'error'
-      return ort
-    })
-  }
-  return ortPromise
-}
 
 /** Which device inference is actually running on, once a session exists. */
 export const currentBackend = () => backend
@@ -182,7 +79,7 @@ let forceCpu = false
 
 async function makeSession(ep, onProgress) {
   const ort = await loadOrt()
-  if (!modelBytes) modelBytes = await fetchModel(onProgress)
+  if (!modelBytes) modelBytes = await fetchModel(modelId, MODELS[modelId].urls, onProgress)
   const s = await ort.InferenceSession.create(modelBytes, {
     executionProviders: [ep],
     graphOptimizationLevel: 'all',
@@ -386,7 +283,10 @@ export const rememberMask = (bitmap, mask) => maskCache.set(bitmap, mask)
 
 /** A keyed canvas for this frame, or null when no mask has been computed yet. */
 export function keyedFrameAI(bitmap, opts = {}) {
-  const mask = maskCache.get(bitmap)
+  // A picture the magic eraser has been over is a new canvas, but it is the
+  // same subject in the same place — so the matte made for the original serves.
+  const from = originOf(bitmap)
+  const mask = maskCache.get(bitmap) || (from && maskCache.get(from))
   if (!mask) return null
   const key = [opts.threshold ?? 0.5, opts.feather ?? 1, opts.shrink ?? 0].join('|')
   const hit = frameCache.get(bitmap)

@@ -19,6 +19,8 @@ import {
 import { applyRetro } from './retro.js'
 import { hasErase, hasRestore, paintStrokes } from './erase.js'
 import { hasClone, paintClone } from './clone.js'
+import { hasHeal } from './heal.js'
+import { healedFrame } from './healed.js'
 import { loopPlan, pingPongTime } from './loop.js'
 
 export function filterCSS(a) {
@@ -440,6 +442,32 @@ export function docToAsset(l, px, py) {
   return { x: r.x + u * r.w, y: r.y + v * r.h }
 }
 
+/**
+ * `docToAsset` without the refusal: a point off the edge of the picture still
+ * has a place in its frame, just outside 0..1. A brush stroke that runs off the
+ * edge of a picture is still one stroke, and has to be stored as one.
+ */
+export function docToAssetFree(l, px, py) {
+  const p = toLocal(l, px, py)
+  const d = destRect(l)
+  let u = (p.x - d.x) / d.w
+  let v = (p.y - d.y) / d.h
+  if (l.flipX) u = 1 - u
+  if (l.flipY) v = 1 - v
+  const r = sourceRect(l)
+  return [r.x + u * r.w, r.y + v * r.h]
+}
+
+/**
+ * How many of the picture's own pixels one document unit spans, across its
+ * width — what turns a brush sized against the layer into one sized against the
+ * picture.
+ */
+export function assetPxPerDoc(l, aw) {
+  const d = destRect(l)
+  return Math.abs(d.w) > 1e-6 ? (sourceRect(l).w * aw) / Math.abs(d.w) : 1
+}
+
 /** The inverse: a fraction of the asset frame, back onto the canvas. */
 export function assetToDoc(l, ax, ay) {
   const r = sourceRect(l)
@@ -621,8 +649,12 @@ function stickerCut(raw, l) {
 }
 
 function drawImageLayer(ctx, l, time) {
-  const raw = sourceFor(l, time)
-  if (!raw) return
+  const unhealed = sourceFor(l, time)
+  if (!unhealed) return
+  // The magic eraser's fills go into the picture itself, before anything else
+  // is done to it — the key, the crop, the adjustments and the sticker border
+  // all then see a picture with the text already gone, which is what it is.
+  const raw = hasHeal(l) ? healedFrame(unhealed, l) : unhealed
   // Background removal is a render-time key on the decoded frame, so an animated
   // GIF re-keys itself as it plays and nothing is baked into the document. The
   // learned matte cannot run inside a synchronous render, so it uses whatever

@@ -4,6 +4,7 @@ import { EFFECTS, applyEffectLayer } from '../engine/effects.js'
 import { renderDocument } from '../engine/render.js'
 import { isCutOut } from '../engine/subject.js'
 import { TOOLS, keyHint } from '../engine/tools.js'
+import { INPAINT_MODEL } from '../engine/inpaint.js'
 import { previewFit, fitLabel } from '../engine/brush.js'
 import { resolveLayer } from '../engine/keyframes.js'
 import { Row, Select, Slider, Segmented, Toggle, Info } from './ui.jsx'
@@ -226,6 +227,58 @@ function EffectPreview({ o }) {
   )
 }
 
+/**
+ * The magic eraser's options: a size, and what the model is doing.
+ *
+ * One slider. The tool decides the rest for itself — which pixels under the
+ * brush are the text, how far to grow the hole round them, whether the model
+ * or the surrounding pixels do the filling — because every one of those is a
+ * question with a right answer that depends on the picture, not on taste.
+ */
+function HealPanel() {
+  const heal = useStore((s) => s.toolOptions.heal) || { size: 0.045 }
+  const setToolOptions = useStore((s) => s.setToolOptions)
+  const work = useStore((s) => s.healWork)
+  const ai = useStore((s) => s.healAi)
+
+  let hint = 'Paint over it and let go. One stroke is one undo.'
+  if (work?.phase === 'download') {
+    hint = `Fetching the model (${INPAINT_MODEL.size}, once)… ${Math.round((work.progress || 0) * 100)}%`
+  } else if (work?.phase === 'running') {
+    hint = 'Estimating what was behind it…'
+  } else if (work?.phase === 'matching') {
+    hint = 'Rebuilding it from the picture around it…'
+  } else if (ai === false) {
+    hint = 'Filling from the surrounding picture — the model could not be loaded.'
+  }
+
+  return (
+    <div className="rail-options">
+      <div className="rail-opt-label">
+        Magic eraser
+        <Info>
+          Paint over text, a logo or a blemish and let go: it is replaced by what was probably
+          behind it. Colours under the brush that are not around it are taken to be the text, so
+          the background between the letters is kept rather than guessed. The first stroke fetches
+          a {INPAINT_MODEL.size} model ({INPAINT_MODEL.name}, {INPAINT_MODEL.licence}) that runs on
+          this machine — nothing is uploaded. Until it arrives, and whenever it cannot, the fill
+          comes from the surrounding pixels. The fill belongs to the picture, so cropping,
+          flipping or resizing the layer keeps it in place.
+        </Info>
+      </div>
+      <BrushPreview brush={{ size: heal.size, hardness: 1 }} />
+      <Row label="Brush">
+        <Slider
+          value={Math.round((heal.size ?? 0.045) * 100)}
+          min={1} max={30} suffix="%"
+          onChange={(v) => setToolOptions({ heal: { ...heal, size: v / 100 } })}
+        />
+      </Row>
+      <p className="rail-hint">{hint}</p>
+    </div>
+  )
+}
+
 export default function ToolRail() {
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
@@ -262,6 +315,8 @@ export default function ToolRail() {
           </button>
         ))}
       </div>
+
+      {tool === 'heal' && <HealPanel />}
 
       {tool === 'clone' && (
         <div className="rail-options">

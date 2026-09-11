@@ -31,6 +31,9 @@ import * as edgeApi from './engine/edges.js'
 import * as cloneApi from './engine/clone.js'
 import * as clipApi from './engine/clips.js'
 import * as transitionApi from './engine/transitions.js'
+import * as healApi from './engine/healed.js'
+import * as healMathApi from './engine/heal.js'
+import * as inpaintApi from './engine/inpaint.js'
 
 // Dev-only handles so the browser smoke test (e2e.mjs) can inspect state and
 // re-render the document off-screen.
@@ -64,6 +67,9 @@ if (import.meta.env.DEV) {
   window.__pfClips = clipApi
   window.__pfTransitions = transitionApi
   window.__pfGradient = gradientApi
+  window.__pfHeal = healApi
+  window.__pfHealMath = healMathApi
+  window.__pfInpaint = inpaintApi
 }
 
 createRoot(document.getElementById('root')).render(

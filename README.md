@@ -79,6 +79,12 @@ stamp (`K`)** copies one part of a picture over another — alt-click the source
 Both store strokes as points rather than pixels, so they scale and rotate with the layer, undo
 one drag at a time, and never grow the saved project.
 
+**The magic eraser (`J`)** paints over text, a logo or a blemish and replaces it with what was
+probably behind it. It works out which colours under the brush are the lettering, so the
+background between the letters is kept. The fill comes from a local model (MI-GAN, a 28 MB
+download on first use, nothing uploaded), and from the surrounding picture when the model is
+unavailable. *Remove* in the lasso bar does the same for an outline.
+
 The brush tools hide the pointer while they are in hand: the ring drawn at the cursor is
 sized to what the stroke will cover, and a crosshair inside it only clutters the thing you are
 aiming.
@@ -424,7 +430,7 @@ Every tool answers to two keys: the letter, and its position in the rail. `1` is
 | | |
 |---|---|
 | `V` `C` `P` `L` `S` `T` | move, crop, pixel overlay, lasso, shape, text |
-| `E` `B` `K` `W` `I` `H` | erase, mask brush, clone stamp, colour select, eyedropper, pan |
+| `E` `J` `B` `K` `W` `I` `H` | erase, magic eraser, mask brush, clone stamp, colour select, eyedropper, pan |
 | `1`…`9` `0` | the same tools, in rail order, from the selector down |
 | `Space` | play / pause (hold + drag to pan) |
 | `I` / `O` | mark in / out (`I` is the eyedropper while that tool is in hand) |
@@ -462,6 +468,10 @@ src/engine/     render.js      compositor, frame lookup, export frame timing
                 tracker.js     NCC motion tracking, keyframe thinning
                 matte.js       colour-key background removal
                 aiMatte.js     ONNX segmentation
+                models.js      model download, cache and runtime, shared by both models
+                heal.js        magic eraser: finding the text, filling from the picture
+                healed.js      magic eraser fills, kept on their strokes and drawn in
+                inpaint.js     MI-GAN inpainting
                 subject.js     what counts as a cut-out; sticker geometry
                 trace.js       marching squares, Douglas-Peucker
                 edges.js       colour-gradient edge maps
@@ -501,8 +511,8 @@ pixel-identically at every sampled time.
 
 They live under `tests/`: `tests/browser/` for everything that drives Chrome, `tests/unit/`
 for the DOM-free suites that run under plain node in milliseconds, and `tests/` itself for the
-shared helper and the benchmarks. Forty-seven browser suites, two Electron suites, fifteen
-unit suites — **1855 checks**, in about a minute.
+shared helper and the benchmarks. Forty-nine browser suites, two Electron suites, seventeen
+unit suites — **2080 checks**, in about three minutes.
 
 ```bash
 npm run dev           # in one terminal

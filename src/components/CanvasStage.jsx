@@ -41,7 +41,7 @@ const LOUPE_N = 9
 // press must start a new shape, even on top of a selected layer's handle —
 // otherwise picking the pixelate tool and dragging silently resizes whatever
 // happened to be selected.
-const DRAWS_ON_DRAG = new Set(['effect', 'shape', 'lasso', 'text', 'erase', 'mask'])
+const DRAWS_ON_DRAG = new Set(['effect', 'shape', 'lasso', 'text', 'erase', 'mask', 'heal'])
 const usesHandles = (tool) => !DRAWS_ON_DRAG.has(tool)
 const HANDLE_SIZE = 9
 /** The radius of a gradient stop knob, on screen. */
@@ -415,9 +415,11 @@ export default function CanvasStage() {
   function drawBrush(ctx, st, v) {
     const p = cursorRef.current
     if (!p) return
-    const target = st.eraseTarget(p[0], p[1])
     const masking = st.tool === 'mask'
-    const brush = (masking ? st.toolOptions.maskBrush : st.toolOptions.brush) || {}
+    const healing = st.tool === 'heal'
+    const target = healing ? st.healTarget(p[0], p[1]) : st.eraseTarget(p[0], p[1])
+    const brush = (masking ? st.toolOptions.maskBrush
+      : healing ? st.toolOptions.heal : st.toolOptions.brush) || {}
     const layer = target ? resolveLayer(target, st.time) : null
     // With no layer under the cursor there is nothing to erase, so the ring is
     // shown hollow and dim rather than hidden — a disappearing cursor is worse
@@ -591,13 +593,43 @@ export default function CanvasStage() {
     ctx.restore()
   }
 
+  /**
+   * The magic eraser's stroke while it is being painted: a highlight over what
+   * is about to go, since nothing is filled until the pointer lifts. Translucent
+   * so the text under it can still be seen and the coverage checked.
+   */
+  function drawHealStroke(ctx, st, v) {
+    const hs = st.healStroke
+    if (!hs?.pts?.length) return
+    ctx.save()
+    ctx.globalAlpha = 0.5
+    ctx.strokeStyle = '#ff3d7f'
+    ctx.fillStyle = '#ff3d7f'
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = Math.max(1, hs.sizeDoc * v.zoom)
+    const at = ([x, y]) => [v.panX + x * v.zoom, v.panY + y * v.zoom]
+    ctx.beginPath()
+    if (hs.pts.length === 1) {
+      const [x, y] = at(hs.pts[0])
+      ctx.arc(x, y, ctx.lineWidth / 2, 0, Math.PI * 2)
+      ctx.fill()
+    } else {
+      ctx.moveTo(...at(hs.pts[0]))
+      for (let i = 1; i < hs.pts.length; i++) ctx.lineTo(...at(hs.pts[i]))
+      ctx.stroke()
+    }
+    ctx.restore()
+  }
+
   function drawOverlay(ctx, st, v) {
     const { doc, selectedIds, tool } = st
     // The page's own lines come first, under every tool: they are part of the
     // page rather than part of what you are doing to it, and a brush ring or a
     // crop box drawn beneath them would read as being behind the artwork.
     drawGrid(ctx, st, v)
-    if (tool === 'erase' || tool === 'mask') {
+    if (tool === 'erase' || tool === 'mask' || tool === 'heal') {
+      if (tool === 'heal') drawHealStroke(ctx, st, v)
       drawBrush(ctx, st, v)
       return
     }
@@ -1426,6 +1458,16 @@ export default function CanvasStage() {
       return
     }
 
+    if (st.tool === 'heal') {
+      const target = st.healTarget(p.x, p.y)
+      if (!target) {
+        st.setNotice({ kind: 'warn', text: 'Nothing to remove there — the magic eraser works on pictures.' })
+        return
+      }
+      if (st.beginHeal(target.id, [p.x, p.y])) drag.current = { mode: 'heal', id: target.id }
+      return
+    }
+
     if (st.tool === 'move') {
       // The topmost thing actually drawn under the pointer, which is what every
       // editor does and what people expect.
@@ -1604,6 +1646,11 @@ export default function CanvasStage() {
       return
     }
 
+    if (d?.mode === 'heal') {
+      useStore.getState().extendHeal([p.x, p.y])
+      return
+    }
+
     if (!d) {
       const st = useStore.getState()
       let cursor = 'default'
@@ -1616,11 +1663,11 @@ export default function CanvasStage() {
         const h = hitHandle(p)
         if (h) cursor = CURSORS[h.key]
         else if (st.tool === 'move') cursor = topLayerAt(p) ? 'move' : 'default'
-        // The ring *is* the cursor for these two — it is drawn at the pointer,
+        // The ring *is* the cursor for the brushes — it is drawn at the pointer,
         // sized to what the stroke will cover. A crosshair sitting inside it
         // adds nothing and clutters the one thing you are trying to aim. The
         // clone stamp keeps its crosshair, having no ring of its own.
-        else if (st.tool === 'erase' || st.tool === 'mask') cursor = 'none'
+        else if (st.tool === 'erase' || st.tool === 'mask' || st.tool === 'heal') cursor = 'none'
         else if (st.tool === 'clone') cursor = 'crosshair'
         else cursor = 'crosshair'
       }
@@ -1854,6 +1901,8 @@ export default function CanvasStage() {
     if (drag.current?.mode === 'erase') {
       useStore.getState().refitToVisible(drag.current.id)
     }
+    // The magic eraser fills when it is let go, and not before.
+    if (drag.current?.mode === 'heal') useStore.getState().endHeal()
     const d = drag.current
     drag.current = null
     rectRef.current = null
